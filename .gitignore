@@ -1,0 +1,32 @@
+# Dépendances
+node_modules/
+**/node_modules/
+
+# Builds
+dist/
+**/dist/
+client/dist-ssr/
+
+# Environnement — NE JAMAIS committer les .env !
+.env
+.env.local
+.env.development
+.env.production
+# Sauf les exemples et le .env.production du client (pas de secrets dedans)
+!.env.*.example
+!client/.env.production
+
+# Base de données locale
+server/src/prisma/dev.db
+server/src/prisma/dev.db-journal
+server/src/prisma/*.db
+
+# Logs PM2
+server/logs/
+
+# Claude Code local config
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db

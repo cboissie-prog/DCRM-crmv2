@@ -1,0 +1,531 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = env("DATABASE_PROVIDER")
+  url      = env("DATABASE_URL")
+}
+
+// ─── USERS ─────────────────────────────────────────────
+// role: ADMIN | MANAGER | COMMERCIAL | TECHNICIEN
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  password      String
+  firstName     String
+  lastName      String
+  phone         String?
+  avatar        String?
+  role          String   @default("COMMERCIAL")
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  assignedTickets     Ticket[]             @relation("AssignedTechnicien")
+  createdTickets      Ticket[]             @relation("CreatedBy")
+  opportunities       Opportunity[]        @relation("ResponsableCommercial")
+  activities          Activity[]
+  appointments        AppointmentUser[]
+  automationLogs      AutomationLog[]
+  salesTargets        SalesTarget[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// ─── CONTACTS & ENTREPRISES ─────────────────────────────
+// status: PROSPECT | CLIENT | INACTIVE | LOST
+// source: WEBSITE | PHONE_INBOUND | EMAIL | TRADE_SHOW | REFERRAL | COLD_CALL | SOCIAL_MEDIA | OTHER
+
+model Company {
+  id              String   @id @default(uuid())
+  name            String
+  siret           String?
+  vatNumber       String?
+  website         String?
+  sector          String?
+  employees       Int?
+  annualRevenue   Float?
+  billingAddress  String?
+  shippingAddress String?
+  city            String?
+  postalCode      String?
+  country         String   @default("France")
+  lat             Float?
+  lng             Float?
+  notes           String?
+  tags            String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  contacts      Contact[]
+  opportunities Opportunity[]
+  tickets       Ticket[]
+  contracts     Contract[]
+  equipments    Equipment[]
+  licenses      License[]
+  activities    Activity[]
+  npsResponses  NpsResponse[]
+}
+
+model Contact {
+  id          String   @id @default(uuid())
+  firstName   String
+  lastName    String
+  email       String?
+  phone       String?
+  mobile      String?
+  position    String?
+  companyId   String?
+  company     Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  source      String   @default("OTHER")
+  status      String   @default("PROSPECT")
+  tags        String?
+  notes       String?
+  leadScore   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  leads         Lead[]
+  opportunities Opportunity[]
+  activities    Activity[]
+  tickets       Ticket[]
+  appointments  AppointmentContact[]
+  npsResponses  NpsResponse[]
+}
+
+// ─── PIPELINES ──────────────────────────────────────────
+
+model Pipeline {
+  id            String          @id @default(uuid())
+  name          String
+  description   String?
+  color         String          @default("#6366f1")
+  isDefault     Boolean         @default(false)
+  isActive      Boolean         @default(true)
+  order         Int             @default(0)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  stages        PipelineStage[]
+  opportunities Opportunity[]
+}
+
+model PipelineStage {
+  id         String   @id @default(uuid())
+  pipelineId String
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  key        String
+  name       String
+  color      String   @default("#94a3b8")
+  order      Int
+  isWon      Boolean  @default(false)
+  isLost     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([pipelineId, key])
+}
+
+// ─── LEADS & OPPORTUNITÉS ───────────────────────────────
+// leadStatus: NEW | CONTACTED | UNREACHABLE | QUALIFIED | CONVERTED | LOST
+// stage: key référençant PipelineStage.key
+
+model Lead {
+  id          String   @id @default(uuid())
+  contactId   String
+  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  source      String   @default("OTHER")
+  title       String
+  description String?
+  score       Int      @default(0)
+  status      String   @default("NEW")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  opportunity Opportunity?
+}
+
+model Opportunity {
+  id                String    @id @default(uuid())
+  title             String
+  contactId         String?
+  contact           Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  companyId         String?
+  company           Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  leadId            String?   @unique
+  lead              Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  pipelineId        String?
+  pipeline          Pipeline? @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+  stage             String    @default("NEW")
+  value             Float    @default(0)
+  probability       Int      @default(20)
+  expectedCloseDate DateTime?
+  closedAt          DateTime?
+  lostReason        String?
+  assignedToId      String?
+  assignedTo        User?    @relation("ResponsableCommercial", fields: [assignedToId], references: [id], onDelete: SetNull)
+  notes             String?
+  tags              String?
+  remindAt          DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  products    OpportunityProduct[]
+  activities  Activity[]
+}
+
+model OpportunityProduct {
+  id            String      @id @default(uuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product     @relation(fields: [productId], references: [id])
+  quantity      Int         @default(1)
+  unitPrice     Float
+}
+
+// ─── CATALOGUE ──────────────────────────────────────────
+// category: CASH_REGISTER | HARDWARE | SOFTWARE | NETWORK | WEBSITE | MAINTENANCE | TRAINING | OTHER
+// type: PRODUCT | SERVICE | SUBSCRIPTION
+
+model Product {
+  id          String   @id @default(uuid())
+  reference   String?  @unique
+  name        String
+  description String?
+  category    String
+  type        String   @default("PRODUCT")
+  price       Float
+  vatRate     Float    @default(20)
+  unit        String   @default("unité")
+  stock       Int?
+  supplier    String?
+  imageUrl    String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  opportunityProducts OpportunityProduct[]
+  contractLines       ContractLine[]
+}
+
+// ─── CONTRATS ───────────────────────────────────────────
+// type: IT_MAINTENANCE | CASH_REGISTER_MAINTENANCE | WEB_HOSTING | SOFTWARE_MAINTENANCE | FULL_SUPPORT
+// status: ACTIVE | EXPIRING_SOON | EXPIRED | CANCELLED | PENDING
+
+model Contract {
+  id              String   @id @default(uuid())
+  reference       String   @unique
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type            String
+  title           String
+  description     String?
+  status          String   @default("ACTIVE")
+  startDate       DateTime
+  endDate         DateTime
+  renewalDate     DateTime?
+  monthlyAmount   Float    @default(0)
+  annualAmount    Float    @default(0)
+  slaResponseTime Int?
+  slaWorkingHours String?
+  autoRenewal     Boolean  @default(false)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  lines          ContractLine[]
+  tickets        Ticket[]
+  equipments     Equipment[]    @relation("ContractEquipment")
+  renewalAlerts  RenewalAlert[]
+}
+
+model ContractLine {
+  id         String   @id @default(uuid())
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  productId  String?
+  product    Product? @relation(fields: [productId], references: [id])
+  label      String
+  quantity   Int      @default(1)
+  unitPrice  Float
+}
+
+model RenewalAlert {
+  id               String   @id @default(uuid())
+  contractId       String
+  contract         Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  daysBeforeExpiry Int
+  sentAt           DateTime?
+  createdAt        DateTime @default(now())
+}
+
+// ─── TICKETS ────────────────────────────────────────────
+// category: HARDWARE_FAILURE | SOFTWARE_BUG | CASH_REGISTER_SAV | NETWORK | WEBSITE | TRAINING | OTHER
+// priority: LOW | NORMAL | HIGH | CRITICAL
+// status: NEW | IN_PROGRESS | WAITING_CLIENT | RESOLVED | CLOSED
+
+model Ticket {
+  id           String   @id @default(uuid())
+  reference    String   @unique
+  title        String
+  description  String
+  category     String
+  priority     String   @default("NORMAL")
+  status       String   @default("NEW")
+  contactId    String?
+  contact      Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  companyId    String?
+  company      Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contractId   String?
+  contract     Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  equipmentId  String?
+  equipment    Equipment? @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+  assignedToId String?
+  assignedTo   User?    @relation("AssignedTechnicien", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdById  String?
+  createdBy    User?    @relation("CreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  slaDeadline  DateTime?
+  resolvedAt   DateTime?
+  closedAt     DateTime?
+  timeSpent    Int      @default(0)
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  comments    TicketComment[]
+  npsResponse NpsResponse?
+}
+
+model TicketComment {
+  id         String   @id @default(uuid())
+  ticketId   String
+  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  content    String
+  isInternal Boolean  @default(false)
+  authorName String
+  createdAt  DateTime @default(now())
+}
+
+// ─── PARC INFORMATIQUE ──────────────────────────────────
+// type: DESKTOP | LAPTOP | SERVER | PRINTER | CASH_REGISTER | SWITCH | ROUTER | NAS | SCREEN | TABLET | PHONE | OTHER
+// status: ACTIVE | IN_REPAIR | RETIRED | LOST
+
+model Equipment {
+  id             String   @id @default(uuid())
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contractId     String?
+  contract       Contract? @relation("ContractEquipment", fields: [contractId], references: [id], onDelete: SetNull)
+  type           String
+  brand          String?
+  model          String?
+  serialNumber   String?
+  purchaseDate   DateTime?
+  warrantyExpiry DateTime?
+  location       String?
+  status         String   @default("ACTIVE")
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tickets  Ticket[]
+  licenses License[] @relation("EquipmentLicense")
+}
+
+// ─── LICENCES LOGICIELLES ───────────────────────────────
+// type: PERPETUAL | ANNUAL | MONTHLY | SUBSCRIPTION
+
+model License {
+  id           String    @id @default(uuid())
+  companyId    String
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  equipmentId  String?
+  equipment    Equipment? @relation("EquipmentLicense", fields: [equipmentId], references: [id], onDelete: SetNull)
+  software     String
+  vendor       String?
+  licenseKey   String?
+  seats        Int       @default(1)
+  type         String    @default("PERPETUAL")
+  purchaseDate DateTime?
+  expiryDate   DateTime?
+  cost         Float?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+// ─── ACTIVITÉS & AGENDA ─────────────────────────────────
+// activityType: CALL | EMAIL | MEETING | NOTE | TASK | DEMO | SYSTEM
+
+model Activity {
+  id            String      @id @default(uuid())
+  type          String
+  title         String
+  description   String?
+  userId        String?
+  user          User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  contactId     String?
+  contact       Contact?    @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  companyId     String?
+  company       Company?    @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  dueDate       DateTime?
+  completedAt   DateTime?
+  isAutomatic   Boolean     @default(false)
+  emailOpened   Boolean?
+  emailOpenedAt DateTime?
+  createdAt     DateTime    @default(now())
+}
+
+// appointmentType: CLIENT_MEETING | INTERVENTION | CALL | TRAINING | DELIVERY | OTHER
+
+model Appointment {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  type        String
+  startAt     DateTime
+  endAt       DateTime
+  location    String?
+  ticketId    String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users    AppointmentUser[]
+  contacts AppointmentContact[]
+}
+
+model AppointmentUser {
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@id([appointmentId, userId])
+}
+
+model AppointmentContact {
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  contactId     String
+  contact       Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  @@id([appointmentId, contactId])
+}
+
+// ─── NPS & SATISFACTION ─────────────────────────────────
+
+model NpsResponse {
+  id        String   @id @default(uuid())
+  ticketId  String   @unique
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  score     Int
+  comment   String?
+  createdAt DateTime @default(now())
+}
+
+// ─── AUTOMATISATIONS ────────────────────────────────────
+// trigger: TICKET_CREATED | TICKET_OVERDUE | TICKET_RESOLVED | OPPORTUNITY_STAGE_CHANGED | OPPORTUNITY_INACTIVE | CONTRACT_EXPIRING | LEAD_SCORE_THRESHOLD | CONTACT_INACTIVE
+
+model Automation {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  trigger     String
+  conditions  String
+  actions     String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  logs AutomationLog[]
+}
+
+model AutomationLog {
+  id           String      @id @default(uuid())
+  automationId String
+  automation   Automation  @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  triggeredBy  String?
+  userId       String?
+  user         User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  result       String?
+  success      Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+}
+
+// ─── OBJECTIFS COMMERCIAUX ──────────────────────────────
+
+model SalesTarget {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period    String
+  target    Float
+  actual    Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── BASE DE CONNAISSANCE ───────────────────────────────
+
+model KnowledgeArticle {
+  id          String   @id @default(uuid())
+  title       String
+  content     String
+  category    String
+  tags        String?
+  isPublished Boolean  @default(true)
+  views       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ─── PARAMÈTRES SYSTÈME ─────────────────────────────────
+
+model Setting {
+  key       String   @id
+  value     String
+  label     String?
+  updatedAt DateTime @updatedAt
+}
+
+// ─── NOTIFICATIONS ──────────────────────────────────────
+// type: TICKET_ASSIGNED | TICKET_URGENT | CONTRACT_EXPIRING | LICENSE_EXPIRING | WARRANTY_EXPIRING | OPPORTUNITY_INACTIVE | AUTOMATION_TRIGGERED | NPS_RECEIVED | LEAD_SCORED | CHURN_RISK | APPOINTMENT_CREATED | APPOINTMENT_REMINDER
+
+model Notification {
+  id            String   @id @default(uuid())
+  userId        String
+  type          String
+  title         String
+  message       String
+  link          String?
+  appointmentId String?
+  isRead        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+}
