@@ -5,6 +5,7 @@ import helmet from 'helmet'
 import morgan from 'morgan'
 import rateLimit from 'express-rate-limit'
 import cookieParser from 'cookie-parser'
+import path from 'path'
 
 // Validation des variables d'environnement critiques au démarrage
 const REQUIRED_ENV = ['JWT_SECRET', 'JWT_REFRESH_SECRET'] as const
@@ -81,6 +82,15 @@ app.use('/api/reports', reportsRoutes)
 app.use('/api/search', searchRoutes)
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }))
+
+// En production : Express sert le build React (dossier client/dist)
+// __dirname = server/dist/ → ../../client/dist = httpdocs/app/client/dist
+if (process.env.NODE_ENV === 'production') {
+  const clientDist = path.join(__dirname, '../../client/dist')
+  app.use(express.static(clientDist))
+  // SPA fallback — toutes les routes non-API renvoient index.html
+  app.get('*', (_req, res) => res.sendFile(path.join(clientDist, 'index.html')))
+}
 
 app.use(notFound)
 app.use(errorHandler)
