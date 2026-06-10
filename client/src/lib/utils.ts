@@ -139,6 +139,45 @@ export const TICKET_CATEGORIES: Record<string, string> = {
   OTHER: 'Autre',
 }
 
+export const CALL_DIRECTIONS: Record<string, { label: string; color: string }> = {
+  INBOUND:  { label: 'Entrant',  color: 'badge-blue' },
+  OUTBOUND: { label: 'Sortant',  color: 'badge-purple' },
+}
+
+export const CALL_STATUSES: Record<string, { label: string; color: string }> = {
+  ANSWERED:    { label: 'Décroché',   color: 'badge-green' },
+  MISSED:      { label: 'Manqué',     color: 'badge-red' },
+  VOICEMAIL:   { label: 'Messagerie', color: 'badge-gray' },
+  IN_PROGRESS: { label: 'En cours',   color: 'badge-blue' },
+}
+
+export const CALL_CATEGORIES: Record<string, string> = {
+  INCIDENT:    'Incident',
+  INFORMATION: 'Renseignement',
+  SUPPORT:     'Support technique',
+  COMMERCIAL:  'Commercial',
+  SAV:         'SAV',
+  OTHER:       'Autre',
+}
+
+export const CALL_PRIORITIES: Record<string, { label: string; color: string }> = {
+  LOW:    { label: 'Faible',  color: 'badge-gray' },
+  NORMAL: { label: 'Normal',  color: 'badge-blue' },
+  HIGH:   { label: 'Élevée',  color: 'badge-orange' },
+  URGENT: { label: 'Urgent',  color: 'badge-red' },
+}
+
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds == null) return '—'
+  if (seconds < 60) return `${seconds}s`
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  if (m < 60) return s > 0 ? `${m}min ${s}s` : `${m}min`
+  const h = Math.floor(m / 60)
+  const rm = m % 60
+  return rm > 0 ? `${h}h ${rm}min` : `${h}h`
+}
+
 export const ACTIVITY_TYPES: Record<string, { label: string; icon: string }> = {
   CALL: { label: 'Appel', icon: 'Phone' },
   EMAIL: { label: 'Email', icon: 'Mail' },

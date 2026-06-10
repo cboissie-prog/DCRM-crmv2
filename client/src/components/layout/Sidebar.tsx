@@ -2,7 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, TrendingUp,
   Wrench, Calendar, Bell, Settings,
-  ChevronDown, Monitor, BarChart2, Zap, LogOut, Activity, LayoutGrid,
+  ChevronDown, Monitor, BarChart2, Zap, LogOut, Activity, LayoutGrid, X, Phone,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useAuthStore } from '../../store/authStore'
@@ -13,7 +13,7 @@ interface NavItem {
   label: string
   icon: React.ReactNode
   to?: string
-  children?: { label: string; to: string; roles?: string[] }[]
+  children?: { label: string; to: string; roles?: string[]; permission?: string }[]
   roles?: string[]
 }
 
@@ -23,6 +23,7 @@ const navItems: NavItem[] = [
     { label: 'Activités',      to: '/activities' },
     { label: 'Rapports',       to: '/reports' },
   ]},
+  { label: 'Appels', icon: <Phone className="w-4 h-4" />, to: '/calls' },
   { label: 'Commercial', icon: <TrendingUp className="w-4 h-4" />, children: [
     { label: 'Pipeline',            to: '/pipeline' },
     { label: 'Leads',               to: '/leads' },
@@ -44,9 +45,10 @@ const navItems: NavItem[] = [
   { label: 'Outils', icon: <LayoutGrid className="w-4 h-4" />, children: [
     { label: 'Catalogue produits',   to: '/products' },
     { label: 'Base de connaissance', to: '/knowledge' },
-    { label: 'Automatisations',      to: '/automations', roles: ['ADMIN'] },
-    { label: 'NPS',                  to: '/nps',         roles: ['ADMIN', 'MANAGER'] },
-    { label: 'Utilisateurs',         to: '/users',       roles: ['ADMIN', 'MANAGER'] },
+    { label: 'Automatisations',      to: '/automations',     roles: ['ADMIN'] },
+    { label: 'NPS',                  to: '/nps',             roles: ['ADMIN', 'MANAGER'] },
+    { label: 'Utilisateurs',         to: '/users',           roles: ['ADMIN', 'MANAGER'] },
+    { label: 'Rôles & Permissions',  to: '/settings/roles',  permission: 'settings:roles' },
   ]},
 ]
 
@@ -55,9 +57,14 @@ const bottomItems: NavItem[] = [
   { label: 'Paramètres',    icon: <Settings className="w-4 h-4" />, to: '/settings' },
 ]
 
-export function Sidebar() {
+interface SidebarProps {
+  isOpen: boolean
+  onClose: () => void
+}
+
+export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const location = useLocation()
-  const { user, logout } = useAuthStore()
+  const { user, logout, hasPermission } = useAuthStore()
   const [expanded, setExpanded] = useState<string[]>(['Dashboard', 'Commercial', 'Contacts', 'Parc informatique'])
 
   const toggle = (label: string) =>
@@ -66,17 +73,36 @@ export function Sidebar() {
   const isActive = (to: string | undefined) =>
     !!to && (location.pathname === to || (to !== '/' && location.pathname.startsWith(to)))
 
+  const handleNavClick = () => {
+    // Ferme la sidebar sur mobile après navigation
+    if (window.innerWidth < 1024) onClose()
+  }
+
   return (
-    <aside className="fixed left-0 top-0 h-screen w-60 bg-white border-r border-slate-200 flex flex-col z-40">
+    <aside className={cn(
+      'fixed left-0 top-0 h-screen w-64 bg-white border-r border-slate-200 flex flex-col z-[1002]',
+      'transition-transform duration-300 ease-in-out',
+      'lg:translate-x-0',
+      isOpen ? 'translate-x-0' : '-translate-x-full'
+    )}>
       {/* Logo */}
-      <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
-        <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
-          <span className="text-white font-bold text-sm">C</span>
+      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center flex-shrink-0">
+            <span className="text-white font-bold text-sm">C</span>
+          </div>
+          <div>
+            <p className="text-sm font-bold text-slate-900">MonCRM</p>
+            <p className="text-xs text-slate-400">Informatique</p>
+          </div>
         </div>
-        <div>
-          <p className="text-sm font-bold text-slate-900">MonCRM</p>
-          <p className="text-xs text-slate-400">Informatique</p>
-        </div>
+        {/* Bouton fermeture mobile */}
+        <button
+          onClick={onClose}
+          className="lg:hidden p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Navigation */}
@@ -88,6 +114,7 @@ export function Sidebar() {
               <NavLink
                 key={item.to}
                 to={item.to}
+                onClick={handleNavClick}
                 className={({ isActive: active }) =>
                   cn('sidebar-item', active || (item.to !== '/' && isActive(item.to)) ? 'active' : '')
                 }
@@ -100,9 +127,10 @@ export function Sidebar() {
           }
 
           if (item.children) {
-            const visibleChildren = item.children.filter(
-              c => !c.roles || (user?.role && c.roles.includes(user.role))
-            )
+            const visibleChildren = item.children.filter(c => {
+              if (c.permission) return hasPermission(c.permission)
+              return !c.roles || (user?.role && c.roles.includes(user.role))
+            })
             if (visibleChildren.length === 0) return null
 
             const isOpen = expanded.includes(item.label)
@@ -127,6 +155,7 @@ export function Sidebar() {
                         key={child.to}
                         to={child.to}
                         end={child.to === '/'}
+                        onClick={handleNavClick}
                         className={({ isActive: active }) =>
                           cn('flex items-center py-1.5 px-2 rounded-md text-xs font-medium transition-colors',
                             active ? 'text-primary-700 bg-primary-50' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50')
@@ -149,6 +178,7 @@ export function Sidebar() {
             <NavLink
               key={item.to}
               to={item.to!}
+              onClick={handleNavClick}
               className={({ isActive: active }) => cn('sidebar-item', active ? 'active' : '')}
             >
               {item.icon}

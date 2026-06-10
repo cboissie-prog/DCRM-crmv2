@@ -23,6 +23,10 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  roleId      String?
+  roleRef     Role?    @relation(fields: [roleId], references: [id])
+
+  apiKeys             ApiKey[]
   assignedTickets     Ticket[]             @relation("AssignedTechnicien")
   createdTickets      Ticket[]             @relation("CreatedBy")
   opportunities       Opportunity[]        @relation("ResponsableCommercial")
@@ -32,6 +36,7 @@ model User {
   salesTargets        SalesTarget[]
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
+  assignedCalls       Call[]
 }
 
 model RefreshToken {
@@ -86,6 +91,7 @@ model Company {
   licenses      License[]
   activities    Activity[]
   npsResponses  NpsResponse[]
+  calls         Call[]
 }
 
 model Contact {
@@ -113,6 +119,7 @@ model Contact {
   tickets       Ticket[]
   appointments  AppointmentContact[]
   npsResponses  NpsResponse[]
+  calls         Call[]
 }
 
 // ─── PIPELINES ──────────────────────────────────────────
@@ -306,6 +313,8 @@ model Ticket {
   assignedTo   User?    @relation("AssignedTechnicien", fields: [assignedToId], references: [id], onDelete: SetNull)
   createdById  String?
   createdBy    User?    @relation("CreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  callId       String?
+  call         Call?    @relation(fields: [callId], references: [id], onDelete: SetNull)
   slaDeadline  DateTime?
   resolvedAt   DateTime?
   closedAt     DateTime?
@@ -528,4 +537,91 @@ model Notification {
   appointmentId String?
   isRead        Boolean  @default(false)
   createdAt     DateTime @default(now())
+}
+
+// ─── API KEYS (accès externe) ───────────────────────────
+
+model ApiKey {
+  id         String    @id @default(uuid())
+  name       String
+  keyHash    String    @unique
+  prefix     String
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+// ─── RÔLES & PERMISSIONS ────────────────────────────────
+
+model Role {
+  id        String   @id @default(cuid())
+  name      String   @unique  // "ADMIN", "MANAGER", etc.
+  label     String            // "Administrateur", "Manager", etc.
+  isSystem  Boolean  @default(false)  // Les 4 rôles de base ne sont pas supprimables
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users       User[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id       String @id @default(cuid())
+  key      String @unique  // ex: "tickets:create"
+  label    String          // ex: "Créer un ticket"
+  category String          // ex: "Tickets"
+
+  roles    RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+// ─── APPELS TÉLÉPHONIQUES ───────────────────────────────
+// direction: INBOUND | OUTBOUND
+// status: ANSWERED | MISSED | VOICEMAIL | IN_PROGRESS
+// category: INCIDENT | INFORMATION | SUPPORT | COMMERCIAL | SAV | OTHER
+// priority: LOW | NORMAL | HIGH | URGENT
+
+model Call {
+  id             String    @id @default(uuid())
+  externalId     String?   @unique
+  direction      String    @default("INBOUND")
+  status         String    @default("ANSWERED")
+  callerNumber   String
+  callerName     String?
+  receiverNumber String?
+  startedAt      DateTime  @default(now())
+  answeredAt     DateTime?
+  endedAt        DateTime?
+  duration       Int?
+  category       String?
+  priority       String    @default("NORMAL")
+  notes          String?
+  recordingPath  String?
+  recordingUrl   String?
+  isHandled      Boolean   @default(false)
+
+  contactId    String?
+  contact      Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  companyId    String?
+  company      Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  assignedToId String?
+  assignedTo   User?    @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  tickets   Ticket[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

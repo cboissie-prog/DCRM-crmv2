@@ -2,7 +2,7 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { fireAutomations } from '../automation-engine'
 
 const router = Router()
@@ -24,10 +24,11 @@ const ticketSchema = z.object({
   contractId: z.string().optional(),
   equipmentId: z.string().optional(),
   assignedToId: z.string().optional(),
+  callId: z.string().optional(),
   notes: z.string().optional(),
 })
 
-router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('tickets:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { search, status, priority, category, assignedToId, companyId, page, limit } = req.query as Record<string, string>
     const pageNum = Math.max(1, parseInt(page) || 1)
@@ -61,7 +62,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requirePermission('tickets:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = ticketSchema.parse(req.body)
     const ticket = await prisma.$transaction(async (tx) => {
@@ -88,7 +89,7 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 })
 
 // GET /tickets/export/csv
-router.get('/export/csv', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/export/csv', requirePermission('tickets:export'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { status, priority, category } = req.query as Record<string, string>
     const where: Record<string, unknown> = {}
@@ -123,7 +124,7 @@ router.get('/export/csv', requireRole(['ADMIN', 'MANAGER']), async (req: AuthReq
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:id', requirePermission('tickets:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const ticket = await prisma.ticket.findUnique({
       where: { id: req.params.id },
@@ -143,7 +144,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.put('/:id', requireRole(['ADMIN', 'MANAGER', 'TECHNICIEN']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id', requirePermission('tickets:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = ticketSchema.partial().parse(req.body)
     const data: Record<string, unknown> = { ...body }
@@ -167,7 +168,7 @@ router.put('/:id', requireRole(['ADMIN', 'MANAGER', 'TECHNICIEN']), async (req: 
   }
 })
 
-router.patch('/:id/status', requireRole(['ADMIN', 'MANAGER', 'TECHNICIEN']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.patch('/:id/status', requirePermission('tickets:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { status, timeSpent } = req.body
     const data: Record<string, unknown> = { status }
@@ -185,7 +186,7 @@ router.patch('/:id/status', requireRole(['ADMIN', 'MANAGER', 'TECHNICIEN']), asy
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.post('/:id/comments', async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/:id/comments', requirePermission('tickets:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { content, isInternal, authorName } = req.body
     const comment = await prisma.ticketComment.create({ data: { ticketId: req.params.id, content, isInternal: isInternal || false, authorName } })
@@ -193,7 +194,7 @@ router.post('/:id/comments', async (req: AuthRequest, res: Response): Promise<vo
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.patch('/:id/time', requireRole(['ADMIN', 'MANAGER', 'TECHNICIEN']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.patch('/:id/time', requirePermission('tickets:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { minutes } = req.body
     const ticket = await prisma.ticket.update({ where: { id: req.params.id }, data: { timeSpent: { increment: minutes } } })
@@ -201,7 +202,7 @@ router.patch('/:id/time', requireRole(['ADMIN', 'MANAGER', 'TECHNICIEN']), async
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.delete('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id', requirePermission('tickets:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.ticket.delete({ where: { id: req.params.id } })
     res.json({ success: true, data: { message: 'Ticket supprimé' } })

@@ -252,6 +252,36 @@ export interface Notification {
   createdAt: string
 }
 
+export interface Call {
+  id: string
+  externalId?: string
+  direction: string
+  status: string
+  callerNumber: string
+  callerName?: string
+  receiverNumber?: string
+  startedAt: string
+  answeredAt?: string
+  endedAt?: string
+  duration?: number
+  category?: string
+  priority: string
+  notes?: string
+  recordingPath?: string
+  recordingUrl?: string
+  isHandled: boolean
+  contactId?: string
+  contact?: { id: string; firstName: string; lastName: string; phone?: string; mobile?: string }
+  companyId?: string
+  company?: { id: string; name: string }
+  assignedToId?: string
+  assignedTo?: { id: string; firstName: string; lastName: string; avatar?: string }
+  tickets?: { id: string; reference: string; title: string; status: string; priority: string }[]
+  createdAt: string
+  updatedAt: string
+  _count?: { tickets: number }
+}
+
 export interface DashboardStats {
   contacts: { total: number; newThisMonth: number }
   companies: { total: number }

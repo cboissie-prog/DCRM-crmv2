@@ -38,6 +38,11 @@ import pipelinesRoutes from './routes/pipelines'
 import settingsRoutes from './routes/settings'
 import reportsRoutes from './routes/reports'
 import searchRoutes from './routes/search'
+import rolesRoutes from './routes/roles'
+import apikeysRoutes from './routes/apikeys'
+import callsRoutes from './routes/calls'
+import prisma from './prisma/client'
+import { authenticate, requirePermission } from './middleware/auth'
 import { errorHandler, notFound } from './middleware/errorHandler'
 import { startScheduler } from './scheduler'
 
@@ -45,7 +50,19 @@ const app = express()
 const PORT = process.env.PORT || 3001
 
 app.use(helmet())
-app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173', credentials: true }))
+app.use(cors({
+  origin: (origin, callback) => {
+    const allowed = [
+      process.env.FRONTEND_URL || 'http://localhost:5173',
+      /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
+      /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,
+    ]
+    if (!origin) return callback(null, true) // requêtes sans origin (mobile, curl)
+    const ok = allowed.some(p => typeof p === 'string' ? p === origin : p.test(origin))
+    callback(ok ? null : new Error('CORS'), ok)
+  },
+  credentials: true,
+}))
 app.use(express.json({ limit: '1mb' }))
 app.use(cookieParser())
 app.use(morgan(process.env.NODE_ENV === 'development' ? 'dev' : 'combined'))
@@ -80,6 +97,24 @@ app.use('/api/pipelines', pipelinesRoutes)
 app.use('/api/settings', settingsRoutes)
 app.use('/api/reports', reportsRoutes)
 app.use('/api/search', searchRoutes)
+app.use('/api/roles', authenticate, rolesRoutes)
+app.use('/api/apikeys', authenticate, apikeysRoutes)
+app.use('/api/calls', callsRoutes)
+
+// GET /api/permissions — liste toutes les permissions disponibles, groupées par catégorie
+app.get('/api/permissions', authenticate, requirePermission('settings:roles'), async (_req, res) => {
+  try {
+    const permissions = await prisma.permission.findMany({ orderBy: [{ category: 'asc' }, { key: 'asc' }] })
+    const grouped = permissions.reduce<Record<string, typeof permissions>>((acc, perm) => {
+      if (!acc[perm.category]) acc[perm.category] = []
+      acc[perm.category].push(perm)
+      return acc
+    }, {})
+    res.json({ success: true, data: grouped })
+  } catch {
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
+  }
+})
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }))
 
@@ -95,7 +130,7 @@ if (process.env.NODE_ENV === 'production') {
 app.use(notFound)
 app.use(errorHandler)
 
-app.listen(PORT, async () => {
+app.listen(PORT, '0.0.0.0', async () => {
   console.log(`\n🚀 CRM Server running on http://localhost:${PORT}`)
   console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`)
   console.log(`   Database: SQLite (dev.db)`)

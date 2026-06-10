@@ -91,6 +91,15 @@ const ReportsPage = lazy(() =>
 const TargetsPage = lazy(() =>
   import('./pages/targets/TargetsPage').then(m => ({ default: m.TargetsPage }))
 )
+const RolesPage = lazy(() =>
+  import('./pages/settings/RolesPage').then(m => ({ default: m.RolesPage }))
+)
+const CallsPage = lazy(() =>
+  import('./pages/calls/CallsPage').then(m => ({ default: m.CallsPage }))
+)
+const CallDetailPage = lazy(() =>
+  import('./pages/calls/CallsPage').then(m => ({ default: m.CallDetailPage }))
+)
 
 // ── Query client ─────────────────────────────────────────────────────────────
 const queryClient = new QueryClient({
@@ -152,6 +161,9 @@ export default function App() {
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/targets" element={<TargetsPage />} />
+              <Route path="/settings/roles" element={<RolesPage />} />
+              <Route path="/calls" element={<CallsPage />} />
+              <Route path="/calls/:id" element={<CallDetailPage />} />
             </Route>
 
             {/* Catch-all */}
