@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
+import { ciContains } from '../lib/query'
 import { fireAutomations } from '../automation-engine'
 import { csvEscape } from '../lib/csv'
 
@@ -41,9 +43,9 @@ router.get('/', requirePermission('tickets:read'), async (req: AuthRequest, res:
     if (assignedToId) where.assignedToId = assignedToId
     if (companyId) where.companyId = companyId
     if (search) where.OR = [
-      { title: { contains: search } },
-      { reference: { contains: search } },
-      { description: { contains: search } },
+      { title: ciContains(search) },
+      { reference: ciContains(search) },
+      { description: ciContains(search) },
     ]
     const [total, tickets] = await Promise.all([
       prisma.ticket.count({ where }),
@@ -60,7 +62,7 @@ router.get('/', requirePermission('tickets:read'), async (req: AuthRequest, res:
       }),
     ])
     res.json({ success: true, data: tickets, meta: { total, page: pageNum, limit: limitNum } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.post('/', requirePermission('tickets:create'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -83,10 +85,7 @@ router.post('/', requirePermission('tickets:create'), async (req: AuthRequest, r
       ticket: { id: ticket.id, title: ticket.title, ref: ticket.reference, priority: ticket.priority, category: ticket.category, status: ticket.status, companyId: ticket.companyId, assignedToId: ticket.assignedToId },
     }).catch(console.error)
     res.status(201).json({ success: true, data: ticket })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // GET /tickets/export/csv
@@ -117,8 +116,8 @@ router.get('/export/csv', requirePermission('tickets:export'), async (req: AuthR
     const csv = [header.join(','), ...rows].join('\n')
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')
     res.setHeader('Content-Disposition', `attachment; filename="tickets-${new Date().toISOString().slice(0, 10)}.csv"`)
-    res.send('\uFEFF' + csv)
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+    res.send('﻿' + csv)
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.get('/:id', requirePermission('tickets:read'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -138,7 +137,7 @@ router.get('/:id', requirePermission('tickets:read'), async (req: AuthRequest, r
     })
     if (!ticket) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ticket introuvable' } }); return }
     res.json({ success: true, data: ticket })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.put('/:id', requirePermission('tickets:update'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -159,10 +158,7 @@ router.put('/:id', requirePermission('tickets:update'), async (req: AuthRequest,
       }).catch(console.error)
     }
     res.json({ success: true, data: ticket })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.patch('/:id/status', requirePermission('tickets:update'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -180,7 +176,7 @@ router.patch('/:id/status', requirePermission('tickets:update'), async (req: Aut
       }).catch(console.error)
     }
     res.json({ success: true, data: ticket })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.post('/:id/comments', requirePermission('tickets:update'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -188,7 +184,7 @@ router.post('/:id/comments', requirePermission('tickets:update'), async (req: Au
     const { content, isInternal, authorName } = req.body
     const comment = await prisma.ticketComment.create({ data: { ticketId: req.params.id, content, isInternal: isInternal || false, authorName } })
     res.status(201).json({ success: true, data: comment })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.patch('/:id/time', requirePermission('tickets:update'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -196,14 +192,14 @@ router.patch('/:id/time', requirePermission('tickets:update'), async (req: AuthR
     const { minutes } = req.body
     const ticket = await prisma.ticket.update({ where: { id: req.params.id }, data: { timeSpent: { increment: minutes } } })
     res.json({ success: true, data: ticket })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.delete('/:id', requirePermission('tickets:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.ticket.delete({ where: { id: req.params.id } })
     res.json({ success: true, data: { message: 'Ticket supprimé' } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

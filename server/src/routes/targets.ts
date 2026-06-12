@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
 
 const router = Router()
 router.use(authenticate)
@@ -59,7 +60,7 @@ router.get('/', requirePermission('reports:read'), async (req: AuthRequest, res:
     })
 
     res.json({ success: true, data: targets, meta: { period } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // ─── GET /targets/forecast ────────────────────────────────────────────────────
@@ -165,7 +166,7 @@ router.get('/forecast', requirePermission('reports:read'), async (req: AuthReque
         topOpportunities,
       },
     })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // ─── POST /targets ────────────────────────────────────────────────────────────
@@ -189,10 +190,7 @@ router.post('/', requirePermission('reports:read'), async (req: AuthRequest, res
       })
     }
     res.status(201).json({ success: true, data: target })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // ─── PUT /targets/:id ─────────────────────────────────────────────────────────
@@ -207,10 +205,7 @@ router.put('/:id', requirePermission('reports:read'), async (req: AuthRequest, r
       include: { user: { select: userSelect } },
     })
     res.json({ success: true, data: target })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // ─── DELETE /targets/:id ──────────────────────────────────────────────────────
@@ -219,7 +214,7 @@ router.delete('/:id', requirePermission('reports:read'), async (req: AuthRequest
   try {
     await prisma.salesTarget.delete({ where: { id: req.params.id as string } })
     res.json({ success: true })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

@@ -1,6 +1,7 @@
 import { Router, Response } from 'express'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
 
 const router = Router()
 router.use(authenticate)
@@ -90,10 +91,7 @@ router.get('/overview', requirePermission('equipment:read'), async (_req: AuthRe
     })
 
     res.json({ success: true, data })
-  } catch (err) {
-    console.error(err)
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

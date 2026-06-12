@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import prisma from '../prisma/client'
 import { AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
 
 const router = Router()
 
@@ -33,9 +34,7 @@ router.get('/', requirePermission('settings:roles'), async (_req: AuthRequest, r
         usersCount: r._count.users,
       }))
     })
-  } catch {
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // GET /api/roles/permissions/all — liste toutes les permissions disponibles, groupées par catégorie
@@ -52,9 +51,7 @@ router.get('/permissions/all', requirePermission('settings:roles'), async (_req:
     }, {})
 
     res.json({ success: true, data: grouped })
-  } catch {
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // GET /api/roles/:id — détail d'un rôle avec toutes ses permissions
@@ -83,9 +80,7 @@ router.get('/:id', requirePermission('settings:roles'), async (req: AuthRequest,
         permissions: role.permissions.map(rp => rp.permission),
       }
     })
-  } catch {
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // POST /api/roles — crée un nouveau rôle
@@ -107,13 +102,7 @@ router.post('/', requirePermission('settings:roles'), async (req: AuthRequest, r
       data: { name: normalizedName, label: body.label, isSystem: false }
     })
     res.status(201).json({ success: true, data: role })
-  } catch (err) {
-    if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } })
-      return
-    }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // PUT /api/roles/:id — modifie le label d'un rôle
@@ -135,13 +124,7 @@ router.put('/:id', requirePermission('settings:roles'), async (req: AuthRequest,
       data: { label: body.label }
     })
     res.json({ success: true, data: updated })
-  } catch (err) {
-    if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } })
-      return
-    }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // PUT /api/roles/:id/permissions — remplace toutes les permissions d'un rôle
@@ -199,13 +182,7 @@ router.put('/:id/permissions', requirePermission('settings:roles'), async (req: 
         permissions: updated!.permissions.map(rp => rp.permission),
       }
     })
-  } catch (err) {
-    if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } })
-      return
-    }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // DELETE /api/roles/:id — supprime un rôle
@@ -231,9 +208,7 @@ router.delete('/:id', requirePermission('settings:roles'), async (req: AuthReque
     await prisma.rolePermission.deleteMany({ where: { roleId: id } })
     await prisma.role.delete({ where: { id } })
     res.json({ success: true, data: { message: 'Rôle supprimé avec succès' } })
-  } catch {
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

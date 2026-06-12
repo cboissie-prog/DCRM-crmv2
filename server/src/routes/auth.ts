@@ -5,6 +5,7 @@ import { randomBytes, createHash } from 'crypto'
 import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
 import { sendPasswordResetEmail } from '../services/mailer'
 
 /** Retourne le SHA-256 hex d'un token — le token en clair ne touche jamais la DB */
@@ -75,15 +76,13 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     res.cookie('refreshToken', refreshToken, REFRESH_COOKIE_OPTIONS)
     res.json({ success: true, data: { user: { ...userWithoutPassword, permissions }, accessToken } })
   } catch (err) {
-    if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } })
-      return
-    }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
+    // login : ZodError → 400, autres → log + 500
+    handleRouteError(err, res)
   }
 })
 
 // POST /auth/refresh
+// LOGIQUE SPÉCIFIQUE CONSERVÉE : clearCookie + 401 sur token invalide/expiré/réutilisé
 router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
   try {
     const refreshToken = req.cookies?.refreshToken
@@ -152,6 +151,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
     res.cookie('refreshToken', newRefreshToken, REFRESH_COOKIE_OPTIONS)
     res.json({ success: true, data: { accessToken } })
   } catch {
+    // Erreur inattendue (DB down, etc.) : clear cookie par sécurité + 401
     res.clearCookie('refreshToken', { path: '/api/auth' })
     res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Token invalide' } })
   }
@@ -164,9 +164,7 @@ router.post('/logout', authenticate, async (req: AuthRequest, res: Response): Pr
     if (refreshToken) await prisma.refreshToken.deleteMany({ where: { token: hashToken(refreshToken) } })
     res.clearCookie('refreshToken', { path: '/api/auth' })
     res.json({ success: true, data: { message: 'Déconnecté avec succès' } })
-  } catch {
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // POST /auth/forgot-password
@@ -187,11 +185,7 @@ router.post('/forgot-password', async (req: Request, res: Response): Promise<voi
     res.json({ success: true, data: { message: 'Si cet email existe, un lien de réinitialisation a été envoyé.' } })
   } catch (err) {
     await minDelay
-    if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } })
-      return
-    }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
+    handleRouteError(err, res)
   }
 })
 
@@ -216,13 +210,7 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
     await prisma.refreshToken.deleteMany({ where: { userId: resetToken.userId } })
     res.clearCookie('refreshToken', { path: '/api/auth' })
     res.json({ success: true, data: { message: 'Mot de passe réinitialisé avec succès' } })
-  } catch (err) {
-    if (err instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } })
-      return
-    }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // GET /auth/me
@@ -233,9 +221,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response): Promise
     }})
     if (!user) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Utilisateur introuvable' } }); return }
     res.json({ success: true, data: user })
-  } catch {
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

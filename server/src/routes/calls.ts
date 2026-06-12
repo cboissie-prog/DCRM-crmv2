@@ -6,6 +6,8 @@ import fs from 'fs'
 import crypto from 'crypto'
 import prisma from '../prisma/client'
 import { authenticate, requirePermission, AuthRequest } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
+import { ciContains } from '../lib/query'
 
 const router = Router()
 
@@ -111,6 +113,8 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     const normalized = body.caller_number.replace(/[\s\-.()+]/g, '')
 
     // Auto-detect caller from contacts
+    // Note: ciContains intentionally not used here — normalized is a sanitized phone number
+    // and the partial-match logic is a business-specific lookup, not a user text search.
     const contact = await prisma.contact.findFirst({
       where: {
         OR: [
@@ -149,14 +153,7 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
     }
 
     res.json({ success: true, data: call })
-  } catch (e) {
-    if (e instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: e.errors[0].message } })
-      return
-    }
-    console.error(e)
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // ─── Auth sur toutes les routes suivantes ────────────────
@@ -184,11 +181,11 @@ router.get('/', requirePermission('calls:read'), async (req: AuthRequest, res: R
     }
     if (search) {
       where.OR = [
-        { callerNumber: { contains: search } },
-        { callerName:   { contains: search } },
-        { notes:        { contains: search } },
-        { contact: { OR: [{ firstName: { contains: search } }, { lastName: { contains: search } }] } },
-        { company: { name: { contains: search } } },
+        { callerNumber: ciContains(search) },
+        { callerName:   ciContains(search) },
+        { notes:        ciContains(search) },
+        { contact: { OR: [{ firstName: ciContains(search) }, { lastName: ciContains(search) }] } },
+        { company: { name: ciContains(search) } },
       ]
     }
 
@@ -209,9 +206,7 @@ router.get('/', requirePermission('calls:read'), async (req: AuthRequest, res: R
     ])
 
     res.json({ success: true, data: calls, meta: { total, page: pageNum, limit: limitNum } })
-  } catch {
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // ─── Détail ───────────────────────────────────────────────
@@ -231,9 +226,7 @@ router.get('/:id', requirePermission('calls:read'), async (req: AuthRequest, res
       return
     }
     res.json({ success: true, data: call })
-  } catch {
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // ─── Schéma création/mise à jour ─────────────────────────
@@ -285,13 +278,7 @@ router.post('/', requirePermission('calls:create'), async (req: AuthRequest, res
       },
     })
     res.status(201).json({ success: true, data: call })
-  } catch (e) {
-    if (e instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: e.errors[0].message } })
-      return
-    }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // ─── Mise à jour ─────────────────────────────────────────
@@ -317,13 +304,7 @@ router.put('/:id', requirePermission('calls:update'), async (req: AuthRequest, r
       },
     })
     res.json({ success: true, data: call })
-  } catch (e) {
-    if (e instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: e.errors[0].message } })
-      return
-    }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // ─── Suppression ─────────────────────────────────────────
@@ -339,9 +320,7 @@ router.delete('/:id', requirePermission('calls:delete'), async (req: AuthRequest
     }
     await prisma.call.delete({ where: { id: req.params.id } })
     res.json({ success: true, data: null })
-  } catch {
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // ─── Upload enregistrement ───────────────────────────────
@@ -376,9 +355,7 @@ router.post('/:id/recording', requirePermission('calls:listen'), (req: AuthReque
         data: { recordingPath: req.file.path },
       })
       res.json({ success: true, data: call })
-    } catch {
-      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-    }
+    } catch (err) { handleRouteError(err, res) }
   })
 })
 
@@ -428,9 +405,7 @@ router.get('/:id/recording/stream', requirePermission('calls:listen'), async (re
       return
     }
     res.status(404).json({ success: false, error: { code: 'NO_RECORDING', message: 'Aucun enregistrement disponible' } })
-  } catch {
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

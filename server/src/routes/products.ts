@@ -2,6 +2,8 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
+import { ciContains } from '../lib/query'
 
 const router = Router()
 router.use(authenticate)
@@ -30,16 +32,16 @@ router.get('/', requirePermission('products:read'), async (req: AuthRequest, res
     if (category) where.category = category
     if (type) where.type = type
     if (search) where.OR = [
-      { name: { contains: search } },
-      { reference: { contains: search } },
-      { supplier: { contains: search } },
+      { name: ciContains(search) },
+      { reference: ciContains(search) },
+      { supplier: ciContains(search) },
     ]
     const [total, products] = await Promise.all([
       prisma.product.count({ where }),
       prisma.product.findMany({ where, skip: (pageNum - 1) * limitNum, take: limitNum, orderBy: { name: 'asc' } }),
     ])
     res.json({ success: true, data: products, meta: { total, page: pageNum, limit: limitNum } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.post('/', requirePermission('products:create'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -47,10 +49,7 @@ router.post('/', requirePermission('products:create'), async (req: AuthRequest, 
     const body = productSchema.parse(req.body)
     const product = await prisma.product.create({ data: body })
     res.status(201).json({ success: true, data: product })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.get('/:id', requirePermission('products:read'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -58,7 +57,7 @@ router.get('/:id', requirePermission('products:read'), async (req: AuthRequest, 
     const product = await prisma.product.findUnique({ where: { id: req.params.id } })
     if (!product) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Produit introuvable' } }); return }
     res.json({ success: true, data: product })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.put('/:id', requirePermission('products:update'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -66,17 +65,14 @@ router.put('/:id', requirePermission('products:update'), async (req: AuthRequest
     const body = productSchema.partial().parse(req.body)
     const product = await prisma.product.update({ where: { id: req.params.id }, data: body })
     res.json({ success: true, data: product })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.delete('/:id', requirePermission('products:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.product.update({ where: { id: req.params.id }, data: { isActive: false } })
     res.json({ success: true, data: { message: 'Produit désactivé' } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

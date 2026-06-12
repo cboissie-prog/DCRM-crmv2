@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
 
 const router = Router()
 router.use(authenticate)
@@ -39,7 +40,7 @@ router.get('/', requirePermission('automation:read'), async (_req: AuthRequest, 
     }))
 
     res.json({ success: true, data: enriched })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // POST /automations
@@ -48,10 +49,7 @@ router.post('/', requirePermission('automation:create'), async (req: AuthRequest
     const body = automationSchema.parse(req.body)
     const automation = await prisma.automation.create({ data: body })
     res.status(201).json({ success: true, data: automation })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // GET /automations/:id/logs
@@ -64,7 +62,7 @@ router.get('/:id/logs', requirePermission('automation:read'), async (req: AuthRe
       include: { user: { select: { firstName: true, lastName: true } } },
     })
     res.json({ success: true, data: logs })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // PUT /automations/:id
@@ -73,10 +71,7 @@ router.put('/:id', requirePermission('automation:update'), async (req: AuthReque
     const body = automationSchema.partial().parse(req.body)
     const automation = await prisma.automation.update({ where: { id: req.params.id }, data: body })
     res.json({ success: true, data: automation })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // PATCH /automations/:id (toggle active)
@@ -85,7 +80,7 @@ router.patch('/:id', requirePermission('automation:update'), async (req: AuthReq
     const { isActive } = req.body
     const automation = await prisma.automation.update({ where: { id: req.params.id }, data: { isActive } })
     res.json({ success: true, data: automation })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // DELETE /automations/:id
@@ -93,7 +88,7 @@ router.delete('/:id', requirePermission('automation:delete'), async (req: AuthRe
   try {
     await prisma.automation.delete({ where: { id: req.params.id } })
     res.json({ success: true })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

@@ -1,6 +1,7 @@
 import { Router, Response } from 'express'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
 
 const router = Router()
 router.use(authenticate)
@@ -57,7 +58,7 @@ router.get('/today', requirePermission('dashboard:read'), async (req: AuthReques
       success: true,
       data: { appointments, urgentTickets, overdueActivities },
     })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.get('/stats', requirePermission('dashboard:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
@@ -143,10 +144,7 @@ router.get('/stats', requirePermission('dashboard:read'), async (_req: AuthReque
         recentActivities,
       },
     })
-  } catch (e) {
-    console.error(e)
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.get('/revenue', requirePermission('dashboard:read'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -172,7 +170,7 @@ router.get('/revenue', requirePermission('dashboard:read'), async (req: AuthRequ
     )
     const data = periods.map((p, i) => ({ month: p.month, label: p.label, value: results[i]._sum.value || 0 }))
     res.json({ success: true, data })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.get('/churn-risks', requirePermission('dashboard:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
@@ -208,7 +206,7 @@ router.get('/churn-risks', requirePermission('dashboard:read'), async (_req: Aut
       .sort((a, b) => b.score - a.score)
       .slice(0, 10)
     res.json({ success: true, data: risks })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.get('/nps', requirePermission('dashboard:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
@@ -221,7 +219,7 @@ router.get('/nps', requirePermission('dashboard:read'), async (_req: AuthRequest
     const detractors = responses.filter(r => r.score <= 6).length
     const npsScore = Math.round(((promoters - detractors) / total) * 100)
     res.json({ success: true, data: { score: npsScore, promoters, passives, detractors, total, responses: responses.slice(0, 20) } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

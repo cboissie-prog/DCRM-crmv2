@@ -2,6 +2,8 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
+import { ciContains } from '../lib/query'
 import { csvEscape } from '../lib/csv'
 
 const router = Router()
@@ -37,10 +39,10 @@ router.get('/', requirePermission('contacts:read'), async (req: AuthRequest, res
     if (source) where.source = source
     if (companyId) where.companyId = companyId
     if (search) where.OR = [
-      { firstName: { contains: search } },
-      { lastName: { contains: search } },
-      { email: { contains: search } },
-      { phone: { contains: search } },
+      { firstName: ciContains(search) },
+      { lastName: ciContains(search) },
+      { email: ciContains(search) },
+      { phone: ciContains(search) },
     ]
     const [total, contacts] = await Promise.all([
       prisma.contact.count({ where }),
@@ -51,7 +53,7 @@ router.get('/', requirePermission('contacts:read'), async (req: AuthRequest, res
       }),
     ])
     res.json({ success: true, data: contacts, meta: { total, page: pageNum, limit: limitNum } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // POST /contacts
@@ -60,10 +62,7 @@ router.post('/', requirePermission('contacts:create'), async (req: AuthRequest, 
     const body = contactSchema.parse(req.body)
     const contact = await prisma.contact.create({ data: body, include: { company: { select: { id: true, name: true } } } })
     res.status(201).json({ success: true, data: contact })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // POST /contacts/import/csv
@@ -144,10 +143,7 @@ router.post('/import/csv', requirePermission('contacts:create'), async (req: Aut
     await prisma.contact.createMany({ data: toCreate })
 
     res.json({ success: true, data: { created: toCreate.length, skipped, total: rows.length } })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // GET /contacts/export/csv
@@ -157,9 +153,9 @@ router.get('/export/csv', requirePermission('contacts:read'), async (req: AuthRe
     const where: Record<string, unknown> = { isActive: true }
     if (status) where.status = status
     if (search) where.OR = [
-      { firstName: { contains: search } },
-      { lastName: { contains: search } },
-      { email: { contains: search } },
+      { firstName: ciContains(search) },
+      { lastName: ciContains(search) },
+      { email: ciContains(search) },
     ]
     const contacts = await prisma.contact.findMany({
       where,
@@ -176,8 +172,8 @@ router.get('/export/csv', requirePermission('contacts:read'), async (req: AuthRe
     const csv = [header.join(','), ...rows].join('\n')
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')
     res.setHeader('Content-Disposition', `attachment; filename="contacts-${new Date().toISOString().slice(0, 10)}.csv"`)
-    res.send('\uFEFF' + csv)
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+    res.send('﻿' + csv)
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // GET /contacts/:id
@@ -196,7 +192,7 @@ router.get('/:id', requirePermission('contacts:read'), async (req: AuthRequest, 
     })
     if (!contact) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Contact introuvable' } }); return }
     res.json({ success: true, data: contact })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // PUT /contacts/:id
@@ -205,10 +201,7 @@ router.put('/:id', requirePermission('contacts:update'), async (req: AuthRequest
     const body = contactSchema.partial().parse(req.body)
     const contact = await prisma.contact.update({ where: { id: req.params.id }, data: body, include: { company: { select: { id: true, name: true } } } })
     res.json({ success: true, data: contact })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // DELETE /contacts/:id (soft delete)
@@ -216,7 +209,7 @@ router.delete('/:id', requirePermission('contacts:delete'), async (req: AuthRequ
   try {
     await prisma.contact.update({ where: { id: req.params.id }, data: { isActive: false } })
     res.json({ success: true, data: { message: 'Contact supprimé' } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

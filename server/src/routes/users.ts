@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
 
 const router = Router()
 router.use(authenticate)
@@ -35,7 +36,7 @@ router.get('/', requirePermission('users:read'), async (_req: AuthRequest, res: 
       orderBy: { firstName: 'asc' },
     })
     res.json({ success: true, data: users })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // POST / — créer un user (ADMIN seulement)
@@ -49,10 +50,7 @@ router.post('/', requirePermission('users:create'), async (req: AuthRequest, res
       select: { id: true, email: true, firstName: true, lastName: true, phone: true, role: true, isActive: true, createdAt: true },
     })
     res.status(201).json({ success: true, data: user })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // GET /targets — objectifs de vente (ADMIN, MANAGER)
@@ -63,7 +61,7 @@ router.get('/targets', requirePermission('reports:read'), async (_req: AuthReque
       orderBy: { period: 'desc' },
     })
     res.json({ success: true, data: targets })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 const targetSchema = z.object({
@@ -81,10 +79,7 @@ router.post('/targets', requirePermission('reports:read'), async (req: AuthReque
       ? await prisma.salesTarget.update({ where: { id: existing.id }, data: { target } })
       : await prisma.salesTarget.create({ data: { userId, period, target } })
     res.json({ success: true, data: t })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // GET /:id — un user (ADMIN, MANAGER ou soi-même)
@@ -102,7 +97,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
     })
     if (!user) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Utilisateur introuvable' } }); return }
     res.json({ success: true, data: user })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // PUT /:id — modifier (ADMIN ou soi-même pour son profil)
@@ -127,10 +122,7 @@ router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       select: { id: true, email: true, firstName: true, lastName: true, phone: true, role: true, isActive: true },
     })
     res.json({ success: true, data: user })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // DELETE /:id — désactiver (ADMIN seulement, soft delete)
@@ -139,7 +131,7 @@ router.delete('/:id', requirePermission('users:delete'), async (req: AuthRequest
     if (req.params.id === req.userId) { res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Impossible de se désactiver soi-même' } }); return }
     await prisma.user.update({ where: { id: req.params.id }, data: { isActive: false } })
     res.json({ success: true, data: { message: 'Utilisateur désactivé' } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 const changePasswordSchema = z.object({
@@ -193,7 +185,7 @@ router.patch('/:id/password', async (req: AuthRequest, res: Response): Promise<v
     // Révoque toutes les sessions de l'utilisateur concerné (comme reset-password)
     await prisma.refreshToken.deleteMany({ where: { userId: req.params.id } })
     res.json({ success: true, data: { message: 'Mot de passe mis à jour' } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

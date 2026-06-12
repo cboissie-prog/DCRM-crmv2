@@ -3,6 +3,7 @@ import crypto from 'crypto'
 import prisma from '../prisma/client'
 import type { AuthRequest } from '../middleware/auth'
 import { requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
 
 const router = Router()
 
@@ -35,10 +36,7 @@ router.get('/', requirePermission('apikeys:manage'), async (req: AuthRequest, re
       orderBy: { createdAt: 'desc' },
     })
     res.json({ success: true, data: keys })
-  } catch (e) {
-    console.error(e)
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // POST /api/apikeys — génère une nouvelle clé
@@ -70,10 +68,7 @@ router.post('/', requirePermission('apikeys:manage'), async (req: AuthRequest, r
         createdAt: record.createdAt,
       },
     })
-  } catch (e) {
-    console.error(e)
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // DELETE /api/apikeys/:id — révoque une clé
@@ -89,10 +84,7 @@ router.delete('/:id', requirePermission('apikeys:manage'), async (req: AuthReque
       data: { isActive: false },
     })
     res.json({ success: true, data: { message: 'Clé révoquée' } })
-  } catch (e) {
-    console.error(e)
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export { hashKey }

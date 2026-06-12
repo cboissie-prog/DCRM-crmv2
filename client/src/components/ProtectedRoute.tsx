@@ -1,8 +1,9 @@
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
+import { AccessDeniedPage } from '../pages/AccessDeniedPage'
 
 interface ProtectedRouteProps {
-  /** Si fourni, redirige vers /dashboard si l'utilisateur n'a pas cette permission */
+  /** Si fourni, affiche AccessDeniedPage si l'utilisateur n'a pas cette permission */
   permission?: string
   /** Route de redirection si non authentifié (défaut : /login) */
   redirectTo?: string
@@ -19,7 +20,7 @@ interface ProtectedRouteProps {
  * </Route>
  *
  * // Vérifie auth + permission
- * <Route element={<ProtectedRoute permission="users:manage" />}>
+ * <Route element={<ProtectedRoute permission="users:read" />}>
  *   <Route path="/users" element={<UsersPage />} />
  * </Route>
  */
@@ -29,7 +30,7 @@ export function ProtectedRoute({ permission, redirectTo = '/login' }: ProtectedR
   if (!isAuthenticated) return <Navigate to={redirectTo} replace />
 
   if (permission && !hasPermission(permission)) {
-    return <Navigate to="/dashboard" replace />
+    return <AccessDeniedPage />
   }
 
   return <Outlet />

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
 
 const router = Router()
 router.use(authenticate)
@@ -54,7 +55,7 @@ router.get('/', requirePermission('contracts:read'), async (req: AuthRequest, re
       }),
     ])
     res.json({ success: true, data: contracts, meta: { total, page: pageNum, limit: limitNum } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.post('/', requirePermission('contracts:create'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -74,10 +75,7 @@ router.post('/', requirePermission('contracts:create'), async (req: AuthRequest,
       })
     })
     res.status(201).json({ success: true, data: contract })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.get('/:id', requirePermission('contracts:read'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -94,7 +92,7 @@ router.get('/:id', requirePermission('contracts:read'), async (req: AuthRequest,
     })
     if (!contract) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Contrat introuvable' } }); return }
     res.json({ success: true, data: contract })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.put('/:id', requirePermission('contracts:update'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -106,17 +104,14 @@ router.put('/:id', requirePermission('contracts:update'), async (req: AuthReques
     if (body.renewalDate) data.renewalDate = new Date(body.renewalDate)
     const contract = await prisma.contract.update({ where: { id: req.params.id }, data: data as Parameters<typeof prisma.contract.update>[0]['data'] })
     res.json({ success: true, data: contract })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.delete('/:id', requirePermission('contracts:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.contract.delete({ where: { id: req.params.id } })
     res.json({ success: true, data: { message: 'Contrat supprimé' } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // MRR / ARR stats
@@ -130,7 +125,7 @@ router.get('/stats/mrr', requirePermission('contracts:read'), async (_req: AuthR
       return acc
     }, {})
     res.json({ success: true, data: { mrr: Math.round(mrr * 100) / 100, arr: Math.round(arr * 100) / 100, byType, total: activeContracts.length } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

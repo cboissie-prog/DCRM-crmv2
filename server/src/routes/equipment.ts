@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
 
 const router = Router()
 router.use(authenticate)
@@ -47,7 +48,7 @@ router.get('/', requirePermission('equipment:read'), async (req: AuthRequest, re
       }),
     ])
     res.json({ success: true, data: equipments, meta: { total, page: pageNum, limit: limitNum } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.post('/', requirePermission('equipment:create'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -61,10 +62,7 @@ router.post('/', requirePermission('equipment:create'), async (req: AuthRequest,
       include: { company: { select: { id: true, name: true } } },
     })
     res.status(201).json({ success: true, data: equipment })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.get('/:id', requirePermission('equipment:read'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -80,7 +78,7 @@ router.get('/:id', requirePermission('equipment:read'), async (req: AuthRequest,
     })
     if (!equipment) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Équipement introuvable' } }); return }
     res.json({ success: true, data: equipment })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.put('/:id', requirePermission('equipment:update'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -91,17 +89,14 @@ router.put('/:id', requirePermission('equipment:update'), async (req: AuthReques
     if (body.warrantyExpiry) data.warrantyExpiry = new Date(body.warrantyExpiry)
     const equipment = await prisma.equipment.update({ where: { id: req.params.id }, data: data as Parameters<typeof prisma.equipment.update>[0]['data'] })
     res.json({ success: true, data: equipment })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.delete('/:id', requirePermission('equipment:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.equipment.delete({ where: { id: req.params.id } })
     res.json({ success: true, data: { message: 'Équipement supprimé' } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

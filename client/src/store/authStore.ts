@@ -16,7 +16,6 @@ interface User {
 
 interface AuthState {
   user: User | null
-  accessToken: string | null
   isAuthenticated: boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
@@ -28,7 +27,6 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
       user: null,
-      accessToken: null,
       isAuthenticated: false,
 
       login: async (email: string, password: string) => {
@@ -42,8 +40,9 @@ export const useAuthStore = create<AuthState>()(
         }
         const userWithPermissions: User = { ...user, permissions }
         // Le refreshToken est stocké en cookie httpOnly par le serveur (inaccessible au JS)
+        // accessToken : source unique = localStorage['accessToken'] (lu par l'intercepteur Axios)
         localStorage.setItem('accessToken', accessToken)
-        set({ user: userWithPermissions, accessToken, isAuthenticated: true })
+        set({ user: userWithPermissions, isAuthenticated: true })
       },
 
       logout: async () => {
@@ -54,7 +53,7 @@ export const useAuthStore = create<AuthState>()(
           // logout best-effort : on nettoie localement même si l'API échoue
         }
         localStorage.removeItem('accessToken')
-        set({ user: null, accessToken: null, isAuthenticated: false })
+        set({ user: null, isAuthenticated: false })
       },
 
       setUser: (user: User) => set({ user: { ...user, permissions: user.permissions ?? [] } }),
@@ -69,7 +68,9 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'crm-auth',
-      partialize: (state) => ({ user: state.user, accessToken: state.accessToken, isAuthenticated: state.isAuthenticated }),
+      // accessToken n'est PAS persisté dans Zustand — source unique : localStorage['accessToken']
+      // L'intercepteur Axios lit directement localStorage, pas le store.
+      partialize: (state) => ({ user: state.user, isAuthenticated: state.isAuthenticated }),
     }
   )
 )

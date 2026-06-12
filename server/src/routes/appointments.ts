@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
 
 const router = Router()
 router.use(authenticate)
@@ -37,7 +38,7 @@ router.get('/', requirePermission('appointments:read'), async (req: AuthRequest,
       },
     })
     res.json({ success: true, data: appointments })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.post('/', requirePermission('appointments:create'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -77,10 +78,7 @@ router.post('/', requirePermission('appointments:create'), async (req: AuthReque
     }
 
     res.status(201).json({ success: true, data: appointment })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.put('/:id', requirePermission('appointments:update'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -91,14 +89,14 @@ router.put('/:id', requirePermission('appointments:update'), async (req: AuthReq
     if (rest.endAt) data.endAt = new Date(rest.endAt)
     const appointment = await prisma.appointment.update({ where: { id: req.params.id }, data: data as Parameters<typeof prisma.appointment.update>[0]['data'] })
     res.json({ success: true, data: appointment })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.delete('/:id', requirePermission('appointments:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.appointment.delete({ where: { id: req.params.id } })
     res.json({ success: true, data: { message: 'RDV supprimé' } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

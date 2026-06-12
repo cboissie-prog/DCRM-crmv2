@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
 import { restartScheduler } from '../scheduler'
 
 const router = Router()
@@ -32,7 +33,7 @@ router.get('/', requirePermission('settings:write'), async (_req: AuthRequest, r
       return { key, value: row?.value ?? def.value, label: def.label }
     })
     res.json({ success: true, data: result })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // GET /api/settings/:key — single setting (internal use, no role restriction)
@@ -44,7 +45,7 @@ router.get('/:key', requirePermission('settings:read'), async (req: AuthRequest,
     const value = row?.value ?? def?.value ?? null
     if (value === null) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Paramètre introuvable' } }); return }
     res.json({ success: true, data: { key, value, label: def?.label } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // PUT /api/settings/:key — update setting (admin only)
@@ -63,10 +64,7 @@ router.put('/:key', requirePermission('settings:write'), async (req: AuthRequest
       restartScheduler().catch(console.error)
     }
     res.json({ success: true, data: setting })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // POST /api/settings/actions/run-contract-update — déclencher manuellement le job
@@ -75,7 +73,7 @@ router.post('/actions/run-contract-update', requirePermission('settings:write'),
     const { runContractStatusUpdate } = await import('../scheduler')
     const result = await runContractStatusUpdate()
     res.json({ success: true, data: result })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

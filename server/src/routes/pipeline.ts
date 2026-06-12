@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
 import { fireAutomations } from '../automation-engine'
 
 const router = Router()
@@ -51,7 +52,7 @@ router.get('/leads', requirePermission('pipeline:read'), async (req: AuthRequest
       }),
     ])
     res.json({ success: true, data: leads, meta: { total, page: pageNum, limit: limitNum } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.post('/leads', requirePermission('pipeline:create'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -65,10 +66,7 @@ router.post('/leads', requirePermission('pipeline:create'), async (req: AuthRequ
       }).catch(console.error)
     }
     res.status(201).json({ success: true, data: lead })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.put('/leads/:id', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -82,7 +80,7 @@ router.put('/leads/:id', requirePermission('pipeline:update'), async (req: AuthR
       }).catch(console.error)
     }
     res.json({ success: true, data: lead })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.patch('/leads/:id/status', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -96,17 +94,14 @@ router.patch('/leads/:id/status', requirePermission('pipeline:update'), async (r
       include: { contact: { include: { company: { select: { id: true, name: true } } } } },
     })
     res.json({ success: true, data: lead })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.delete('/leads/:id', requirePermission('pipeline:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.lead.delete({ where: { id: req.params.id } })
     res.json({ success: true })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.post('/leads/:id/convert', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -139,7 +134,7 @@ router.post('/leads/:id/convert', requirePermission('pipeline:update'), async (r
       opportunity: { id: opportunity.id, title: opportunity.title, stage: opportunity.stage, value: opportunity.value, companyId: opportunity.companyId, assignedToId: opportunity.assignedToId },
     }).catch(console.error)
     res.json({ success: true, data: opportunity })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // ─── OPPORTUNITIES ──────────────────────────────────────
@@ -166,7 +161,7 @@ router.get('/opportunities', requirePermission('pipeline:read'), async (req: Aut
       }),
     ])
     res.json({ success: true, data: opportunities, meta: { total, page: parseInt(page), limit: parseInt(limit) } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.post('/opportunities', requirePermission('pipeline:create'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -180,10 +175,7 @@ router.post('/opportunities', requirePermission('pipeline:create'), async (req: 
       opportunity: { id: opp.id, title: opp.title, stage: opp.stage, value: opp.value, companyId: opp.companyId, assignedToId: opp.assignedToId },
     }).catch(console.error)
     res.status(201).json({ success: true, data: opp })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.get('/opportunities/:id', requirePermission('pipeline:read'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -201,7 +193,7 @@ router.get('/opportunities/:id', requirePermission('pipeline:read'), async (req:
     })
     if (!opp) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Opportunité introuvable' } }); return }
     res.json({ success: true, data: opp })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.put('/opportunities/:id', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -214,10 +206,7 @@ router.put('/opportunities/:id', requirePermission('pipeline:update'), async (re
     if (body.stage === 'WON' || body.stage === 'LOST') data.closedAt = new Date()
     const opp = await prisma.opportunity.update({ where: { id: req.params.id }, data: data as Parameters<typeof prisma.opportunity.update>[0]['data'] })
     res.json({ success: true, data: opp })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.patch('/opportunities/:id/stage', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -234,7 +223,7 @@ router.patch('/opportunities/:id/stage', requirePermission('pipeline:update'), a
       }).catch(console.error)
     }
     res.json({ success: true, data: opp })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Layout } from './components/layout/Layout'
+import { ProtectedRoute } from './components/ProtectedRoute'
 
 // ── Lazy page imports ────────────────────────────────────────────────────────
 const LoginPage = lazy(() =>
@@ -135,35 +136,108 @@ export default function App() {
 
             {/* Protected routes — Layout handles auth check and redirect */}
             <Route element={<Layout />}>
+              {/* No permission guard — auth only (handled by Layout) */}
               <Route path="/" element={<DashboardPage />} />
-              <Route path="/contacts" element={<ContactsPage />} />
-              <Route path="/contacts/:id" element={<ContactDetailPage />} />
-              <Route path="/companies" element={<CompaniesPage />} />
-              <Route path="/companies/map" element={<CompanyMapPage />} />
-              <Route path="/companies/:id" element={<CompanyDetailPage />} />
-              <Route path="/pipeline" element={<PipelinePage />} />
-              <Route path="/leads" element={<LeadsPage />} />
-              <Route path="/tickets" element={<TicketsListView />} />
-              <Route path="/tickets/:id" element={<TicketDetailPage />} />
-              <Route path="/users" element={<UsersPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/contracts" element={<ContractsPage />} />
-              <Route path="/parc" element={<ParcOverviewPage />} />
-              <Route path="/parc/:companyId" element={<ParcClientPage />} />
-              <Route path="/equipment" element={<EquipmentPage />} />
-              <Route path="/licenses" element={<LicensesPage />} />
-              <Route path="/knowledge" element={<KnowledgePage />} />
-              <Route path="/nps" element={<NpsPage />} />
-              <Route path="/automations" element={<AutomationsPage />} />
-              <Route path="/activities" element={<ActivitiesPage />} />
-              <Route path="/appointments" element={<AppointmentsPage />} />
-              <Route path="/products" element={<ProductsPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
-              <Route path="/reports" element={<ReportsPage />} />
-              <Route path="/targets" element={<TargetsPage />} />
-              <Route path="/settings/roles" element={<RolesPage />} />
-              <Route path="/calls" element={<CallsPage />} />
-              <Route path="/calls/:id" element={<CallDetailPage />} />
+
+              {/* contacts:read */}
+              <Route element={<ProtectedRoute permission="contacts:read" />}>
+                <Route path="/contacts" element={<ContactsPage />} />
+                <Route path="/contacts/:id" element={<ContactDetailPage />} />
+              </Route>
+
+              {/* companies:read */}
+              <Route element={<ProtectedRoute permission="companies:read" />}>
+                <Route path="/companies" element={<CompaniesPage />} />
+                <Route path="/companies/map" element={<CompanyMapPage />} />
+                <Route path="/companies/:id" element={<CompanyDetailPage />} />
+              </Route>
+
+              {/* pipeline:read */}
+              <Route element={<ProtectedRoute permission="pipeline:read" />}>
+                <Route path="/pipeline" element={<PipelinePage />} />
+                <Route path="/leads" element={<LeadsPage />} />
+              </Route>
+
+              {/* tickets:read */}
+              <Route element={<ProtectedRoute permission="tickets:read" />}>
+                <Route path="/tickets" element={<TicketsListView />} />
+                <Route path="/tickets/:id" element={<TicketDetailPage />} />
+              </Route>
+
+              {/* users:read */}
+              <Route element={<ProtectedRoute permission="users:read" />}>
+                <Route path="/users" element={<UsersPage />} />
+              </Route>
+
+              {/* settings:write */}
+              <Route element={<ProtectedRoute permission="settings:write" />}>
+                <Route path="/settings" element={<SettingsPage />} />
+              </Route>
+
+              {/* settings:roles */}
+              <Route element={<ProtectedRoute permission="settings:roles" />}>
+                <Route path="/settings/roles" element={<RolesPage />} />
+              </Route>
+
+              {/* contracts:read */}
+              <Route element={<ProtectedRoute permission="contracts:read" />}>
+                <Route path="/contracts" element={<ContractsPage />} />
+              </Route>
+
+              {/* equipment:read */}
+              <Route element={<ProtectedRoute permission="equipment:read" />}>
+                <Route path="/parc" element={<ParcOverviewPage />} />
+                <Route path="/parc/:companyId" element={<ParcClientPage />} />
+                <Route path="/equipment" element={<EquipmentPage />} />
+                <Route path="/licenses" element={<LicensesPage />} />
+              </Route>
+
+              {/* knowledge:read */}
+              <Route element={<ProtectedRoute permission="knowledge:read" />}>
+                <Route path="/knowledge" element={<KnowledgePage />} />
+              </Route>
+
+              {/* dashboard:read */}
+              <Route element={<ProtectedRoute permission="dashboard:read" />}>
+                <Route path="/nps" element={<NpsPage />} />
+              </Route>
+
+              {/* automation:read */}
+              <Route element={<ProtectedRoute permission="automation:read" />}>
+                <Route path="/automations" element={<AutomationsPage />} />
+              </Route>
+
+              {/* activities:read */}
+              <Route element={<ProtectedRoute permission="activities:read" />}>
+                <Route path="/activities" element={<ActivitiesPage />} />
+              </Route>
+
+              {/* appointments:read */}
+              <Route element={<ProtectedRoute permission="appointments:read" />}>
+                <Route path="/appointments" element={<AppointmentsPage />} />
+              </Route>
+
+              {/* products:read */}
+              <Route element={<ProtectedRoute permission="products:read" />}>
+                <Route path="/products" element={<ProductsPage />} />
+              </Route>
+
+              {/* reports:read */}
+              <Route element={<ProtectedRoute permission="reports:read" />}>
+                <Route path="/reports" element={<ReportsPage />} />
+              </Route>
+
+              {/* targets:read */}
+              <Route element={<ProtectedRoute permission="targets:read" />}>
+                <Route path="/targets" element={<TargetsPage />} />
+              </Route>
+
+              {/* calls:read */}
+              <Route element={<ProtectedRoute permission="calls:read" />}>
+                <Route path="/calls" element={<CallsPage />} />
+                <Route path="/calls/:id" element={<CallDetailPage />} />
+              </Route>
             </Route>
 
             {/* Catch-all */}

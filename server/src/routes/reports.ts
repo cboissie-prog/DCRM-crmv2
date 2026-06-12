@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
 
 const router = Router()
 router.use(authenticate)
@@ -74,7 +75,7 @@ router.get('/sales-targets', requirePermission('reports:read'), async (req: Auth
     }))
 
     res.json({ success: true, data: enriched })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // POST /api/reports/sales-targets
@@ -95,10 +96,7 @@ router.post('/sales-targets', requirePermission('reports:read'), async (req: Aut
       include: { user: { select: { id: true, firstName: true, lastName: true } } },
     })
     res.status(201).json({ success: true, data: target })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // PUT /api/reports/sales-targets/:id
@@ -111,10 +109,7 @@ router.put('/sales-targets/:id', requirePermission('reports:read'), async (req: 
       include: { user: { select: { id: true, firstName: true, lastName: true } } },
     })
     res.json({ success: true, data: updated })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // DELETE /api/reports/sales-targets/:id
@@ -122,7 +117,7 @@ router.delete('/sales-targets/:id', requirePermission('reports:read'), async (re
   try {
     await prisma.salesTarget.delete({ where: { id: req.params.id } })
     res.json({ success: true })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // ─── PIPELINE FORECAST ────────────────────────────────────────────────────────
@@ -165,7 +160,7 @@ router.get('/pipeline-forecast', requirePermission('reports:read'), async (req: 
     }
 
     res.json({ success: true, data: { pipelineId: pipeline.id, pipelineName: pipeline.name, stages: stageData, total } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // ─── COMMERCIAL PERFORMANCE ───────────────────────────────────────────────────
@@ -217,7 +212,7 @@ router.get('/commercial-performance', requirePermission('reports:read'), async (
     active.sort((a, b) => b.wonValue - a.wonValue)
 
     res.json({ success: true, data: active })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // ─── AVAILABLE PERIODS ────────────────────────────────────────────────────────

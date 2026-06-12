@@ -1,6 +1,8 @@
 import { Router, Response } from 'express'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
+import { ciContains } from '../lib/query'
 
 const router = Router()
 router.use(authenticate)
@@ -19,10 +21,10 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         where: {
           isActive: true,
           OR: [
-            { firstName: { contains: q } },
-            { lastName: { contains: q } },
-            { email: { contains: q } },
-            { phone: { contains: q } },
+            { firstName: ciContains(q) },
+            { lastName: ciContains(q) },
+            { email: ciContains(q) },
+            { phone: ciContains(q) },
           ],
         },
         include: { company: { select: { name: true } } },
@@ -33,10 +35,10 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         where: {
           isActive: true,
           OR: [
-            { name: { contains: q } },
-            { siret: { contains: q } },
-            { vatNumber: { contains: q } },
-            { city: { contains: q } },
+            { name: ciContains(q) },
+            { siret: ciContains(q) },
+            { vatNumber: ciContains(q) },
+            { city: ciContains(q) },
           ],
         },
         take: 5,
@@ -45,9 +47,9 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       prisma.ticket.findMany({
         where: {
           OR: [
-            { title: { contains: q } },
-            { reference: { contains: q } },
-            { description: { contains: q } },
+            { title: ciContains(q) },
+            { reference: ciContains(q) },
+            { description: ciContains(q) },
           ],
         },
         include: { company: { select: { name: true } } },
@@ -57,8 +59,8 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       prisma.opportunity.findMany({
         where: {
           OR: [
-            { title: { contains: q } },
-            { company: { name: { contains: q } } },
+            { title: ciContains(q) },
+            { company: { name: ciContains(q) } },
           ],
         },
         include: { company: { select: { name: true } } },
@@ -100,7 +102,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
         })),
       },
     })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

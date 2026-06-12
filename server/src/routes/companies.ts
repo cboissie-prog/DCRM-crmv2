@@ -2,6 +2,8 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
+import { ciContains } from '../lib/query'
 import { csvEscape } from '../lib/csv'
 
 const router = Router()
@@ -39,9 +41,9 @@ router.get('/', requirePermission('companies:read'), async (req: AuthRequest, re
     const where: Record<string, unknown> = { isActive: true }
     if (sector) where.sector = sector
     if (search) where.OR = [
-      { name: { contains: search } },
-      { siret: { contains: search } },
-      { city: { contains: search } },
+      { name: ciContains(search) },
+      { siret: ciContains(search) },
+      { city: ciContains(search) },
     ]
     const [total, companies] = await Promise.all([
       prisma.company.count({ where }),
@@ -54,7 +56,7 @@ router.get('/', requirePermission('companies:read'), async (req: AuthRequest, re
       }),
     ])
     res.json({ success: true, data: companies, meta: { total, page: pageNum, limit: limitNum } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.post('/', requirePermission('companies:create'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -62,10 +64,7 @@ router.post('/', requirePermission('companies:create'), async (req: AuthRequest,
     const body = companySchema.parse(req.body)
     const company = await prisma.company.create({ data: body })
     res.status(201).json({ success: true, data: company })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // POST /companies/import/csv
@@ -113,10 +112,7 @@ router.post('/import/csv', requirePermission('companies:import'), async (req: Au
     await prisma.company.createMany({ data: toCreate })
 
     res.json({ success: true, data: { created: toCreate.length, skipped, total: rows.length } })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // GET /companies/export/csv
@@ -126,8 +122,8 @@ router.get('/export/csv', requirePermission('companies:read'), async (req: AuthR
     const where: Record<string, unknown> = { isActive: true }
     if (sector) where.sector = sector
     if (search) where.OR = [
-      { name: { contains: search } },
-      { city: { contains: search } },
+      { name: ciContains(search) },
+      { city: ciContains(search) },
     ]
     const companies = await prisma.company.findMany({
       where,
@@ -144,8 +140,8 @@ router.get('/export/csv', requirePermission('companies:read'), async (req: AuthR
     const csv = [header.join(','), ...rows].join('\n')
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')
     res.setHeader('Content-Disposition', `attachment; filename="entreprises-${new Date().toISOString().slice(0, 10)}.csv"`)
-    res.send('\uFEFF' + csv)
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+    res.send('﻿' + csv)
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.get('/:id', requirePermission('companies:read'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -165,7 +161,7 @@ router.get('/:id', requirePermission('companies:read'), async (req: AuthRequest,
     })
     if (!company) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Entreprise introuvable' } }); return }
     res.json({ success: true, data: company })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.put('/:id', requirePermission('companies:update'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -173,17 +169,14 @@ router.put('/:id', requirePermission('companies:update'), async (req: AuthReques
     const body = companySchema.partial().parse(req.body)
     const company = await prisma.company.update({ where: { id: req.params.id }, data: body })
     res.json({ success: true, data: company })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.delete('/:id', requirePermission('companies:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.company.update({ where: { id: req.params.id }, data: { isActive: false } })
     res.json({ success: true, data: { message: 'Entreprise supprimée' } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 // GET /companies/map - données pour la carte
@@ -195,7 +188,7 @@ router.get('/data/map', requirePermission('companies:read'), async (req: AuthReq
         _count: { select: { contacts: true, tickets: true } } },
     })
     res.json({ success: true, data: companies })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router

@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { handleRouteError } from '../middleware/errorHandler'
 
 const router = Router()
 router.use(authenticate)
@@ -39,7 +40,7 @@ router.get('/', requirePermission('activities:read'), async (req: AuthRequest, r
       }),
     ])
     res.json({ success: true, data: activities, meta: { total, page: pageNum, limit: limitNum } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.post('/', requirePermission('activities:create'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -52,10 +53,7 @@ router.post('/', requirePermission('activities:create'), async (req: AuthRequest
       include: { user: { select: { id: true, firstName: true, lastName: true } } },
     })
     res.status(201).json({ success: true, data: activity })
-  } catch (err) {
-    if (err instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } }); return }
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.put('/:id', requirePermission('activities:update'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -66,14 +64,14 @@ router.put('/:id', requirePermission('activities:update'), async (req: AuthReque
     if (req.body.completedAt) data.completedAt = new Date(req.body.completedAt)
     const activity = await prisma.activity.update({ where: { id: req.params.id }, data: data as Parameters<typeof prisma.activity.update>[0]['data'] })
     res.json({ success: true, data: activity })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 router.delete('/:id', requirePermission('activities:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.activity.delete({ where: { id: req.params.id } })
     res.json({ success: true, data: { message: 'Activité supprimée' } })
-  } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
+  } catch (err) { handleRouteError(err, res) }
 })
 
 export default router
