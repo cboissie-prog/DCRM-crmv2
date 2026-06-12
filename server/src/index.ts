@@ -16,9 +16,21 @@ import { startScheduler } from './scheduler'
 const app = createApp()
 const PORT = Number(process.env.PORT) || 3001
 
-app.listen(PORT, '0.0.0.0', async () => {
+const server = app.listen(PORT, '0.0.0.0', async () => {
   logger.info(`🚀 CRM Server running on http://localhost:${PORT}`)
   logger.info(`   Environment: ${process.env.NODE_ENV || 'development'}`)
   logger.info(`   Database: SQLite (dev.db)`)
   await startScheduler()
+})
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    logger.fatal(
+      `Le port ${PORT} est déjà utilisé par un autre serveur (probablement un ancien npm run dev resté ouvert).\n` +
+      `   → Identifier le process : Get-NetTCPConnection -LocalPort ${PORT} | Select OwningProcess\n` +
+      `   → Le tuer : Stop-Process -Id <PID> -Force, puis relancer npm run dev`
+    )
+    process.exit(1)
+  }
+  throw err
 })
