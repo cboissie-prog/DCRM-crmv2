@@ -306,6 +306,9 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
   // Vérification anti-CSRF du state
   const storedState = req.cookies?.gauth_state
   if (!state || !storedState || state !== storedState) {
+    // Cause fréquente : flux démarré depuis un autre hôte que celui du redirect URI
+    // (le cookie gauth_state est posé sur l'hôte d'origine), ou state expiré (10 min).
+    logger.warn({ host: req.headers.host, hasCookie: Boolean(storedState) }, '[GOOGLE OAUTH] INVALID_STATE')
     res.status(400).json({ success: false, error: { code: 'INVALID_STATE', message: 'State CSRF invalide' } })
     return
   }
