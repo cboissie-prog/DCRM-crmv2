@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
 import prisma from '../prisma/client'
+import logger from '../lib/logger'
 
 export interface AuthRequest extends Request {
   userId?: string
@@ -57,7 +58,7 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
       next()
       return
     } catch (e) {
-      console.error('API key auth error:', e)
+      logger.error({ err: e }, 'Erreur d\'authentification par clé API')
       res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
       return
     }

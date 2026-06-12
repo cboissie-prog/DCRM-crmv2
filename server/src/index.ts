@@ -6,12 +6,13 @@ import morgan from 'morgan'
 import rateLimit from 'express-rate-limit'
 import cookieParser from 'cookie-parser'
 import path from 'path'
+import logger from './lib/logger'
 
 // Validation des variables d'environnement critiques au démarrage
 const REQUIRED_ENV = ['JWT_SECRET', 'JWT_REFRESH_SECRET'] as const
 for (const key of REQUIRED_ENV) {
   if (!process.env[key]) {
-    console.error(`FATAL: Variable d'environnement manquante : ${key}`)
+    logger.fatal(`FATAL: Variable d'environnement manquante : ${key}`)
     process.exit(1)
   }
 }
@@ -151,9 +152,8 @@ app.use(notFound)
 app.use(errorHandler)
 
 app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`\n🚀 CRM Server running on http://localhost:${PORT}`)
-  console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`)
-  console.log(`   Database: SQLite (dev.db)`)
+  logger.info(`🚀 CRM Server running on http://localhost:${PORT}`)
+  logger.info(`   Environment: ${process.env.NODE_ENV || 'development'}`)
+  logger.info(`   Database: SQLite (dev.db)`)
   await startScheduler()
-  console.log()
 })

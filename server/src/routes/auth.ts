@@ -7,6 +7,8 @@ import prisma from '../prisma/client'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
 import { sendPasswordResetEmail } from '../services/mailer'
+import logger from '../lib/logger'
+import { audit } from '../lib/audit'
 
 /** Retourne le SHA-256 hex d'un token — le token en clair ne touche jamais la DB */
 function hashToken(token: string): string {
@@ -74,6 +76,9 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     await prisma.refreshToken.create({ data: { token: hashToken(refreshToken), userId: user.id, expiresAt } })
     const { password: _, roleRef: __, ...userWithoutPassword } = user
     res.cookie('refreshToken', refreshToken, REFRESH_COOKIE_OPTIONS)
+    // Audit fire-and-forget (après envoi de la réponse)
+    const fakeReq = { userId: user.id } as AuthRequest
+    audit(fakeReq, 'LOGIN_SUCCESS', 'User', user.id, { email: user.email, role: user.role })
     res.json({ success: true, data: { user: { ...userWithoutPassword, permissions }, accessToken } })
   } catch (err) {
     // login : ZodError → 400, autres → log + 500
@@ -107,7 +112,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
 
     if (!stored) {
       // Token JWT authentique mais absent de la DB → réutilisation probable (vol détecté)
-      console.warn('[SECURITY] Refresh token réutilisé, révocation des sessions user', payload.userId)
+      logger.warn({ userId: payload.userId }, '[SECURITY] Refresh token réutilisé, révocation des sessions user')
       await prisma.refreshToken.deleteMany({ where: { userId: payload.userId } })
       res.clearCookie('refreshToken', { path: '/api/auth' })
       res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Session révoquée pour raison de sécurité' } })
@@ -162,6 +167,7 @@ router.post('/logout', authenticate, async (req: AuthRequest, res: Response): Pr
   try {
     const refreshToken = req.cookies?.refreshToken
     if (refreshToken) await prisma.refreshToken.deleteMany({ where: { token: hashToken(refreshToken) } })
+    audit(req, 'LOGOUT', 'User', req.userId)
     res.clearCookie('refreshToken', { path: '/api/auth' })
     res.json({ success: true, data: { message: 'Déconnecté avec succès' } })
   } catch (err) { handleRouteError(err, res) }
@@ -182,7 +188,7 @@ router.post('/forgot-password', async (req: Request, res: Response): Promise<voi
       // Envoi détaché : sort du cycle requête pour éviter la fuite de timing (énumération d'emails)
       const emailTo = user.email
       setImmediate(() => {
-        sendPasswordResetEmail(emailTo, token).catch(err => console.error('[MAILER]', err))
+        sendPasswordResetEmail(emailTo, token).catch(err => logger.error({ err }, '[MAILER] Échec d\'envoi de l\'email de réinitialisation'))
       })
     }
     await minDelay
@@ -212,6 +218,8 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
     await prisma.user.update({ where: { id: resetToken.userId }, data: { password: hashedPassword } })
     await prisma.passwordResetToken.delete({ where: { token } })
     await prisma.refreshToken.deleteMany({ where: { userId: resetToken.userId } })
+    const fakeReq = { userId: resetToken.userId } as AuthRequest
+    audit(fakeReq, 'PASSWORD_RESET', 'User', resetToken.userId)
     res.clearCookie('refreshToken', { path: '/api/auth' })
     res.json({ success: true, data: { message: 'Mot de passe réinitialisé avec succès' } })
   } catch (err) { handleRouteError(err, res) }

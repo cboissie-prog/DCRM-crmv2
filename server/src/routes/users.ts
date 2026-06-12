@@ -4,6 +4,7 @@ import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { audit } from '../lib/audit'
 
 const router = Router()
 router.use(authenticate)
@@ -65,6 +66,7 @@ router.post('/', requirePermission('users:create'), async (req: AuthRequest, res
       },
       select: { id: true, email: true, firstName: true, lastName: true, phone: true, role: true, isActive: true, createdAt: true },
     })
+    audit(req, 'USER_CREATED', 'User', user.id, { email: user.email, role: user.role })
     res.status(201).json({ success: true, data: user })
   } catch (err) { handleRouteError(err, res) }
 })
@@ -148,6 +150,10 @@ router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       data: { ...restBody, ...roleFields },
       select: { id: true, email: true, firstName: true, lastName: true, phone: true, role: true, isActive: true },
     })
+    const metaChanged: Record<string, unknown> = {}
+    if (body.role !== undefined) metaChanged.roleChanged = body.role
+    if (body.isActive !== undefined) metaChanged.isActiveChanged = body.isActive
+    audit(req, 'USER_UPDATED', 'User', user.id, Object.keys(metaChanged).length > 0 ? metaChanged : undefined)
     res.json({ success: true, data: user })
   } catch (err) { handleRouteError(err, res) }
 })
@@ -157,6 +163,7 @@ router.delete('/:id', requirePermission('users:delete'), async (req: AuthRequest
   try {
     if (req.params.id === req.userId) { res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Impossible de se désactiver soi-même' } }); return }
     await prisma.user.update({ where: { id: req.params.id }, data: { isActive: false } })
+    audit(req, 'USER_DEACTIVATED', 'User', req.params.id)
     res.json({ success: true, data: { message: 'Utilisateur désactivé' } })
   } catch (err) { handleRouteError(err, res) }
 })
@@ -211,6 +218,7 @@ router.patch('/:id/password', async (req: AuthRequest, res: Response): Promise<v
     await prisma.user.update({ where: { id: req.params.id }, data: { password: hashedPassword } })
     // Révoque toutes les sessions de l'utilisateur concerné (comme reset-password)
     await prisma.refreshToken.deleteMany({ where: { userId: req.params.id } })
+    audit(req, 'PASSWORD_CHANGED', 'User', req.params.id)
     res.json({ success: true, data: { message: 'Mot de passe mis à jour' } })
   } catch (err) { handleRouteError(err, res) }
 })

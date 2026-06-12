@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client'
 import prisma from '../prisma/client'
 import { AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { audit } from '../lib/audit'
 
 const router = Router()
 
@@ -101,6 +102,7 @@ router.post('/', requirePermission('settings:roles'), async (req: AuthRequest, r
     const role = await prisma.role.create({
       data: { name: normalizedName, label: body.label, isSystem: false }
     })
+    audit(req, 'ROLE_CREATED', 'Role', role.id, { name: role.name, label: role.label })
     res.status(201).json({ success: true, data: role })
   } catch (err) { handleRouteError(err, res) }
 })
@@ -166,6 +168,7 @@ router.put('/:id/permissions', requirePermission('settings:roles'), async (req: 
         where: { user: { roleId } }
       })
     })
+    audit(req, 'ROLE_PERMISSIONS_CHANGED', 'Role', roleId, { permissionsCount: body.permissionIds.length })
 
     const updated = await prisma.role.findUnique({
       where: { id: roleId },
@@ -207,6 +210,7 @@ router.delete('/:id', requirePermission('settings:roles'), async (req: AuthReque
     }
     await prisma.rolePermission.deleteMany({ where: { roleId: id } })
     await prisma.role.delete({ where: { id } })
+    audit(req, 'ROLE_DELETED', 'Role', id, { name: role.name })
     res.json({ success: true, data: { message: 'Rôle supprimé avec succès' } })
   } catch (err) { handleRouteError(err, res) }
 })

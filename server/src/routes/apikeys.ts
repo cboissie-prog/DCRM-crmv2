@@ -4,6 +4,7 @@ import prisma from '../prisma/client'
 import type { AuthRequest } from '../middleware/auth'
 import { requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { audit } from '../lib/audit'
 
 const router = Router()
 
@@ -57,6 +58,7 @@ router.post('/', requirePermission('apikeys:manage'), async (req: AuthRequest, r
         expiresAt: expiresAt ? new Date(expiresAt) : null,
       },
     })
+    audit(req, 'APIKEY_CREATED', 'ApiKey', record.id, { name: record.name, prefix })
     res.status(201).json({
       success: true,
       data: {
@@ -83,6 +85,7 @@ router.delete('/:id', requirePermission('apikeys:manage'), async (req: AuthReque
       where: { id: req.params.id },
       data: { isActive: false },
     })
+    audit(req, 'APIKEY_REVOKED', 'ApiKey', req.params.id, { name: existing.name, prefix: existing.prefix })
     res.json({ success: true, data: { message: 'Clé révoquée' } })
   } catch (err) { handleRouteError(err, res) }
 })

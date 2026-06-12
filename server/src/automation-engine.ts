@@ -1,4 +1,5 @@
 import prisma from './prisma/client'
+import logger from './lib/logger'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -248,7 +249,7 @@ export async function fireAutomations(trigger: AutomationTrigger, ctx: Automatio
       } catch (err) {
         success = false
         result  = err instanceof Error ? err.message : 'Erreur inconnue'
-        console.error(`[Automation] ${automation.name} failed:`, err)
+        logger.error({ err }, `[Automation] ${automation.name} failed`)
       }
 
       // Log the run
@@ -260,10 +261,10 @@ export async function fireAutomations(trigger: AutomationTrigger, ctx: Automatio
           result,
           success,
         },
-      }).catch(console.error)
+      }).catch((err: unknown) => logger.error({ err }, 'Échec de l\'écriture du log d\'automatisation'))
     }
   } catch (err) {
-    console.error('[AutomationEngine] Error fetching automations:', err)
+    logger.error({ err }, '[AutomationEngine] Erreur lors de la récupération des automatisations')
   }
 }
 
@@ -325,7 +326,7 @@ export async function runOverdueTickets(): Promise<number> {
 
       await prisma.automationLog.create({
         data: { automationId: automation.id, triggeredBy: 'TICKET_OVERDUE', result, success },
-      }).catch(console.error)
+      }).catch((err: unknown) => logger.error({ err }, 'Échec de l\'écriture du log d\'automatisation'))
     }
   }
   return fired
@@ -395,7 +396,7 @@ export async function runOpportunityInactive(): Promise<number> {
 
       await prisma.automationLog.create({
         data: { automationId: automation.id, triggeredBy: 'OPPORTUNITY_INACTIVE', result, success },
-      }).catch(console.error)
+      }).catch((err: unknown) => logger.error({ err }, 'Échec de l\'écriture du log d\'automatisation'))
     }
   }
   return fired
@@ -451,7 +452,7 @@ export async function runContractExpiring(): Promise<number> {
 
       await prisma.automationLog.create({
         data: { automationId: automation.id, triggeredBy: 'CONTRACT_EXPIRING', result, success },
-      }).catch(console.error)
+      }).catch((err: unknown) => logger.error({ err }, 'Échec de l\'écriture du log d\'automatisation'))
     }
   }
   return fired

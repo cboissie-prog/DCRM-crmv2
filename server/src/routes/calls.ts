@@ -9,6 +9,7 @@ import { authenticate, requirePermission, AuthRequest } from '../middleware/auth
 import { handleRouteError } from '../middleware/errorHandler'
 import { ciContains } from '../lib/query'
 import { normalizePhone } from '../lib/phone'
+import { audit } from '../lib/audit'
 
 const router = Router()
 
@@ -319,6 +320,7 @@ router.delete('/:id', requirePermission('calls:delete'), async (req: AuthRequest
       fs.unlinkSync(call.recordingPath)
     }
     await prisma.call.delete({ where: { id: req.params.id } })
+    audit(req, 'CALL_DELETED', 'Call', req.params.id, { callerNumber: call.callerNumber })
     res.json({ success: true, data: null })
   } catch (err) { handleRouteError(err, res) }
 })
@@ -354,6 +356,7 @@ router.post('/:id/recording', requirePermission('calls:listen'), (req: AuthReque
         where: { id: req.params.id },
         data: { recordingPath: req.file.path },
       })
+      audit(req, 'CALL_RECORDING_UPLOADED', 'Call', req.params.id, { filename: req.file.filename, size: req.file.size })
       res.json({ success: true, data: call })
     } catch (err) { handleRouteError(err, res) }
   })
@@ -367,6 +370,7 @@ router.get('/:id/recording/stream', requirePermission('calls:listen'), async (re
       res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Appel introuvable' } })
       return
     }
+    audit(req, 'CALL_RECORDING_PLAYED', 'Call', req.params.id)
     if (call.recordingPath && fs.existsSync(call.recordingPath)) {
       const stat = fs.statSync(call.recordingPath)
       const contentType = audioContentType(call.recordingPath)

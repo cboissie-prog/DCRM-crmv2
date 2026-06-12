@@ -1,5 +1,7 @@
 import cron, { ScheduledTask } from 'node-cron'
+import fs from 'fs'
 import prisma from './prisma/client'
+import logger from './lib/logger'
 import { runOverdueTickets, runOpportunityInactive, runContractExpiring } from './automation-engine'
 
 // ─── Helper : lire un setting entier depuis la DB ─────────────────────────────
@@ -110,20 +112,20 @@ export async function startScheduler() {
   if (automationTask) { automationTask.stop(); automationTask = null }
 
   if (enabled !== 'true') {
-    console.log('  ⏸  Scheduler désactivé (paramètre schedulerEnabled=false)')
+    logger.info('  ⏸  Scheduler désactivé (paramètre schedulerEnabled=false)')
     return
   }
 
   const cronExpr = parseCronTime(time)
-  console.log(`  ⏰ Scheduler contrats planifié à ${time} (cron: ${cronExpr})`)
+  logger.info(`  ⏰ Scheduler contrats planifié à ${time} (cron: ${cronExpr})`)
 
   currentTask = cron.schedule(cronExpr, async () => {
-    console.log(`[${new Date().toISOString()}] 🔄 Mise à jour des statuts contrats...`)
+    logger.info('🔄 Mise à jour des statuts contrats...')
     try {
       const result = await runContractStatusUpdate()
-      console.log(`  ✅ Contrats : ${result.expired} expirés, ${result.expiringSoon} expirant bientôt, ${result.reactivated} réactivés`)
+      logger.info(`  ✅ Contrats : ${result.expired} expirés, ${result.expiringSoon} expirant bientôt, ${result.reactivated} réactivés`)
     } catch (err) {
-      console.error('  ❌ Erreur scheduler contrats:', err)
+      logger.error({ err }, '  ❌ Erreur scheduler contrats')
     }
 
     // Purge des tokens de sécurité expirés
@@ -131,9 +133,54 @@ export async function startScheduler() {
       const now = new Date()
       const { count: expiredRefresh } = await prisma.refreshToken.deleteMany({ where: { expiresAt: { lt: now } } })
       const { count: expiredReset } = await prisma.passwordResetToken.deleteMany({ where: { expiresAt: { lt: now } } })
-      console.log(`  🧹 Purge tokens : ${expiredRefresh} refresh token(s) expiré(s), ${expiredReset} reset token(s) expiré(s) supprimé(s)`)
+      logger.info(`  🧹 Purge tokens : ${expiredRefresh} refresh token(s) expiré(s), ${expiredReset} reset token(s) expiré(s) supprimé(s)`)
     } catch (err) {
-      console.error('  ❌ Erreur scheduler purge tokens:', err)
+      logger.error({ err }, '  ❌ Erreur scheduler purge tokens')
+    }
+
+    // Purge RGPD des enregistrements d'appels
+    try {
+      const retentionDays = await getSettingInt('callRecordingRetentionDays', 180)
+      if (retentionDays > 0) {
+        const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000)
+        let totalPurged = 0
+        // Traitement par lots pour ne pas charger toute la table
+        let hasMore = true
+        while (hasMore) {
+          const calls = await prisma.call.findMany({
+            where: {
+              startedAt: { lt: cutoff },
+              OR: [
+                { recordingPath: { not: null } },
+                { recordingUrl:  { not: null } },
+              ],
+            },
+            select: { id: true, recordingPath: true },
+            take: 200,
+          })
+          if (calls.length === 0) { hasMore = false; break }
+
+          for (const call of calls) {
+            if (call.recordingPath) {
+              try { fs.unlinkSync(call.recordingPath) } catch { /* fichier déjà absent */ }
+            }
+          }
+          const ids = calls.map(c => c.id)
+          await prisma.call.updateMany({
+            where: { id: { in: ids } },
+            data: { recordingPath: null, recordingUrl: null },
+          })
+          totalPurged += calls.length
+          if (calls.length < 200) hasMore = false
+        }
+        if (totalPurged > 0) {
+          logger.info(`  🗑️  Purge RGPD enregistrements : ${totalPurged} appel(s) purgé(s) (rétention ${retentionDays}j)`)
+        }
+      } else {
+        logger.info('  ℹ️  Purge RGPD enregistrements désactivée (callRecordingRetentionDays=0)')
+      }
+    } catch (err) {
+      logger.error({ err }, '  ❌ Erreur scheduler purge RGPD enregistrements')
     }
   }, { timezone: 'Europe/Paris' })
 
@@ -141,9 +188,9 @@ export async function startScheduler() {
   reminderTask = cron.schedule('*/5 * * * *', async () => {
     try {
       const sent = await runAppointmentReminders()
-      if (sent > 0) console.log(`[${new Date().toISOString()}] 🔔 Rappels agenda : ${sent} notification(s) envoyée(s)`)
+      if (sent > 0) logger.info(`🔔 Rappels agenda : ${sent} notification(s) envoyée(s)`)
     } catch (err) {
-      console.error('  ❌ Erreur scheduler rappels agenda:', err)
+      logger.error({ err }, '  ❌ Erreur scheduler rappels agenda')
     }
   }, { timezone: 'Europe/Paris' })
 
@@ -156,15 +203,15 @@ export async function startScheduler() {
         runContractExpiring(),
       ])
       const total = overdue + inactive + expiring
-      if (total > 0) console.log(`[${new Date().toISOString()}] ⚡ Automatisations : ${overdue} tickets en retard, ${inactive} opps inactives, ${expiring} contrats expirants`)
+      if (total > 0) logger.info(`⚡ Automatisations : ${overdue} tickets en retard, ${inactive} opps inactives, ${expiring} contrats expirants`)
     } catch (err) {
-      console.error('  ❌ Erreur scheduler automatisations:', err)
+      logger.error({ err }, '  ❌ Erreur scheduler automatisations')
     }
   }, { timezone: 'Europe/Paris' })
 }
 
 // Permet de relancer le scheduler après un changement de config
 export async function restartScheduler() {
-  console.log('  🔁 Rechargement du scheduler...')
+  logger.info('  🔁 Rechargement du scheduler...')
   await startScheduler()
 }

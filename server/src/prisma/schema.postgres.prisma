@@ -1,3 +1,8 @@
+// ============================================================
+// FICHIER GÉNÉRÉ par scripts/make-postgres-schema.mjs
+// NE PAS ÉDITER À LA MAIN — modifier schema.prisma puis relancer :
+//   node scripts/make-postgres-schema.mjs
+// ============================================================
 generator client {
   provider = "prisma-client-js"
 }
@@ -5,7 +10,7 @@ generator client {
 // Dev = SQLite. Pour PostgreSQL (prod), le schéma est dérivé par scripts/make-postgres-schema
 // (env() est interdit dans `provider` par la CLI Prisma — P1012).
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

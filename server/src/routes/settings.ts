@@ -21,6 +21,7 @@ const DEFAULTS: Record<string, { value: string; label: string }> = {
   companyPhone:             { value: '',        label: 'Téléphone' },
   companySiret:             { value: '',        label: 'SIRET' },
   companyVatNumber:         { value: '',        label: 'N° TVA' },
+  callRecordingRetentionDays: { value: '180',  label: 'Rétention des enregistrements d\'appels (jours)' },
 }
 
 // GET /api/settings — all settings (settings:read)
