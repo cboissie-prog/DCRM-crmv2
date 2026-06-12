@@ -50,13 +50,11 @@ const PERMISSIONS = [
   { key: 'products:create', label: 'Créer un produit', category: 'Produits' },
   { key: 'products:update', label: 'Modifier un produit', category: 'Produits' },
   { key: 'products:delete', label: 'Supprimer un produit', category: 'Produits' },
-  // Interventions
-  { key: 'interventions:read', label: 'Voir les interventions', category: 'Interventions' },
-  { key: 'interventions:create', label: 'Créer une intervention', category: 'Interventions' },
-  { key: 'interventions:update', label: 'Modifier une intervention', category: 'Interventions' },
-  { key: 'interventions:delete', label: 'Supprimer une intervention', category: 'Interventions' },
   // Rapports
   { key: 'reports:read', label: 'Voir les rapports et statistiques', category: 'Rapports' },
+  // Objectifs
+  { key: 'targets:read',  label: 'Voir les objectifs de vente',    category: 'Objectifs' },
+  { key: 'targets:write', label: 'Créer/modifier les objectifs',   category: 'Objectifs' },
   // Automatisations
   { key: 'automation:read', label: 'Voir les automatisations', category: 'Automatisations' },
   { key: 'automation:create', label: 'Créer une automatisation', category: 'Automatisations' },
@@ -97,6 +95,9 @@ const PERMISSIONS = [
 export async function seedBase() {
   console.log('🌱 Seeding base (permissions + rôles + admin)...')
 
+  // ─── NETTOYAGE des permissions obsolètes ───────────────
+  await prisma.permission.deleteMany({ where: { key: { startsWith: 'interventions:' } } })
+
   // ─── PERMISSIONS ───────────────────────────────────────
   for (const perm of PERMISSIONS) {
     await prisma.permission.upsert({
@@ -122,6 +123,7 @@ export async function seedBase() {
     'tickets:read', 'tickets:create', 'tickets:update',
     'products:read',
     'reports:read',
+    'targets:read',
     'activities:read', 'activities:create', 'activities:update', 'activities:delete',
     'appointments:read', 'appointments:create', 'appointments:update', 'appointments:delete',
     'calls:read', 'calls:create', 'calls:update',
@@ -132,7 +134,6 @@ export async function seedBase() {
     'contacts:read',
     'tickets:read', 'tickets:create', 'tickets:update',
     'equipment:read', 'equipment:create', 'equipment:update', 'equipment:delete',
-    'interventions:read', 'interventions:create', 'interventions:update', 'interventions:delete',
     'contracts:read',
     'activities:read', 'activities:create', 'activities:update', 'activities:delete',
     'appointments:read', 'appointments:create', 'appointments:update', 'appointments:delete',

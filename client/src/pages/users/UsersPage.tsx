@@ -52,25 +52,40 @@ export function UsersPage() {
 
   const [showCreate, setShowCreate] = useState(false)
   const [editUser, setEditUser] = useState<User | null>(null)
+  const [includeInactive, setIncludeInactive] = useState(false)
 
   // Restriction ADMIN/MANAGER uniquement
   const canAccess = currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER'
+  const isAdmin = currentUser?.role === 'ADMIN'
 
   const { data: users, isLoading } = useQuery<User[]>({
-    queryKey: ['users'],
-    queryFn: async () => { const { data } = await api.get('/users'); return data.data },
+    queryKey: ['users', includeInactive],
+    queryFn: async () => {
+      const url = includeInactive ? '/users?includeInactive=true' : '/users'
+      const { data } = await api.get(url)
+      return data.data
+    },
     staleTime: 30_000,
     enabled: canAccess,
   })
 
   const toggleActiveMutation = useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
-      api.patch(`/users/${id}`, { isActive }),
+      api.put(`/users/${id}`, { isActive }),
     onSuccess: (_, { isActive }) => {
       qc.invalidateQueries({ queryKey: ['users'] })
       toast.success(isActive ? 'Utilisateur réactivé' : 'Utilisateur désactivé')
     },
     onError: () => toast.error('Erreur lors de la mise à jour'),
+  })
+
+  const reactivateMutation = useMutation({
+    mutationFn: (id: string) => api.put(`/users/${id}`, { isActive: true }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['users'] })
+      toast.success('Utilisateur réactivé')
+    },
+    onError: () => toast.error('Erreur lors de la réactivation'),
   })
 
   const changeRoleMutation = useMutation({
@@ -108,11 +123,22 @@ export function UsersPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Gestion des utilisateurs</h1>
-          <p className="page-subtitle">{users?.length || 0} utilisateurs</p>
+          <p className="page-subtitle">{users?.length || 0} utilisateur{(users?.length || 0) !== 1 ? 's' : ''}</p>
         </div>
-        <button className="btn-primary" onClick={() => setShowCreate(true)}>
-          <Plus className="w-4 h-4" /> Inviter un utilisateur
-        </button>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={includeInactive}
+              onChange={e => setIncludeInactive(e.target.checked)}
+              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            Afficher les désactivés
+          </label>
+          <button className="btn-primary" onClick={() => setShowCreate(true)}>
+            <Plus className="w-4 h-4" /> Inviter un utilisateur
+          </button>
+        </div>
       </div>
 
       {/* Table */}
@@ -167,11 +193,26 @@ export function UsersPage() {
                     </div>
                   </td>
                   <td>
-                    {u.isActive ? (
-                      <Badge variant="badge-green">Actif</Badge>
-                    ) : (
-                      <Badge variant="badge-gray">Inactif</Badge>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {u.isActive ? (
+                        <Badge variant="badge-green">Actif</Badge>
+                      ) : (
+                        <Badge variant="badge-gray">Désactivé</Badge>
+                      )}
+                      {!u.isActive && isAdmin && (
+                        <button
+                          className="text-xs text-emerald-600 hover:text-emerald-700 font-medium underline-offset-2 hover:underline"
+                          onClick={() => {
+                            if (window.confirm(`Réactiver ${u.firstName} ${u.lastName} ?`)) {
+                              reactivateMutation.mutate(u.id)
+                            }
+                          }}
+                          disabled={reactivateMutation.isPending}
+                        >
+                          Réactiver
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td className="text-slate-400 text-xs">{formatDate(u.createdAt)}</td>
                   <td>

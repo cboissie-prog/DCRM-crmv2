@@ -179,7 +179,11 @@ router.post('/forgot-password', async (req: Request, res: Response): Promise<voi
       const token = randomBytes(32).toString('hex')
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000) // 1h
       await prisma.passwordResetToken.create({ data: { token, userId: user.id, expiresAt } })
-      await sendPasswordResetEmail(user.email, token)
+      // Envoi détaché : sort du cycle requête pour éviter la fuite de timing (énumération d'emails)
+      const emailTo = user.email
+      setImmediate(() => {
+        sendPasswordResetEmail(emailTo, token).catch(err => console.error('[MAILER]', err))
+      })
     }
     await minDelay
     res.json({ success: true, data: { message: 'Si cet email existe, un lien de réinitialisation a été envoyé.' } })

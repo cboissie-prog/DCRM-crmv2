@@ -65,6 +65,7 @@ interface Condition {
   inactiveDays?:     number
   daysBeforeExpiry?: number
   minScore?:         number
+  renotifyHours?:    number
 }
 
 interface Action {
@@ -289,13 +290,14 @@ export async function runOverdueTickets(): Promise<number> {
       take: 50,
     })
 
+    const renotifyHours = conditions.renotifyHours ?? 24
     for (const ticket of tickets) {
-      // Avoid duplicate logs within 1h
+      // Avoid duplicate logs within renotifyHours (default 24 h)
       const recent = await prisma.automationLog.findFirst({
         where: {
           automationId: automation.id,
           triggeredBy:  'TICKET_OVERDUE',
-          createdAt:    { gt: new Date(Date.now() - 60 * 60 * 1000) },
+          createdAt:    { gt: new Date(Date.now() - renotifyHours * 60 * 60 * 1000) },
           result:       { contains: ticket.id },
         },
       })
@@ -342,9 +344,21 @@ export async function runOpportunityInactive(): Promise<number> {
     const inactiveDays = conditions.inactiveDays ?? 15
     const threshold = new Date(Date.now() - inactiveDays * 24 * 60 * 60 * 1000)
 
+    // Récupère les stages terminaux dynamiquement (isWon ou isLost)
+    const terminalStages = await prisma.pipelineStage.findMany({
+      where: { OR: [{ isWon: true }, { isLost: true }] },
+      select: { key: true },
+    })
+    // Déduplique et ajoute les valeurs statiques par sécurité (anciens enregistrements)
+    const terminalKeys = [...new Set([
+      ...terminalStages.map(s => s.key),
+      'WON',
+      'LOST',
+    ])]
+
     const opps = await prisma.opportunity.findMany({
       where: {
-        stage: { notIn: ['WON', 'LOST'] },
+        stage: { notIn: terminalKeys },
         updatedAt: { lt: threshold },
       },
       take: 50,

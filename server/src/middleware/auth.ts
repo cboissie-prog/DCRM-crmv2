@@ -19,7 +19,7 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
   if (apiKeyHeader) {
     try {
       const hash = hashKey(apiKeyHeader)
-      const record = await (prisma as any).apiKey.findUnique({
+      const record = await prisma.apiKey.findUnique({
         where: { keyHash: hash },
         include: {
           user: {
@@ -43,13 +43,13 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
       }
 
       // Mise à jour lastUsedAt en arrière-plan (non bloquant)
-      ;(prisma as any).apiKey.update({ where: { id: record.id }, data: { lastUsedAt: new Date() } }).catch(() => {})
+      prisma.apiKey.update({ where: { id: record.id }, data: { lastUsedAt: new Date() } }).catch(() => {})
 
       const user = record.user
       const permissions: string[] =
         user.role === 'ADMIN'
           ? []
-          : user.roleRef?.permissions.map((rp: any) => rp.permission.key) ?? []
+          : user.roleRef?.permissions.map((rp: { permission: { key: string } }) => rp.permission.key) ?? []
 
       req.userId = user.id
       req.userRole = user.role

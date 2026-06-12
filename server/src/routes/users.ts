@@ -15,7 +15,7 @@ const userSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   phone: z.string().optional(),
-  role: z.enum(['ADMIN', 'MANAGER', 'COMMERCIAL', 'TECHNICIEN']).optional(),
+  role: z.string().min(1).optional(),
 })
 
 const updateUserSchema = z.object({
@@ -23,15 +23,17 @@ const updateUserSchema = z.object({
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
   phone: z.string().optional(),
-  role: z.enum(['ADMIN', 'MANAGER', 'COMMERCIAL', 'TECHNICIEN']).optional(),
+  role: z.string().min(1).optional(),
   isActive: z.boolean().optional(),
 })
 
 // GET / — liste users (ADMIN, MANAGER)
-router.get('/', requirePermission('users:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('users:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const includeInactive = req.query.includeInactive === 'true'
+    const where = includeInactive ? {} : { isActive: true }
     const users = await prisma.user.findMany({
-      where: { isActive: true },
+      where,
       select: { id: true, email: true, firstName: true, lastName: true, phone: true, avatar: true, role: true, isActive: true, createdAt: true },
       orderBy: { firstName: 'asc' },
     })
@@ -44,17 +46,31 @@ router.post('/', requirePermission('users:create'), async (req: AuthRequest, res
   try {
     const body = userSchema.parse(req.body)
     const hashedPassword = await bcrypt.hash(body.password, 12)
-    const roleRecord = body.role ? await prisma.role.findUnique({ where: { name: body.role } }) : null
+
+    let roleRecord: { id: string; name: string } | null = null
+    if (body.role) {
+      roleRecord = await prisma.role.findUnique({ where: { name: body.role.toUpperCase() } })
+      if (!roleRecord) {
+        res.status(400).json({ success: false, error: { code: 'INVALID_ROLE', message: 'Rôle inconnu' } })
+        return
+      }
+    }
+
+    const { role: _role, ...rest } = body
     const user = await prisma.user.create({
-      data: { ...body, password: hashedPassword, roleId: roleRecord?.id ?? null },
+      data: {
+        ...rest,
+        password: hashedPassword,
+        ...(roleRecord ? { role: roleRecord.name, roleId: roleRecord.id } : {}),
+      },
       select: { id: true, email: true, firstName: true, lastName: true, phone: true, role: true, isActive: true, createdAt: true },
     })
     res.status(201).json({ success: true, data: user })
   } catch (err) { handleRouteError(err, res) }
 })
 
-// GET /targets — objectifs de vente (ADMIN, MANAGER)
-router.get('/targets', requirePermission('reports:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
+// GET /targets — objectifs de vente (ADMIN, MANAGER, COMMERCIAL en lecture)
+router.get('/targets', requirePermission('targets:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const targets = await prisma.salesTarget.findMany({
       include: { user: { select: { id: true, firstName: true, lastName: true, avatar: true } } },
@@ -71,7 +87,7 @@ const targetSchema = z.object({
 })
 
 // POST /targets — définir un objectif (ADMIN, MANAGER)
-router.post('/targets', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/targets', requirePermission('targets:write'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { userId, period, target } = targetSchema.parse(req.body)
     const existing = await prisma.salesTarget.findFirst({ where: { userId, period } })
@@ -115,10 +131,21 @@ router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       delete body.role
       delete body.isActive
     }
-    const roleRecord = body.role ? await prisma.role.findUnique({ where: { name: body.role } }) : undefined
+
+    let roleFields: { role?: string; roleId?: string } = {}
+    if (body.role !== undefined) {
+      const roleRecord = await prisma.role.findUnique({ where: { name: body.role.toUpperCase() } })
+      if (!roleRecord) {
+        res.status(400).json({ success: false, error: { code: 'INVALID_ROLE', message: 'Rôle inconnu' } })
+        return
+      }
+      roleFields = { role: roleRecord.name, roleId: roleRecord.id }
+    }
+
+    const { role: _role, ...restBody } = body
     const user = await prisma.user.update({
       where: { id: req.params.id as string },
-      data: { ...body, ...(roleRecord ? { roleId: roleRecord.id } : {}) },
+      data: { ...restBody, ...roleFields },
       select: { id: true, email: true, firstName: true, lastName: true, phone: true, role: true, isActive: true },
     })
     res.json({ success: true, data: user })

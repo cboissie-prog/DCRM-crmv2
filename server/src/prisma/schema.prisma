@@ -2,8 +2,10 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Dev = SQLite. Pour PostgreSQL (prod), le schéma est dérivé par scripts/make-postgres-schema
+// (env() est interdit dans `provider` par la CLI Prisma — P1012).
 datasource db {
-  provider = env("DATABASE_PROVIDER")
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -100,7 +102,9 @@ model Contact {
   lastName    String
   email       String?
   phone       String?
+  phoneNormalized String?
   mobile      String?
+  mobileNormalized String?
   position    String?
   companyId   String?
   company     Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)

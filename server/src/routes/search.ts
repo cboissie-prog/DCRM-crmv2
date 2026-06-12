@@ -16,57 +16,71 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
       return
     }
 
+    const hasAll = req.permissions?.includes('*')
+    const canContacts     = hasAll || req.permissions?.includes('contacts:read')
+    const canCompanies    = hasAll || req.permissions?.includes('companies:read')
+    const canTickets      = hasAll || req.permissions?.includes('tickets:read')
+    const canOpportunities = hasAll || req.permissions?.includes('pipeline:read')
+
     const [contacts, companies, tickets, opportunities] = await Promise.all([
-      prisma.contact.findMany({
-        where: {
-          isActive: true,
-          OR: [
-            { firstName: ciContains(q) },
-            { lastName: ciContains(q) },
-            { email: ciContains(q) },
-            { phone: ciContains(q) },
-          ],
-        },
-        include: { company: { select: { name: true } } },
-        take: 5,
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.company.findMany({
-        where: {
-          isActive: true,
-          OR: [
-            { name: ciContains(q) },
-            { siret: ciContains(q) },
-            { vatNumber: ciContains(q) },
-            { city: ciContains(q) },
-          ],
-        },
-        take: 5,
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.ticket.findMany({
-        where: {
-          OR: [
-            { title: ciContains(q) },
-            { reference: ciContains(q) },
-            { description: ciContains(q) },
-          ],
-        },
-        include: { company: { select: { name: true } } },
-        take: 5,
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.opportunity.findMany({
-        where: {
-          OR: [
-            { title: ciContains(q) },
-            { company: { name: ciContains(q) } },
-          ],
-        },
-        include: { company: { select: { name: true } } },
-        take: 5,
-        orderBy: { createdAt: 'desc' },
-      }),
+      canContacts
+        ? prisma.contact.findMany({
+            where: {
+              isActive: true,
+              OR: [
+                { firstName: ciContains(q) },
+                { lastName: ciContains(q) },
+                { email: ciContains(q) },
+                { phone: ciContains(q) },
+              ],
+            },
+            include: { company: { select: { name: true } } },
+            take: 5,
+            orderBy: { createdAt: 'desc' },
+          })
+        : Promise.resolve([]),
+      canCompanies
+        ? prisma.company.findMany({
+            where: {
+              isActive: true,
+              OR: [
+                { name: ciContains(q) },
+                { siret: ciContains(q) },
+                { vatNumber: ciContains(q) },
+                { city: ciContains(q) },
+              ],
+            },
+            take: 5,
+            orderBy: { createdAt: 'desc' },
+          })
+        : Promise.resolve([]),
+      canTickets
+        ? prisma.ticket.findMany({
+            where: {
+              OR: [
+                { title: ciContains(q) },
+                { reference: ciContains(q) },
+                { description: ciContains(q) },
+              ],
+            },
+            include: { company: { select: { name: true } } },
+            take: 5,
+            orderBy: { createdAt: 'desc' },
+          })
+        : Promise.resolve([]),
+      canOpportunities
+        ? prisma.opportunity.findMany({
+            where: {
+              OR: [
+                { title: ciContains(q) },
+                { company: { name: ciContains(q) } },
+              ],
+            },
+            include: { company: { select: { name: true } } },
+            take: 5,
+            orderBy: { createdAt: 'desc' },
+          })
+        : Promise.resolve([]),
     ])
 
     res.json({

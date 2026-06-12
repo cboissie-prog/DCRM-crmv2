@@ -23,8 +23,8 @@ const DEFAULTS: Record<string, { value: string; label: string }> = {
   companyVatNumber:         { value: '',        label: 'N° TVA' },
 }
 
-// GET /api/settings — all settings (admin only)
-router.get('/', requirePermission('settings:write'), async (_req: AuthRequest, res: Response): Promise<void> => {
+// GET /api/settings — all settings (settings:read)
+router.get('/', requirePermission('settings:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const rows = await prisma.setting.findMany()
     // Merge DB values with defaults so all keys are always present

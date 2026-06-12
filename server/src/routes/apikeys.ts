@@ -22,7 +22,7 @@ function generateApiKey(): { key: string; prefix: string; hash: string } {
 // GET /api/apikeys — liste les clés de l'utilisateur courant
 router.get('/', requirePermission('apikeys:manage'), async (req: AuthRequest, res) => {
   try {
-    const keys = await (prisma as any).apiKey.findMany({
+    const keys = await prisma.apiKey.findMany({
       where: { userId: req.userId, isActive: true },
       select: {
         id: true,
@@ -48,7 +48,7 @@ router.post('/', requirePermission('apikeys:manage'), async (req: AuthRequest, r
   }
   try {
     const { key, prefix, hash } = generateApiKey()
-    const record = await (prisma as any).apiKey.create({
+    const record = await prisma.apiKey.create({
       data: {
         name: name.trim(),
         keyHash: hash,
@@ -74,13 +74,13 @@ router.post('/', requirePermission('apikeys:manage'), async (req: AuthRequest, r
 // DELETE /api/apikeys/:id — révoque une clé
 router.delete('/:id', requirePermission('apikeys:manage'), async (req: AuthRequest, res) => {
   try {
-    const existing = await (prisma as any).apiKey.findUnique({ where: { id: req.params.id as string } })
+    const existing = await prisma.apiKey.findUnique({ where: { id: req.params.id } })
     if (!existing || existing.userId !== req.userId) {
       res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Clé introuvable' } })
       return
     }
-    await (prisma as any).apiKey.update({
-      where: { id: req.params.id as string },
+    await prisma.apiKey.update({
+      where: { id: req.params.id },
       data: { isActive: false },
     })
     res.json({ success: true, data: { message: 'Clé révoquée' } })

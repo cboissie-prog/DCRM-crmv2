@@ -5,6 +5,7 @@ import { authenticate, AuthRequest, requirePermission } from '../middleware/auth
 import { handleRouteError } from '../middleware/errorHandler'
 import { ciContains } from '../lib/query'
 import { csvEscape } from '../lib/csv'
+import { normalizePhone } from '../lib/phone'
 
 const router = Router()
 router.use(authenticate)
@@ -60,7 +61,14 @@ router.get('/', requirePermission('contacts:read'), async (req: AuthRequest, res
 router.post('/', requirePermission('contacts:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = contactSchema.parse(req.body)
-    const contact = await prisma.contact.create({ data: body, include: { company: { select: { id: true, name: true } } } })
+    const contact = await prisma.contact.create({
+      data: {
+        ...body,
+        phoneNormalized:  normalizePhone(body.phone),
+        mobileNormalized: normalizePhone(body.mobile),
+      },
+      include: { company: { select: { id: true, name: true } } },
+    })
     res.status(201).json({ success: true, data: contact })
   } catch (err) { handleRouteError(err, res) }
 })
@@ -124,18 +132,24 @@ router.post('/import/csv', requirePermission('contacts:create'), async (req: Aut
     // Prépare les données à insérer
     const toCreate = valid
       .filter(v => !v.r.Email?.trim() || !existingEmailSet.has(v.r.Email.trim()))
-      .map(({ r, firstName, lastName }) => ({
-        firstName: firstName || '—',
-        lastName: lastName || '—',
-        email: r.Email?.trim() || undefined,
-        phone: r.Téléphone?.trim() || undefined,
-        mobile: r.Mobile?.trim() || undefined,
-        position: r.Poste?.trim() || undefined,
-        notes: r.Notes?.trim() || undefined,
-        source: SOURCE_MAP[r.Source?.toLowerCase() ?? ''] ?? 'OTHER',
-        status: STATUS_MAP[r.Statut?.toLowerCase() ?? ''] ?? 'PROSPECT',
-        companyId: r.Entreprise?.trim() ? companyMap.get(r.Entreprise.trim()) : undefined,
-      }))
+      .map(({ r, firstName, lastName }) => {
+        const phone  = r.Téléphone?.trim() || undefined
+        const mobile = r.Mobile?.trim()    || undefined
+        return {
+          firstName: firstName || '—',
+          lastName: lastName || '—',
+          email: r.Email?.trim() || undefined,
+          phone,
+          phoneNormalized:  normalizePhone(phone),
+          mobile,
+          mobileNormalized: normalizePhone(mobile),
+          position: r.Poste?.trim() || undefined,
+          notes: r.Notes?.trim() || undefined,
+          source: SOURCE_MAP[r.Source?.toLowerCase() ?? ''] ?? 'OTHER',
+          status: STATUS_MAP[r.Statut?.toLowerCase() ?? ''] ?? 'PROSPECT',
+          companyId: r.Entreprise?.trim() ? companyMap.get(r.Entreprise.trim()) : undefined,
+        }
+      })
 
     skipped += valid.length - toCreate.length
 
@@ -199,7 +213,14 @@ router.get('/:id', requirePermission('contacts:read'), async (req: AuthRequest, 
 router.put('/:id', requirePermission('contacts:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = contactSchema.partial().parse(req.body)
-    const contact = await prisma.contact.update({ where: { id: req.params.id }, data: body, include: { company: { select: { id: true, name: true } } } })
+    const updateData: typeof body & { phoneNormalized?: string | null; mobileNormalized?: string | null } = { ...body }
+    if ('phone'  in body) updateData.phoneNormalized  = normalizePhone(body.phone)
+    if ('mobile' in body) updateData.mobileNormalized = normalizePhone(body.mobile)
+    const contact = await prisma.contact.update({
+      where: { id: req.params.id },
+      data: updateData,
+      include: { company: { select: { id: true, name: true } } },
+    })
     res.json({ success: true, data: contact })
   } catch (err) { handleRouteError(err, res) }
 })

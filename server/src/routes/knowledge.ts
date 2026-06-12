@@ -19,7 +19,7 @@ const articleSchema = z.object({
 // GET /knowledge/categories — compteurs par catégorie
 router.get('/categories', requirePermission('knowledge:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const isEditor = req.userRole === 'ADMIN' || req.userRole === 'MANAGER'
+    const isEditor = req.permissions?.includes('*') || req.permissions?.includes('knowledge:update')
     const baseWhere = isEditor ? {} : { isPublished: true }
     const groups = await prisma.knowledgeArticle.groupBy({
       by: ['category'],
@@ -36,7 +36,7 @@ router.get('/', requirePermission('knowledge:read'), async (req: AuthRequest, re
     const { search, category, page, limit } = req.query as Record<string, string>
     const pageNum = Math.max(1, parseInt(page) || 1)
     const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 25))
-    const isEditor = req.userRole === 'ADMIN' || req.userRole === 'MANAGER'
+    const isEditor = req.permissions?.includes('*') || req.permissions?.includes('knowledge:update')
     const where: Record<string, unknown> = isEditor ? {} : { isPublished: true }
     if (category) where.category = category
     if (search) where.OR = [{ title: ciContains(search) }, { content: ciContains(search) }, { tags: ciContains(search) }]

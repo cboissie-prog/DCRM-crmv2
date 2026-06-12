@@ -8,6 +8,7 @@ import prisma from '../prisma/client'
 import { authenticate, requirePermission, AuthRequest } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
 import { ciContains } from '../lib/query'
+import { normalizePhone } from '../lib/phone'
 
 const router = Router()
 
@@ -110,20 +111,19 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
         return
       }
     }
-    const normalized = body.caller_number.replace(/[\s\-.()+]/g, '')
-
-    // Auto-detect caller from contacts
-    // Note: ciContains intentionally not used here — normalized is a sanitized phone number
-    // and the partial-match logic is a business-specific lookup, not a user text search.
-    const contact = await prisma.contact.findFirst({
-      where: {
-        OR: [
-          { phone:  { contains: normalized } },
-          { mobile: { contains: normalized } },
-        ],
-      },
-      select: { id: true, companyId: true },
-    })
+    // Auto-detect caller from contacts via les champs pré-normalisés (égalité stricte)
+    const norm = normalizePhone(body.caller_number)
+    const contact = (norm && norm.length >= 6)
+      ? await prisma.contact.findFirst({
+          where: {
+            OR: [
+              { phoneNormalized:  norm },
+              { mobileNormalized: norm },
+            ],
+          },
+          select: { id: true, companyId: true },
+        })
+      : null
 
     // Dedup: si externalId déjà connu, mettre à jour plutôt que créer
     const data = {
