@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
@@ -43,7 +43,7 @@ const updateSchema = z.object({
 
 // ─── GET /targets?period=2026-Q2 ──────────────────────────────────────────────
 
-router.get('/', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const period = (req.query.period as string) || currentPeriod()
 
@@ -64,7 +64,7 @@ router.get('/', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: Aut
 
 // ─── GET /targets/forecast ────────────────────────────────────────────────────
 
-router.get('/forecast', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/forecast', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const period = (req.query.period as string) || currentPeriod()
     const { start, end } = parsePeriod(period)
@@ -170,7 +170,7 @@ router.get('/forecast', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (
 
 // ─── POST /targets ────────────────────────────────────────────────────────────
 
-router.post('/', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = createSchema.parse(req.body)
     // Upsert par userId + period
@@ -197,7 +197,7 @@ router.post('/', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res
 
 // ─── PUT /targets/:id ─────────────────────────────────────────────────────────
 
-router.put('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body   = updateSchema.parse(req.body)
     const id     = req.params.id as string
@@ -215,7 +215,7 @@ router.put('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, r
 
 // ─── DELETE /targets/:id ──────────────────────────────────────────────────────
 
-router.delete('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.salesTarget.delete({ where: { id: req.params.id as string } })
     res.json({ success: true })

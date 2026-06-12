@@ -566,7 +566,7 @@ function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, st
         </div>
 
         {/* Valeur + Probabilité */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="form-group">
             <label className="label">Valeur (€) *</label>
             <input
@@ -592,7 +592,7 @@ function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, st
         </div>
 
         {/* Stage + Date closing */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="form-group">
             <label className="label">Stage *</label>
             <Controller
@@ -847,14 +847,14 @@ export function PipelinePage() {
     <div className="flex flex-col h-full fade-in">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="page-header">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <div>
             <h1 className="page-title">Pipeline commercial</h1>
             <p className="page-subtitle">{activeOpps.length} opportunités en cours</p>
           </div>
           {/* Sélecteur de pipeline */}
           {pipelines.length > 0 && (
-            <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
+            <div className="flex flex-wrap items-center gap-2 bg-slate-100 rounded-xl p-1">
               {pipelines.map(p => (
                 <button
                   key={p.id}
@@ -873,7 +873,7 @@ export function PipelinePage() {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {canAssign && (
             <button className="btn-secondary" onClick={() => setShowPipelineManager(true)}>
               <Settings className="w-4 h-4" /> Gérer les pipelines
@@ -890,7 +890,7 @@ export function PipelinePage() {
       </div>
 
       {/* ── Stats rapides ──────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-4 mb-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
         <div className="bg-white rounded-2xl border border-slate-200 p-4 flex items-center gap-4">
           <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
             <TrendingUp className="w-5 h-5 text-primary-600" />
@@ -1155,9 +1155,9 @@ function PipelineManagerModal({ pipelines, onClose }: PipelineManagerModalProps)
 
   return (
     <Modal open onClose={onClose} title="Gestion des pipelines" size="xl">
-      <div className="flex gap-6 min-h-96">
+      <div className="flex flex-col sm:flex-row gap-6 min-h-96">
         {/* ── Liste pipelines ─────────────────────────── */}
-        <div className="w-56 flex-shrink-0 border-r border-slate-100 pr-4 flex flex-col gap-1">
+        <div className="w-full sm:w-56 flex-shrink-0 sm:border-r border-slate-100 sm:pr-4 flex flex-col gap-1">
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Pipelines</p>
           {pipelines.map(p => (
             <button
@@ -1263,7 +1263,7 @@ function PipelineManagerModal({ pipelines, onClose }: PipelineManagerModalProps)
                   className="mt-3 p-3 rounded-xl border border-primary-200 bg-primary-50 space-y-2"
                 >
                   <p className="text-xs font-semibold text-primary-700">Nouvelle étape</p>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <div>
                       <input
                         {...stageForm.register('key')}
@@ -1293,7 +1293,7 @@ function PipelineManagerModal({ pipelines, onClose }: PipelineManagerModalProps)
                   className="mt-3 p-3 rounded-xl border border-amber-200 bg-amber-50 space-y-2"
                 >
                   <p className="text-xs font-semibold text-amber-700">Modifier l'étape</p>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <input {...stageForm.register('name')} placeholder="Nom affiché" className="input text-xs py-1.5" />
                     <input {...stageForm.register('color')} type="color" className="input py-1 px-1 h-9 cursor-pointer" />
                   </div>

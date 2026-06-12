@@ -11,6 +11,7 @@ interface User {
   avatar?: string
   role: string
   isActive: boolean
+  permissions: string[]
 }
 
 interface AuthState {
@@ -20,11 +21,12 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
   setUser: (user: User) => void
+  hasPermission: (permission: string) => boolean
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
       accessToken: null,
       isAuthenticated: false,
@@ -32,9 +34,11 @@ export const useAuthStore = create<AuthState>()(
       login: async (email: string, password: string) => {
         const { data } = await api.post('/auth/login', { email, password })
         const { user, accessToken } = data.data
+        // S'assurer que permissions est toujours un tableau
+        const userWithPermissions: User = { ...user, permissions: user.permissions ?? [] }
         // Le refreshToken est stocké en cookie httpOnly par le serveur (inaccessible au JS)
         localStorage.setItem('accessToken', accessToken)
-        set({ user, accessToken, isAuthenticated: true })
+        set({ user: userWithPermissions, accessToken, isAuthenticated: true })
       },
 
       logout: async () => {
@@ -46,7 +50,15 @@ export const useAuthStore = create<AuthState>()(
         set({ user: null, accessToken: null, isAuthenticated: false })
       },
 
-      setUser: (user: User) => set({ user }),
+      setUser: (user: User) => set({ user: { ...user, permissions: user.permissions ?? [] } }),
+
+      hasPermission: (permission: string) => {
+        const user = get().user
+        if (!user) return false
+        // ADMIN bypass : si le rôle est ADMIN, toutes les permissions sont accordées
+        if (user.role === 'ADMIN') return true
+        return user.permissions.includes(permission)
+      },
     }),
     {
       name: 'crm-auth',

@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback, useDeferredValue } from 'react'
-import { Search, Bell, CheckCheck, Ticket, FileText, Monitor, Key, TrendingUp, Zap, ThumbsUp, Star, AlertTriangle, X, CalendarDays, Clock, Trash2, Building2, Users, } from 'lucide-react'
+import { Search, Bell, CheckCheck, Ticket, FileText, Monitor, Key, TrendingUp, Zap, ThumbsUp, Star, AlertTriangle, X, CalendarDays, Clock, Trash2, Building2, Users, Menu } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import api from '../../lib/api'
@@ -217,7 +217,7 @@ function GlobalSearch() {
 
 // ── Header ────────────────────────────────────────────────────────────────────
 
-export function Header() {
+export function Header({ onMenuClick }: { onMenuClick: () => void }) {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [showPanel, setShowPanel] = useState(false)
@@ -276,7 +276,15 @@ export function Header() {
   }
 
   return (
-    <header className="fixed top-0 left-60 right-0 h-14 bg-white border-b border-slate-200 flex items-center gap-4 px-6 z-30">
+    <header className="fixed top-0 left-0 lg:left-64 right-0 h-14 bg-white border-b border-slate-200 flex items-center gap-3 px-4 lg:px-6 z-[1001]">
+      {/* Hamburger — mobile only */}
+      <button
+        onClick={onMenuClick}
+        className="lg:hidden btn-ghost p-2 rounded-lg flex-shrink-0"
+        aria-label="Ouvrir le menu"
+      >
+        <Menu className="w-5 h-5" />
+      </button>
       <GlobalSearch />
 
       <div className="flex items-center gap-2 ml-auto relative">
@@ -297,7 +305,7 @@ export function Header() {
         {showPanel && (
           <div
             ref={panelRef}
-            className="absolute right-0 top-10 w-96 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden"
+            className="absolute right-0 top-10 w-[calc(100vw-2rem)] max-w-sm sm:max-w-96 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden"
           >
             {/* Panel header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">

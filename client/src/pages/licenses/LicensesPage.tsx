@@ -189,7 +189,7 @@ export function LicensesPage() {
       {/* Filters */}
       <div className="flex gap-3 flex-wrap items-center">
         <select
-          className="input w-auto"
+          className="input flex-1 min-w-[160px]"
           value={companyFilter}
           onChange={e => setCompanyFilter(e.target.value)}
         >
@@ -305,8 +305,8 @@ export function LicensesPage() {
               </select>
             </div>
           )}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="form-group col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="form-group sm:col-span-2">
               <label className="label">Entreprise *</label>
               <select {...register('companyId')} className={`input ${errors.companyId ? 'input-error' : ''}`}>
                 <option value="">Sélectionner une entreprise</option>
@@ -314,7 +314,7 @@ export function LicensesPage() {
               </select>
               {errors.companyId && <p className="form-error">{errors.companyId.message}</p>}
             </div>
-            <div className="form-group col-span-2">
+            <div className="form-group sm:col-span-2">
               <label className="label">Équipement lié (optionnel)</label>
               <select {...register('equipmentId')} className="input">
                 <option value="">Aucun équipement</option>
@@ -334,7 +334,7 @@ export function LicensesPage() {
               <label className="label">Fournisseur</label>
               <input {...register('vendor')} className="input" />
             </div>
-            <div className="form-group col-span-2">
+            <div className="form-group sm:col-span-2">
               <label className="label">Clé de licence</label>
               <input {...register('licenseKey')} className="input font-mono" placeholder="XXXXX-XXXXX-XXXXX" />
             </div>
@@ -357,11 +357,11 @@ export function LicensesPage() {
               <label className="label">Date d'expiration</label>
               <input {...register('expiryDate')} type="date" className="input" />
             </div>
-            <div className="form-group col-span-2">
+            <div className="form-group sm:col-span-2">
               <label className="label">Coût annuel (€)</label>
               <input {...register('cost')} type="number" min={0} step={0.01} className="input" />
             </div>
-            <div className="form-group col-span-2">
+            <div className="form-group sm:col-span-2">
               <label className="label">Notes</label>
               <textarea {...register('notes')} className="input" rows={2} />
             </div>

@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
@@ -24,7 +24,7 @@ const stageSchema = z.object({
 
 // ─── PIPELINES ───────────────────────────────────────────
 
-router.get('/', async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('pipeline:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const pipelines = await prisma.pipeline.findMany({
       where: { isActive: true },
@@ -38,7 +38,7 @@ router.get('/', async (_req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.post('/', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requirePermission('pipeline:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = pipelineSchema.parse(req.body)
     const maxOrder = await prisma.pipeline.aggregate({ _max: { order: true } })
@@ -53,7 +53,7 @@ router.post('/', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res
   }
 })
 
-router.put('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = pipelineSchema.partial().parse(req.body)
     const pipeline = await prisma.pipeline.update({
@@ -68,7 +68,7 @@ router.put('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, r
   }
 })
 
-router.patch('/:id/default', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.patch('/:id/default', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.pipeline.updateMany({ data: { isDefault: false } })
     const pipeline = await prisma.pipeline.update({
@@ -80,7 +80,7 @@ router.patch('/:id/default', requireRole(['ADMIN', 'MANAGER']), async (req: Auth
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.delete('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id', requirePermission('pipeline:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const pipeline = await prisma.pipeline.findUnique({
       where: { id: req.params.id },
@@ -96,7 +96,7 @@ router.delete('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest
 
 // ─── STAGES ──────────────────────────────────────────────
 
-router.post('/:id/stages', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/:id/stages', requirePermission('pipeline:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = stageSchema.parse(req.body)
     // Check key uniqueness in this pipeline
@@ -112,7 +112,7 @@ router.post('/:id/stages', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRe
   }
 })
 
-router.put('/:id/stages/:stageId', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id/stages/:stageId', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = stageSchema.partial().parse(req.body)
     const stage = await prisma.pipelineStage.update({ where: { id: req.params.stageId }, data: body })
@@ -123,7 +123,7 @@ router.put('/:id/stages/:stageId', requireRole(['ADMIN', 'MANAGER']), async (req
   }
 })
 
-router.delete('/:id/stages/:stageId', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id/stages/:stageId', requirePermission('pipeline:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const stage = await prisma.pipelineStage.findUnique({ where: { id: req.params.stageId } })
     if (!stage) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Étape introuvable' } }); return }
@@ -135,7 +135,7 @@ router.delete('/:id/stages/:stageId', requireRole(['ADMIN', 'MANAGER']), async (
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.patch('/:id/stages/reorder', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.patch('/:id/stages/reorder', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { stages } = z.object({ stages: z.array(z.object({ id: z.string(), order: z.number().int() })) }).parse(req.body)
     await Promise.all(stages.map(s => prisma.pipelineStage.update({ where: { id: s.id }, data: { order: s.order } })))

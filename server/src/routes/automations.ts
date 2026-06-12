@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
@@ -16,7 +16,7 @@ const automationSchema = z.object({
 })
 
 // GET /automations
-router.get('/', requireRole(['ADMIN']), async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('automation:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const automations = await prisma.automation.findMany({
       orderBy: { createdAt: 'desc' },
@@ -43,7 +43,7 @@ router.get('/', requireRole(['ADMIN']), async (_req: AuthRequest, res: Response)
 })
 
 // POST /automations
-router.post('/', requireRole(['ADMIN']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requirePermission('automation:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = automationSchema.parse(req.body)
     const automation = await prisma.automation.create({ data: body })
@@ -55,7 +55,7 @@ router.post('/', requireRole(['ADMIN']), async (req: AuthRequest, res: Response)
 })
 
 // GET /automations/:id/logs
-router.get('/:id/logs', requireRole(['ADMIN']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:id/logs', requirePermission('automation:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const logs = await prisma.automationLog.findMany({
       where: { automationId: req.params.id },
@@ -68,7 +68,7 @@ router.get('/:id/logs', requireRole(['ADMIN']), async (req: AuthRequest, res: Re
 })
 
 // PUT /automations/:id
-router.put('/:id', requireRole(['ADMIN']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id', requirePermission('automation:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = automationSchema.partial().parse(req.body)
     const automation = await prisma.automation.update({ where: { id: req.params.id }, data: body })
@@ -80,7 +80,7 @@ router.put('/:id', requireRole(['ADMIN']), async (req: AuthRequest, res: Respons
 })
 
 // PATCH /automations/:id (toggle active)
-router.patch('/:id', requireRole(['ADMIN']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.patch('/:id', requirePermission('automation:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { isActive } = req.body
     const automation = await prisma.automation.update({ where: { id: req.params.id }, data: { isActive } })
@@ -89,7 +89,7 @@ router.patch('/:id', requireRole(['ADMIN']), async (req: AuthRequest, res: Respo
 })
 
 // DELETE /automations/:id
-router.delete('/:id', requireRole(['ADMIN']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id', requirePermission('automation:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.automation.delete({ where: { id: req.params.id } })
     res.json({ success: true })

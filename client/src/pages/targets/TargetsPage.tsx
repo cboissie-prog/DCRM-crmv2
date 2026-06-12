@@ -183,7 +183,7 @@ function TargetFormModal({ users, period, editing, onClose, onSaved }: TargetFor
           </select>
         </div>
       )}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="label">Objectif (€) *</label>
           <input className="input" type="number" min="0" value={target} onChange={e => setTarget(e.target.value)} placeholder="25000" />
@@ -268,7 +268,7 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
           {isAdmin && <p className="text-sm mt-1">Cliquez sur "Ajouter un objectif" pour commencer</p>}
         </div>
       ) : (
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-x-auto shadow-sm">
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wide">
@@ -515,7 +515,7 @@ export function TargetsPage() {
   return (
     <div className="space-y-6 fade-in">
       {/* Header */}
-      <div className="page-header">
+      <div className="page-header flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
             <Target className="w-5 h-5 text-indigo-600" />

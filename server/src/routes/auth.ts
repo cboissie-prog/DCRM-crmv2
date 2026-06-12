@@ -22,8 +22,8 @@ const loginSchema = z.object({
   password: z.string().min(1),
 })
 
-function generateTokens(userId: string, role: string) {
-  const accessToken = jwt.sign({ userId, role }, process.env.JWT_SECRET!, {
+function generateTokens(userId: string, role: string, permissions: string[]) {
+  const accessToken = jwt.sign({ userId, role, permissions }, process.env.JWT_SECRET!, {
     expiresIn: process.env.JWT_EXPIRES_IN || '15m',
   } as jwt.SignOptions)
   const refreshToken = jwt.sign({ userId, role }, process.env.JWT_REFRESH_SECRET!, {
@@ -46,7 +46,20 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       res.status(401).json({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Email ou mot de passe incorrect' } })
       return
     }
-    const { accessToken, refreshToken } = generateTokens(user.id, user.role)
+    const userWithPermissions = await prisma.user.findUnique({
+      where: { id: user.id },
+      include: {
+        roleRef: {
+          include: {
+            permissions: {
+              include: { permission: true }
+            }
+          }
+        }
+      }
+    })
+    const permissions = userWithPermissions?.roleRef?.permissions.map(rp => rp.permission.key) ?? []
+    const { accessToken, refreshToken } = generateTokens(user.id, user.role, permissions)
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
     await prisma.refreshToken.create({ data: { token: refreshToken, userId: user.id, expiresAt } })
     const { password: _, ...userWithoutPassword } = user
@@ -76,10 +89,26 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
       return
     }
     const payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as { userId: string; role: string }
-    const { accessToken, refreshToken: newRefreshToken } = generateTokens(payload.userId, payload.role)
+    const userWithPermissions = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      include: {
+        roleRef: {
+          include: {
+            permissions: { include: { permission: true } }
+          }
+        }
+      }
+    })
+    if (!userWithPermissions) {
+      res.clearCookie('refreshToken', { path: '/api/auth' })
+      res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Utilisateur introuvable' } })
+      return
+    }
+    const permissions = userWithPermissions.roleRef?.permissions.map(rp => rp.permission.key) ?? []
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens(userWithPermissions.id, userWithPermissions.role, permissions)
     await prisma.refreshToken.deleteMany({ where: { token: refreshToken } })
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-    await prisma.refreshToken.create({ data: { token: newRefreshToken, userId: payload.userId, expiresAt } })
+    await prisma.refreshToken.create({ data: { token: newRefreshToken, userId: userWithPermissions.id, expiresAt } })
     res.cookie('refreshToken', newRefreshToken, REFRESH_COOKIE_OPTIONS)
     res.json({ success: true, data: { accessToken } })
   } catch {

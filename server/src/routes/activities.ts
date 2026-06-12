@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
@@ -16,7 +16,7 @@ const activitySchema = z.object({
   dueDate: z.string().optional(),
 })
 
-router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('activities:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { contactId, companyId, opportunityId, type, page, limit } = req.query as Record<string, string>
     const pageNum = Math.max(1, parseInt(page) || 1)
@@ -42,7 +42,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.post('/', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL', 'TECHNICIEN']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requirePermission('activities:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = activitySchema.parse(req.body)
     const data: Record<string, unknown> = { ...body, userId: req.userId }
@@ -58,7 +58,7 @@ router.post('/', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL', 'TECHNICIEN']), 
   }
 })
 
-router.put('/:id', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL', 'TECHNICIEN']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id', requirePermission('activities:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = activitySchema.partial().parse(req.body)
     const data: Record<string, unknown> = { ...body }
@@ -69,7 +69,7 @@ router.put('/:id', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL', 'TECHNICIEN'])
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.delete('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id', requirePermission('activities:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.activity.delete({ where: { id: req.params.id } })
     res.json({ success: true, data: { message: 'Activité supprimée' } })

@@ -252,12 +252,12 @@ function AutomationForm({ form, setForm, onSubmit, isPending, onCancel, submitLa
   return (
     <div className="space-y-5">
       {/* Base */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="col-span-2">
+      <div className="grid grid-cols-1 gap-4">
+        <div>
           <label className="label">Nom *</label>
           <input className="input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex : Ticket critique → alerte manager" />
         </div>
-        <div className="col-span-2">
+        <div>
           <label className="label">Description</label>
           <input className="input" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optionnel" />
         </div>
@@ -517,7 +517,7 @@ export function AutomationsPage() {
 
   return (
     <div className="space-y-5 fade-in">
-      <div className="page-header">
+      <div className="page-header flex-wrap gap-3">
         <div>
           <h1 className="page-title">Automatisations</h1>
           <p className="page-subtitle">{automations.length} règle{automations.length !== 1 ? 's' : ''} · {active} active{active !== 1 ? 's' : ''}</p>

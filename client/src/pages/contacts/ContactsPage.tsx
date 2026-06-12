@@ -164,7 +164,7 @@ export function ContactsPage() {
           <h1 className="page-title">Contacts</h1>
           <p className="page-subtitle">{data?.meta.total || 0} contacts</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             className="btn-secondary flex items-center gap-1.5"
             onClick={() => downloadCsv('/contacts/export/csv', { search: search || undefined, status: statusFilter || undefined }, `contacts-${new Date().toISOString().slice(0,10)}.csv`)}
@@ -374,7 +374,7 @@ function ContactFormFields({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="form-group">
           <label className="label">Prénom *</label>
           <input {...register('firstName')} className={`input ${errors.firstName ? 'input-error' : ''}`} />
@@ -408,15 +408,15 @@ function ContactFormFields({
               className="input"
               autoFocus
             />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <input {...register('newCompanySiret')} placeholder="SIRET" className="input" />
               <input {...register('newCompanyVatNumber')} placeholder="N° TVA" className="input" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <input {...register('newCompanyWebsite')} placeholder="Site web" className="input" />
               <input {...register('newCompanySector')} placeholder="Secteur d'activité" className="input" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <input {...register('newCompanyCity')} placeholder="Ville" className="input" />
               <input {...register('newCompanyPostalCode')} placeholder="Code postal" className="input" />
             </div>
@@ -443,7 +443,7 @@ function ContactFormFields({
         <label className="label">Email</label>
         <input {...register('email')} type="email" className="input" />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="form-group">
           <label className="label">Téléphone</label>
           <input {...register('phone')} className="input" />
@@ -457,7 +457,7 @@ function ContactFormFields({
         <label className="label">Poste</label>
         <input {...register('position')} className="input" />
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="form-group">
           <label className="label">Source</label>
           <select {...register('source')} className="input">

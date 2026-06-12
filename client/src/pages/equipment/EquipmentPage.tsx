@@ -200,9 +200,9 @@ export function EquipmentPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3 flex-wrap">
+      <div className="flex gap-3 flex-wrap items-center">
         <select
-          className="input w-auto"
+          className="input flex-1 min-w-[160px]"
           value={companyFilter}
           onChange={e => setCompanyFilter(e.target.value)}
         >
@@ -210,7 +210,7 @@ export function EquipmentPage() {
           {companies.map(co => <option key={co.id} value={co.id}>{co.name}</option>)}
         </select>
         <select
-          className="input w-auto"
+          className="input flex-1 min-w-[140px]"
           value={typeFilter}
           onChange={e => setTypeFilter(e.target.value)}
         >
@@ -218,7 +218,7 @@ export function EquipmentPage() {
           {EQUIPMENT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         <select
-          className="input w-auto"
+          className="input flex-1 min-w-[140px]"
           value={statusFilter}
           onChange={e => setStatusFilter(e.target.value)}
         >
@@ -309,8 +309,8 @@ export function EquipmentPage() {
         size="lg"
       >
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="form-group col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="form-group sm:col-span-2">
               <label className="label">Entreprise *</label>
               <select {...register('companyId')} className={`input ${errors.companyId ? 'input-error' : ''}`}>
                 <option value="">Sélectionner une entreprise</option>
@@ -318,7 +318,7 @@ export function EquipmentPage() {
               </select>
               {errors.companyId && <p className="form-error">{errors.companyId.message}</p>}
             </div>
-            <div className="form-group col-span-2">
+            <div className="form-group sm:col-span-2">
               <label className="label">Contrat lié (optionnel)</label>
               <select {...register('contractId')} className="input">
                 <option value="">Aucun contrat</option>
@@ -363,7 +363,7 @@ export function EquipmentPage() {
               <label className="label">Expiration garantie</label>
               <input {...register('warrantyExpiry')} type="date" className="input" />
             </div>
-            <div className="form-group col-span-2">
+            <div className="form-group sm:col-span-2">
               <label className="label">Notes</label>
               <textarea {...register('notes')} className="input" rows={2} />
             </div>

@@ -2,7 +2,7 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
@@ -30,7 +30,7 @@ const contractSchema = z.object({
   notes: z.string().optional(),
 })
 
-router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('contracts:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { status, type, companyId, expiringSoon, page, limit } = req.query as Record<string, string>
     const pageNum = Math.max(1, parseInt(page) || 1)
@@ -57,7 +57,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.post('/', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requirePermission('contracts:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = contractSchema.parse(req.body)
     const contract = await prisma.$transaction(async (tx) => {
@@ -80,7 +80,7 @@ router.post('/', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res
   }
 })
 
-router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:id', requirePermission('contracts:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const contract = await prisma.contract.findUnique({
       where: { id: req.params.id },
@@ -97,7 +97,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.put('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id', requirePermission('contracts:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = contractSchema.partial().parse(req.body)
     const data: Record<string, unknown> = { ...body }
@@ -112,7 +112,7 @@ router.put('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, r
   }
 })
 
-router.delete('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id', requirePermission('contracts:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.contract.delete({ where: { id: req.params.id } })
     res.json({ success: true, data: { message: 'Contrat supprimé' } })
@@ -120,7 +120,7 @@ router.delete('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest
 })
 
 // MRR / ARR stats
-router.get('/stats/mrr', async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/stats/mrr', requirePermission('contracts:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const activeContracts = await prisma.contract.findMany({ where: { status: 'ACTIVE' } })
     const mrr = activeContracts.reduce((sum, c) => sum + (c.monthlyAmount || c.annualAmount / 12), 0)

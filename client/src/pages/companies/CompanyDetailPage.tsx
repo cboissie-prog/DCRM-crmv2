@@ -140,7 +140,7 @@ export function CompanyDetailPage() {
   return (
     <div className="space-y-5 fade-in">
       {/* Header */}
-      <div className="flex items-start gap-3">
+      <div className="flex flex-wrap items-start gap-3">
         <button onClick={() => navigate('/companies')} className="btn-ghost btn-sm p-2 rounded-lg mt-1">
           <ArrowLeft className="w-4 h-4" />
         </button>
@@ -162,7 +162,7 @@ export function CompanyDetailPage() {
           )}
         </div>
         {canEdit && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button className="btn-secondary btn-sm flex items-center gap-1.5" onClick={openEdit}>
               <Pencil className="w-3.5 h-3.5" /> Modifier
             </button>
@@ -177,8 +177,8 @@ export function CompanyDetailPage() {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-slate-200">
-        <nav className="flex gap-1 -mb-px">
+      <div className="border-b border-slate-200 overflow-x-auto">
+        <nav className="flex gap-1 -mb-px min-w-max">
           {tabs.map(t => (
             <button
               key={t.key}
@@ -214,7 +214,7 @@ export function CompanyDetailPage() {
             <input {...register('name')} className={`input ${errors.name ? 'input-error' : ''}`} />
             {errors.name && <p className="form-error">{errors.name.message}</p>}
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group">
               <label className="label">SIRET</label>
               <input {...register('siret')} className="input" />
@@ -224,7 +224,7 @@ export function CompanyDetailPage() {
               <input {...register('vatNumber')} className="input" />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group">
               <label className="label">Site web</label>
               <input {...register('website')} className="input" placeholder="https://" />
@@ -237,7 +237,7 @@ export function CompanyDetailPage() {
               </select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group">
               <label className="label">Nb. employés</label>
               <input {...register('employees')} type="number" className="input" />
@@ -255,16 +255,16 @@ export function CompanyDetailPage() {
             <label className="label">Adresse de livraison</label>
             <input {...register('deliveryAddress')} className="input" />
           </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div className="form-group col-span-1">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="form-group">
               <label className="label">Ville</label>
               <input {...register('city')} className="input" />
             </div>
-            <div className="form-group col-span-1">
+            <div className="form-group">
               <label className="label">Code postal</label>
               <input {...register('postalCode')} className="input" />
             </div>
-            <div className="form-group col-span-1">
+            <div className="form-group">
               <label className="label">Pays</label>
               <input {...register('country')} className="input" />
             </div>

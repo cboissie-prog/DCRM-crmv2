@@ -46,7 +46,7 @@ export function ParcOverviewPage() {
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center gap-3">
           <div className="w-9 h-9 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
             <Building2 className="w-5 h-5 text-blue-600" />

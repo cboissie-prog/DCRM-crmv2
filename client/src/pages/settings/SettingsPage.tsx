@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { User, Building2, Users, Lock, Save, Eye, EyeOff, ExternalLink, Settings2, Play, RefreshCw } from 'lucide-react'
+import { User, Building2, Users, Lock, Save, Eye, EyeOff, ExternalLink, Settings2, Play, RefreshCw, Key, Plus, Trash2, Copy, CheckCheck, AlertTriangle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import api from '../../lib/api'
@@ -72,20 +72,20 @@ function ProfileTab() {
     <form onSubmit={handleSubmit} className="space-y-5 max-w-lg">
       <h2 className="text-base font-semibold text-slate-900">Informations personnelles</h2>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label className="form-label">Prénom</label>
+          <label className="label">Prénom</label>
           <input
-            className="form-input"
+            className="input"
             value={form.firstName}
             onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))}
             required
           />
         </div>
         <div>
-          <label className="form-label">Nom</label>
+          <label className="label">Nom</label>
           <input
-            className="form-input"
+            className="input"
             value={form.lastName}
             onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))}
             required
@@ -94,9 +94,9 @@ function ProfileTab() {
       </div>
 
       <div>
-        <label className="form-label">Email</label>
+        <label className="label">Email</label>
         <input
-          className="form-input"
+          className="input"
           type="email"
           value={form.email}
           onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
@@ -105,9 +105,9 @@ function ProfileTab() {
       </div>
 
       <div>
-        <label className="form-label">Téléphone</label>
+        <label className="label">Téléphone</label>
         <input
-          className="form-input"
+          className="input"
           type="tel"
           value={form.phone}
           onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
@@ -301,7 +301,7 @@ function CompanyTab() {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="form-label">SIRET</label>
           <input
@@ -346,7 +346,7 @@ function CompanyTab() {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="form-label">Email de contact</label>
           <input
@@ -458,7 +458,7 @@ function SystemTab() {
           </label>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="form-label">Heure d'exécution</label>
             <input
@@ -479,7 +479,7 @@ function SystemTab() {
           <p className="text-xs text-slate-500 mt-0.5">En dessous de ces délais, les statuts passent automatiquement en alerte.</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="form-label">Contrats expirant dans (jours)</label>
             <div className="flex items-center gap-2">
@@ -542,9 +542,209 @@ function SystemTab() {
   )
 }
 
+// ─── API Keys tab ─────────────────────────────────────────────────────────────
+
+interface ApiKey {
+  id: string
+  name: string
+  prefix: string
+  lastUsedAt: string | null
+  expiresAt: string | null
+  isActive: boolean
+  createdAt: string
+}
+
+function ApiKeysTab() {
+  const qc = useQueryClient()
+  const [showCreate, setShowCreate] = useState(false)
+  const [newKeyName, setNewKeyName] = useState('')
+  const [newKeyExpiry, setNewKeyExpiry] = useState('')
+  const [createdKey, setCreatedKey] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const { data: keys = [], isLoading } = useQuery<ApiKey[]>({
+    queryKey: ['apikeys'],
+    queryFn: async () => { const { data } = await api.get('/apikeys'); return data.data ?? [] },
+  })
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post('/apikeys', {
+        name: newKeyName.trim(),
+        expiresAt: newKeyExpiry || undefined,
+      })
+      return data.data
+    },
+    onSuccess: (data) => {
+      setCreatedKey(data.key)
+      setNewKeyName('')
+      setNewKeyExpiry('')
+      setShowCreate(false)
+      qc.invalidateQueries({ queryKey: ['apikeys'] })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/apikeys/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['apikeys'] }),
+  })
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString('fr-FR') : '—'
+  const isExpired = (d: string | null) => d ? new Date(d) < new Date() : false
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">Clés API</h2>
+          <p className="text-sm text-slate-500 mt-0.5">Pour connecter des outils externes (Zapier, n8n, scripts…). Chaque clé hérite de vos permissions.</p>
+        </div>
+        <button
+          onClick={() => setShowCreate(v => !v)}
+          className="btn-primary btn-sm flex-shrink-0"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Nouvelle clé
+        </button>
+      </div>
+
+      {/* Formulaire création */}
+      {showCreate && (
+        <div className="card p-4 space-y-3 border-primary-200 bg-primary-50/30">
+          <h3 className="text-sm font-semibold text-slate-800">Créer une clé API</h3>
+          <div>
+            <label className="label">Nom de la clé</label>
+            <input
+              className="input"
+              placeholder="ex: Intégration n8n, Zapier CRM…"
+              value={newKeyName}
+              onChange={e => setNewKeyName(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="label">Date d'expiration <span className="text-slate-400 font-normal">(optionnel)</span></label>
+            <input
+              className="input"
+              type="date"
+              value={newKeyExpiry}
+              onChange={e => setNewKeyExpiry(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              className="btn-primary btn-sm"
+              disabled={!newKeyName.trim() || createMutation.isPending}
+              onClick={() => createMutation.mutate()}
+            >
+              {createMutation.isPending ? 'Génération…' : 'Générer'}
+            </button>
+            <button
+              className="btn-secondary btn-sm"
+              onClick={() => { setShowCreate(false); setNewKeyName(''); setNewKeyExpiry('') }}
+            >
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Clé générée — affichée une seule fois */}
+      {createdKey && (
+        <div className="card p-4 border-emerald-200 bg-emerald-50 space-y-3">
+          <div className="flex items-center gap-2 text-emerald-700">
+            <Key className="w-4 h-4" />
+            <p className="text-sm font-semibold">Clé générée — copiez-la maintenant, elle ne sera plus visible</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 text-xs bg-white border border-emerald-200 rounded-lg px-3 py-2 font-mono break-all text-slate-800">
+              {createdKey}
+            </code>
+            <button
+              onClick={() => copyToClipboard(createdKey)}
+              className="btn-secondary btn-sm flex-shrink-0 flex items-center gap-1"
+            >
+              {copied ? <CheckCheck className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? 'Copié' : 'Copier'}
+            </button>
+          </div>
+          <p className="text-xs text-emerald-600">
+            À utiliser dans le header HTTP : <code className="bg-white px-1 py-0.5 rounded border border-emerald-200">X-API-Key: {createdKey.slice(0, 20)}…</code>
+          </p>
+          <button
+            className="text-xs text-emerald-700 underline"
+            onClick={() => setCreatedKey(null)}
+          >
+            J'ai copié la clé, fermer
+          </button>
+        </div>
+      )}
+
+      {/* Liste des clés */}
+      {isLoading ? (
+        <div className="py-6 text-center text-sm text-slate-400">Chargement…</div>
+      ) : keys.length === 0 ? (
+        <div className="py-10 text-center text-slate-400 text-sm border border-dashed border-slate-200 rounded-xl">
+          <Key className="w-8 h-8 mx-auto mb-2 text-slate-200" />
+          Aucune clé API — créez-en une pour connecter vos outils externes.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {keys.map(key => (
+            <div key={key.id} className={cn('card p-4 flex items-center gap-3', isExpired(key.expiresAt) && 'border-amber-200 bg-amber-50/30')}>
+              <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                <Key className="w-4 h-4 text-slate-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-semibold text-slate-900">{key.name}</p>
+                  {isExpired(key.expiresAt) && (
+                    <span className="badge badge-yellow text-[10px]">
+                      <AlertTriangle className="w-2.5 h-2.5 mr-0.5" />Expirée
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                  <code className="text-xs text-slate-400 font-mono">{key.prefix}…</code>
+                  <span className="text-xs text-slate-400">Créée le {formatDate(key.createdAt)}</span>
+                  {key.lastUsedAt && <span className="text-xs text-slate-400">Dernière utilisation : {formatDate(key.lastUsedAt)}</span>}
+                  {key.expiresAt && <span className="text-xs text-slate-400">Expire le {formatDate(key.expiresAt)}</span>}
+                </div>
+              </div>
+              <button
+                onClick={() => { if (confirm(`Révoquer la clé "${key.name}" ?`)) deleteMutation.mutate(key.id) }}
+                disabled={deleteMutation.isPending}
+                className="btn-ghost p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg flex-shrink-0"
+                title="Révoquer"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Usage example */}
+      <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+        <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Exemple d'utilisation</p>
+        <code className="block text-xs text-slate-700 font-mono whitespace-pre-wrap break-all">
+{`curl https://votre-domaine.com/api/contacts \\
+  -H "X-API-Key: dcrm_votre_cle_api"`}
+        </code>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = 'profile' | 'password' | 'company' | 'users' | 'system'
+type Tab = 'profile' | 'password' | 'apikeys' | 'company' | 'users' | 'system'
 
 interface TabConfig {
   id: Tab
@@ -554,11 +754,12 @@ interface TabConfig {
 }
 
 const TABS: TabConfig[] = [
-  { id: 'profile', label: 'Profil', icon: <User className="w-4 h-4" />, adminOnly: false },
-  { id: 'password', label: 'Mot de passe', icon: <Lock className="w-4 h-4" />, adminOnly: false },
-  { id: 'company', label: 'Entreprise', icon: <Building2 className="w-4 h-4" />, adminOnly: true },
-  { id: 'users', label: 'Utilisateurs', icon: <Users className="w-4 h-4" />, adminOnly: true },
-  { id: 'system', label: 'Système', icon: <Settings2 className="w-4 h-4" />, adminOnly: true },
+  { id: 'profile',  label: 'Profil',         icon: <User className="w-4 h-4" />,     adminOnly: false },
+  { id: 'password', label: 'Mot de passe',    icon: <Lock className="w-4 h-4" />,     adminOnly: false },
+  { id: 'apikeys',  label: 'Clés API',        icon: <Key className="w-4 h-4" />,      adminOnly: false },
+  { id: 'company',  label: 'Entreprise',      icon: <Building2 className="w-4 h-4" />, adminOnly: true },
+  { id: 'users',    label: 'Utilisateurs',    icon: <Users className="w-4 h-4" />,    adminOnly: true },
+  { id: 'system',   label: 'Système',         icon: <Settings2 className="w-4 h-4" />, adminOnly: true },
 ]
 
 export function SettingsPage() {
@@ -579,9 +780,9 @@ export function SettingsPage() {
         <p className="page-subtitle">Gérez votre profil et les paramètres de l'application</p>
       </div>
 
-      <div className="flex gap-6">
+      <div className="flex flex-col sm:flex-row gap-6">
         {/* Sidebar tabs */}
-        <nav className="w-52 flex-shrink-0">
+        <nav className="w-full sm:w-52 flex-shrink-0">
           <ul className="space-y-1">
             {visibleTabs.map(tab => (
               <li key={tab.id}>
@@ -609,18 +810,19 @@ export function SettingsPage() {
 
           {!isAdmin && (
             <div className="mt-4 p-3 bg-slate-50 border border-slate-200 rounded-lg">
-              <p className="text-xs text-slate-500">Les onglets <strong>Entreprise</strong> et <strong>Utilisateurs</strong> sont réservés aux administrateurs.</p>
+              <p className="text-xs text-slate-500">Les onglets <strong>Entreprise</strong>, <strong>Utilisateurs</strong> et <strong>Système</strong> sont réservés aux administrateurs.</p>
             </div>
           )}
         </nav>
 
         {/* Content */}
-        <div className="flex-1 card p-6">
-          {currentTab === 'profile' && <ProfileTab />}
+        <div className="flex-1 card p-4 sm:p-6">
+          {currentTab === 'profile'  && <ProfileTab />}
           {currentTab === 'password' && <PasswordTab />}
-          {currentTab === 'company' && (isAdmin ? <CompanyTab /> : <AccessDenied />)}
-          {currentTab === 'users' && (isAdmin ? <UsersTab /> : <AccessDenied />)}
-          {currentTab === 'system' && (isAdmin ? <SystemTab /> : <AccessDenied />)}
+          {currentTab === 'apikeys'  && <ApiKeysTab />}
+          {currentTab === 'company'  && (isAdmin ? <CompanyTab /> : <AccessDenied />)}
+          {currentTab === 'users'    && (isAdmin ? <UsersTab /> : <AccessDenied />)}
+          {currentTab === 'system'   && (isAdmin ? <SystemTab /> : <AccessDenied />)}
         </div>
       </div>
     </div>

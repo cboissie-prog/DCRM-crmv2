@@ -1,12 +1,12 @@
 import { Router, Response } from 'express'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
 
 // GET /dashboard/today — récap journée de l'utilisateur connecté
-router.get('/today', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/today', requirePermission('dashboard:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const now = new Date()
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
@@ -60,7 +60,7 @@ router.get('/today', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.get('/stats', async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/stats', requirePermission('dashboard:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -149,7 +149,7 @@ router.get('/stats', async (_req: AuthRequest, res: Response): Promise<void> => 
   }
 })
 
-router.get('/revenue', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/revenue', requirePermission('dashboard:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const monthsRaw = parseInt((req.query.months as string) || '12')
     const months = Math.min(24, Math.max(1, isNaN(monthsRaw) ? 12 : monthsRaw))
@@ -175,7 +175,7 @@ router.get('/revenue', async (req: AuthRequest, res: Response): Promise<void> =>
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.get('/churn-risks', async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/churn-risks', requirePermission('dashboard:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const ninetyDaysAgo = new Date()
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90)
@@ -211,7 +211,7 @@ router.get('/churn-risks', async (_req: AuthRequest, res: Response): Promise<voi
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.get('/nps', async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/nps', requirePermission('dashboard:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const responses = await prisma.npsResponse.findMany({ orderBy: { createdAt: 'desc' } })
     const total = responses.length

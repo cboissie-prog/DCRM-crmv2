@@ -395,7 +395,7 @@ function ActivityFormFields({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Type */}
         <div className="form-group">
           <label className="label">Type *</label>
@@ -431,7 +431,7 @@ function ActivityFormFields({
         <textarea {...register('description')} className="input" rows={3} placeholder="Détails de l'activité..." />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Contact */}
         <div className="form-group">
           <label className="label">Contact</label>

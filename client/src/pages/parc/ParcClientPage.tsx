@@ -193,7 +193,7 @@ export function ParcClientPage() {
   return (
     <div className="space-y-5 fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/parc')} className="btn-ghost btn-sm p-2 rounded-lg">
             <ArrowLeft className="w-4 h-4" />
@@ -216,7 +216,7 @@ export function ParcClientPage() {
       </div>
 
       {/* Tabs */}
-      <div className="bg-slate-100 rounded-xl p-1 flex gap-1 w-fit">
+      <div className="bg-slate-100 rounded-xl p-1 flex gap-1 w-full sm:w-fit overflow-x-auto">
         <button className={tabClass('equipment')} onClick={() => setTab('equipment')}>
           <Monitor className="w-4 h-4 inline mr-1.5" />
           Équipements
@@ -516,7 +516,7 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
               </button>
             ) : undefined}
           >
-            <div className="p-5 space-y-6">
+            <div className="p-4 sm:p-5 space-y-6">
               {/* Type + status */}
               <div className="flex items-center gap-3">
                 <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
@@ -543,7 +543,7 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
               {/* Info fields */}
               <div className="space-y-3">
                 <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Informations</h3>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {eq.brand && (
                     <div>
                       <p className="text-xs text-slate-400">Marque</p>
@@ -676,7 +676,7 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
 
       <Modal open={showModal} onClose={() => { setShowModal(false); setEditing(null) }} title={editing ? "Modifier l'équipement" : 'Ajouter un équipement'} size="lg">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group">
               <label className="label">Type *</label>
               <select {...register('type')} className={`input ${errors.type ? 'input-error' : ''}`}>
@@ -715,14 +715,14 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
               <label className="label">Fin de garantie</label>
               <input {...register('warrantyExpiry')} type="date" className="input" />
             </div>
-            <div className="form-group col-span-2">
+            <div className="form-group sm:col-span-2">
               <label className="label">Contrat lié</label>
               <select {...register('contractId')} className="input">
                 <option value="">Aucun</option>
                 {contracts.map(c => <option key={c.id} value={c.id}>{c.reference} — {c.title}</option>)}
               </select>
             </div>
-            <div className="form-group col-span-2">
+            <div className="form-group sm:col-span-2">
               <label className="label">Notes</label>
               <textarea {...register('notes')} className="input" rows={2} />
             </div>
@@ -905,7 +905,7 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
               </select>
             </div>
           )}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group">
               <label className="label">Logiciel *</label>
               <input {...register('software')} className={`input ${errors.software ? 'input-error' : ''}`} />
@@ -915,7 +915,7 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
               <label className="label">Fournisseur</label>
               <input {...register('vendor')} className="input" />
             </div>
-            <div className="form-group col-span-2">
+            <div className="form-group sm:col-span-2">
               <label className="label">Clé de licence</label>
               <input {...register('licenseKey')} className="input font-mono" placeholder="XXXXX-XXXXX-XXXXX" />
             </div>
@@ -948,7 +948,7 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
                 {equipments.map(eq => <option key={eq.id} value={eq.id}>{[eq.brand, eq.model].filter(Boolean).join(' ') || EQUIPMENT_TYPES[eq.type]}</option>)}
               </select>
             </div>
-            <div className="form-group col-span-2">
+            <div className="form-group sm:col-span-2">
               <label className="label">Notes</label>
               <textarea {...register('notes')} className="input" rows={2} />
             </div>
@@ -1122,7 +1122,7 @@ function ContractsTab({ companyId, contracts, isLoading, canWrite, canDelete, hi
               </select>
             </div>
           )}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group">
               <label className="label">Type *</label>
               <select {...register('type')} className="input">
@@ -1135,7 +1135,7 @@ function ContractsTab({ companyId, contracts, isLoading, canWrite, canDelete, hi
                 {CONTRACT_STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
-            <div className="form-group col-span-2">
+            <div className="form-group sm:col-span-2">
               <label className="label">Titre *</label>
               <input {...register('title')} className={`input ${errors.title ? 'input-error' : ''}`} />
               {errors.title && <p className="form-error">{errors.title.message}</p>}
@@ -1164,11 +1164,11 @@ function ContractsTab({ companyId, contracts, isLoading, canWrite, canDelete, hi
               <label className="label">Renouvellement</label>
               <input {...register('renewalDate')} type="date" className="input" />
             </div>
-            <div className="form-group col-span-2 flex items-center gap-3">
+            <div className="form-group sm:col-span-2 flex items-center gap-3">
               <input {...register('autoRenewal')} type="checkbox" id="autoRenewal" className="w-4 h-4 rounded border-slate-300 text-primary-600" />
               <label htmlFor="autoRenewal" className="text-sm text-slate-700 cursor-pointer">Renouvellement automatique</label>
             </div>
-            <div className="form-group col-span-2">
+            <div className="form-group sm:col-span-2">
               <label className="label">Notes</label>
               <textarea {...register('notes')} className="input" rows={2} />
             </div>

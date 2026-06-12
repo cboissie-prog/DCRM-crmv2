@@ -42,13 +42,16 @@
   .table-container tbody td { @apply px-4 py-3 text-sm text-slate-700 align-middle; }
   .sidebar-item { @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-all cursor-pointer; }
   .sidebar-item.active { @apply bg-primary-50 text-primary-700; }
-  .page-header { @apply flex items-center justify-between mb-6; }
-  .page-title { @apply text-2xl font-bold text-slate-900; }
+  .page-header { @apply flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between; }
+  .page-title { @apply text-xl font-bold text-slate-900 sm:text-2xl; }
   .page-subtitle { @apply text-sm text-slate-500 mt-0.5; }
   .form-group { @apply flex flex-col gap-1.5; }
   .form-error { @apply text-xs text-red-500 mt-1; }
   .empty-state { @apply flex flex-col items-center justify-center py-16 text-center; }
 }
+
+/* Isoler Leaflet dans son propre contexte de superposition pour éviter qu'il passe au-dessus du header/sidebar */
+.leaflet-container { isolation: isolate; }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

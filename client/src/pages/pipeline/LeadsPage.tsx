@@ -351,7 +351,7 @@ export function LeadsPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-2xl border border-slate-200 p-4 flex items-center gap-4">
           <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center">
             <TrendingUp className="w-5 h-5 text-primary-600" />
@@ -404,7 +404,7 @@ export function LeadsPage() {
 
       {/* Table */}
       {isLoading ? <PageSpinner /> : (
-        <div className="table-container">
+        <div className="table-container overflow-x-auto">
           <table>
             <thead>
               <tr>
@@ -647,7 +647,7 @@ function LeadFormFields({
             </>
           ) : (
             <div className="space-y-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <input
                     {...register('newFirstName')}
@@ -658,7 +658,7 @@ function LeadFormFields({
                 </div>
                 <input {...register('newLastName')} placeholder="Nom" className="input" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <input {...register('newEmail')} type="email" placeholder="Email" className="input" />
                 <input {...register('newPhone')} placeholder="Téléphone" className="input" />
               </div>
@@ -675,15 +675,15 @@ function LeadFormFields({
                     </button>
                   </div>
                   <input {...register('newCompanyName')} placeholder="Nom de l'entreprise *" className="input" autoFocus />
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <input {...register('newCompanySiret')} placeholder="SIRET" className="input" />
                     <input {...register('newCompanyVatNumber')} placeholder="N° TVA" className="input" />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <input {...register('newCompanyWebsite')} placeholder="Site web" className="input" />
                     <input {...register('newCompanySector')} placeholder="Secteur d'activité" className="input" />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <input {...register('newCompanyCity')} placeholder="Ville" className="input" />
                     <input {...register('newCompanyPostalCode')} placeholder="Code postal" className="input" />
                   </div>
@@ -735,7 +735,7 @@ function LeadFormFields({
         <textarea {...register('description')} className="input" rows={2} />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="form-group">
           <label className="label">Source</label>
           <select {...register('source')} className="input">

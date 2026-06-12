@@ -246,7 +246,7 @@ function CreateUserModal({ open, onClose, onSuccess }: CreateUserModalProps) {
   return (
     <Modal open={open} onClose={onClose} title="Inviter un utilisateur">
       <form onSubmit={handleSubmit(v => mutation.mutate(v))} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="form-group">
             <label className="label">Prénom *</label>
             <input {...register('firstName')} className={`input ${errors.firstName ? 'input-error' : ''}`} />
@@ -330,7 +330,7 @@ function EditUserModal({ open, user, onClose, onSuccess }: EditUserModalProps) {
   return (
     <Modal open={open} onClose={onClose} title="Modifier l'utilisateur">
       <form onSubmit={handleSubmit(v => mutation.mutate(v))} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="form-group">
             <label className="label">Prénom *</label>
             <input {...register('firstName')} className={`input ${errors.firstName ? 'input-error' : ''}`} />

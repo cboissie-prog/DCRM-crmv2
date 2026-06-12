@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audit DCRM — Rapport complet (12/06/2026)</title>
+<style>
+  :root {
+    --bg: #f8fafc; --card: #ffffff; --ink: #0f172a; --muted: #64748b;
+    --critical: #dc2626; --high: #ea580c; --medium: #d97706; --low: #2563eb; --ok: #16a34a;
+    --border: #e2e8f0;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--ink); margin: 0; line-height: 1.55; }
+  .container { max-width: 1080px; margin: 0 auto; padding: 32px 24px 80px; }
+  header.hero { background: linear-gradient(135deg, #1e293b, #0f172a); color: #fff; border-radius: 16px; padding: 36px 40px; margin-bottom: 32px; }
+  header.hero h1 { margin: 0 0 6px; font-size: 26px; }
+  header.hero p { margin: 4px 0; color: #cbd5e1; font-size: 14px; }
+  h2 { font-size: 20px; margin: 40px 0 12px; padding-bottom: 8px; border-bottom: 2px solid var(--border); }
+  h3 { font-size: 15px; margin: 20px 0 8px; }
+  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin: 20px 0; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; text-align: center; }
+  .stat .num { font-size: 30px; font-weight: 700; }
+  .stat .lbl { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .stat.critical .num { color: var(--critical); } .stat.high .num { color: var(--high); }
+  .stat.medium .num { color: var(--medium); } .stat.low .num { color: var(--low); }
+  .finding { background: var(--card); border: 1px solid var(--border); border-left: 5px solid var(--muted); border-radius: 10px; padding: 18px 22px; margin: 14px 0; }
+  .finding.critical { border-left-color: var(--critical); }
+  .finding.high { border-left-color: var(--high); }
+  .finding.medium { border-left-color: var(--medium); }
+  .finding.low { border-left-color: var(--low); }
+  .finding h3 { margin: 0 0 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .badge { font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 999px; color: #fff; text-transform: uppercase; letter-spacing: .03em; }
+  .badge.critical { background: var(--critical); } .badge.high { background: var(--high); }
+  .badge.medium { background: var(--medium); } .badge.low { background: var(--low); }
+  .badge.verified { background: var(--ok); }
+  .id { font-family: Consolas, monospace; color: var(--muted); font-size: 13px; }
+  code { background: #f1f5f9; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-family: Consolas, 'Courier New', monospace; font-size: 13px; }
+  .files { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+  .files code { font-size: 12px; }
+  .why { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 14px; margin-top: 10px; font-size: 13.5px; }
+  .why strong { color: #92400e; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; font-size: 13.5px; margin: 14px 0; }
+  th { background: #f1f5f9; text-align: left; padding: 10px 14px; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
+  td { padding: 9px 14px; border-top: 1px solid var(--border); vertical-align: top; }
+  ul { padding-left: 22px; } li { margin: 4px 0; }
+  .toc { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 26px; }
+  .toc a { color: #2563eb; text-decoration: none; } .toc a:hover { text-decoration: underline; }
+  .note { font-size: 13px; color: var(--muted); font-style: italic; }
+  .phase { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin: 12px 0; }
+  .phase h3 { margin-top: 0; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header class="hero">
+  <h1>🔍 Audit applicatif — DCRM (CRM interne DCB Technologies)</h1>
+  <p><strong>Date :</strong> 12 juin 2026 &nbsp;·&nbsp; <strong>Périmètre :</strong> serveur Express/Prisma + client React/Vite (118 fichiers TS/TSX)</p>
+  <p><strong>Méthode :</strong> revue de code complète (auth, RBAC, routes API, scheduler, automatisations, front), tests d'exécution ciblés (Prisma/SQLite), compilation TypeScript des deux projets, lint client, <code>npm audit</code>, inspection de la base dev et de la configuration.</p>
+  <p><strong>Liste des correctifs associée :</strong> <code>AUDIT-MODIFICATIONS.md</code> (fichier séparé, prêt pour traitement par agents)</p>
+</header>
+
+<div class="summary-grid">
+  <div class="stat critical"><div class="num">8</div><div class="lbl">Critiques</div></div>
+  <div class="stat high"><div class="num">13</div><div class="lbl">Élevés</div></div>
+  <div class="stat medium"><div class="num">12</div><div class="lbl">Moyens</div></div>
+  <div class="stat low"><div class="num">8</div><div class="lbl">Mineurs / info</div></div>
+</div>
+
+<div class="toc">
+  <strong>Sommaire</strong>
+  <ol>
+    <li><a href="#resume">Résumé exécutif</a></li>
+    <li><a href="#critique">Constats critiques</a></li>
+    <li><a href="#eleve">Constats de sévérité élevée</a></li>
+    <li><a href="#moyen">Constats de sévérité moyenne</a></li>
+    <li><a href="#mineur">Constats mineurs</a></li>
+    <li><a href="#manquant">Fonctionnalités manquantes</a></li>
+    <li><a href="#positif">Points positifs</a></li>
+    <li><a href="#plan">Plan d'action recommandé</a></li>
+  </ol>
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="resume">1. Résumé exécutif</h2>
+<p>L'application est globalement bien structurée (format de réponse API unifié, RBAC à permissions fines, refresh token httpOnly avec rotation, rate limiting, Helmet, Zod). Mais l'audit révèle <strong>des problèmes bloquants pour une mise en production sereine</strong> :</p>
+<ul>
+  <li><strong>Le build du client ne compile plus</strong> (<code>tsc -b</code> échoue avec ~20 erreurs) — impossible de produire un build de production sans contourner le type-check. Le build serveur affiche lui aussi ~15 erreurs TypeScript.</li>
+  <li><strong>Des fonctionnalités sont réellement cassées</strong> : l'import CSV (contacts et entreprises) et les notifications d'automatisation plantent à l'exécution sur SQLite (vérifié par test), et plusieurs modales ne s'ouvrent jamais (prop <code>isOpen</code> au lieu de <code>open</code>).</li>
+  <li><strong>Le webhook VoIP est public et non signé</strong> : n'importe qui sur le réseau peut injecter ou écraser des appels dans le CRM.</li>
+  <li><strong>La chaîne RBAC a deux trous structurels</strong> : le seed ne lie jamais les utilisateurs aux rôles (base fraîche = tout le monde à 403, admin compris), et le login ne renvoie pas les permissions (UI vide pour les non-admins après connexion).</li>
+  <li><strong>Le déploiement est fragile</strong> : aucune migration Prisma versionnée alors que <code>start:prod</code> exécute <code>prisma migrate deploy</code> ; identifiants de démo en dur sur l'écran de login ; <code>trust proxy</code> absent derrière Plesk/nginx.</li>
+  <li><strong>Aucun test automatisé, aucune CI</strong>, et 59 fichiers modifiés non committés au moment de l'audit.</li>
+</ul>
+<p>Rien d'irrécupérable : la majorité des correctifs sont localisés et bien identifiés. Le détail action par action se trouve dans <code>AUDIT-MODIFICATIONS.md</code>.</p>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="critique">2. Constats critiques</h2>
+
+<div class="finding critical">
+  <h3><span class="id">C-01</span> Webhook VoIP public, sans signature ni authentification <span class="badge critical">Critique</span></h3>
+  <p><code>POST /api/calls/webhook</code> est volontairement monté avant <code>authenticate</code> et n'exige aucun secret, aucune signature HMAC, aucune restriction d'IP. De plus, le champ <code>recording_url</code> accepte n'importe quelle chaîne, qui est ensuite servie via <code>res.redirect(call.recordingUrl)</code> dans la route de streaming.</p>
+  <div class="why"><strong>Pourquoi c'est grave :</strong> toute personne pouvant atteindre le serveur peut créer/écraser des appels (l'upsert par <code>call_id</code> permet d'écraser des données existantes), polluer le CRM, faire correspondre de faux appels à de vrais contacts, et faire rediriger les utilisateurs vers une URL arbitraire (phishing) lorsqu'ils écoutent un « enregistrement ».</div>
+  <div class="files">Fichiers : <code>server/src/routes/calls.ts:39-91</code> (webhook), <code>calls.ts:328-330</code> (redirect)</div>
+</div>
+
+<div class="finding critical">
+  <h3><span class="id">C-02</span> Build client cassé : <code>npm run build</code> échoue <span class="badge critical">Critique</span> <span class="badge verified">Vérifié</span></h3>
+  <p>Le script de build est <code>tsc -b &amp;&amp; vite build</code> et <code>tsc -b</code> sort en erreur (~20 erreurs). Parmi elles, de <strong>vrais bugs d'exécution</strong> : le composant <code>Modal</code> attend une prop <code>open</code> mais reçoit <code>isOpen</code> dans <code>TargetsPage</code> (2 modales) et <code>ImportCsvModal</code> → <strong>ces modales ne s'ouvrent jamais</strong>. Le lint relève par ailleurs 49 erreurs.</p>
+  <div class="why"><strong>Pourquoi c'est grave :</strong> impossible de livrer une nouvelle version du front sans bidouiller, et des fonctionnalités visibles (création d'objectifs, import CSV) sont inutilisables car leurs modales ne s'affichent pas.</div>
+  <div class="files">Fichiers : <code>client/src/pages/targets/TargetsPage.tsx:328,342</code>, <code>client/src/components/ui/ImportCsvModal.tsx:88</code>, + erreurs diverses (imports inutilisés, formatters Recharts, prop <code>size</code> de <code>Spinner</code> inexistante)</div>
+</div>
+
+<div class="finding critical">
+  <h3><span class="id">C-03</span> <code>skipDuplicates</code> plante sur SQLite : import CSV et notifications d'automatisation HS en dev <span class="badge critical">Critique</span> <span class="badge verified">Vérifié à l'exécution</span></h3>
+  <p>Prisma ne supporte pas <code>createMany({ skipDuplicates: true })</code> sur SQLite : l'appel lève <em>« Unknown argument skipDuplicates »</em> (testé sur la base dev). Quatre endroits sont concernés : import CSV contacts, import CSV entreprises, et les deux actions <code>NOTIFY_USER</code>/<code>NOTIFY_ROLE</code> du moteur d'automatisation.</p>
+  <div class="why"><strong>Pourquoi c'est grave :</strong> en environnement dev (SQLite), l'import CSV renvoie systématiquement une erreur 500 et <strong>aucune automatisation ne délivre jamais de notification</strong>. C'est exactement le piège SQLite/PostgreSQL documenté dans CLAUDE.md, mais non testé.</div>
+  <div class="files">Fichiers : <code>server/src/routes/contacts.ts:143</code>, <code>companies.ts:112</code>, <code>automation-engine.ts:142,158</code></div>
+</div>
+
+<div class="finding critical">
+  <h3><span class="id">C-04</span> RBAC structurellement cassé sur une base fraîche : seed sans <code>roleId</code>, pas de bypass ADMIN côté JWT <span class="badge critical">Critique</span></h3>
+  <p>Le seed crée les rôles et leurs permissions, puis crée les utilisateurs avec uniquement le champ texte <code>role</code> — <strong>sans jamais renseigner <code>roleId</code></strong>. Or les permissions du JWT proviennent exclusivement de <code>roleRef</code>. Par ailleurs, le bypass ADMIN <code>['*']</code> n'existe que dans la branche « API key » du middleware : un ADMIN connecté par JWT n'a aucun traitement spécial côté serveur (alors que le client, lui, bypass <code>role === 'ADMIN'</code>).</p>
+  <div class="why"><strong>Pourquoi c'est grave :</strong> sur toute nouvelle installation (prod incluse), après <code>db:seed</code>, <strong>tous les utilisateurs — admin compris — reçoivent un JWT sans aucune permission et se font refuser (403) toutes les routes protégées</strong>. La base dev actuelle fonctionne uniquement parce que les <code>roleId</code> y ont été liés manuellement. L'incohérence client (bypass ADMIN) / serveur (pas de bypass) signifie aussi que l'UI peut montrer des actions que l'API refusera.</div>
+  <div class="files">Fichiers : <code>server/src/prisma/seed.ts:152-175</code>, <code>server/src/middleware/auth.ts:74-77,84-97</code>, <code>server/src/routes/auth.ts:61-62</code></div>
+</div>
+
+<div class="finding critical">
+  <h3><span class="id">C-05</span> Le login ne renvoie pas les permissions → UI vide pour les non-admins <span class="badge critical">Critique</span></h3>
+  <p>La réponse de <code>POST /auth/login</code> contient l'utilisateur <em>sans</em> champ <code>permissions</code> (elles ne sont mises que dans le JWT). Côté client, <code>authStore.login()</code> fait <code>permissions: user.permissions ?? []</code> → tableau vide. La sidebar et tous les <code>CanDo</code>/<code>usePermission</code> filtrent sur ces permissions.</p>
+  <div class="why"><strong>Pourquoi c'est grave :</strong> un COMMERCIAL ou TECHNICIEN qui se connecte voit une <strong>sidebar quasi vide et aucune action</strong> jusqu'à ce qu'un refresh de token survienne (l'intercepteur ne met à jour les permissions que lors d'un 401, qui n'arrive jamais puisque l'utilisateur ne peut rien appeler). Seul l'ADMIN est épargné grâce au bypass client.</div>
+  <div class="files">Fichiers : <code>server/src/routes/auth.ts:65-67</code>, <code>client/src/store/authStore.ts:34-42</code>, <code>client/src/lib/api.ts:42-51</code></div>
+</div>
+
+<div class="finding critical">
+  <h3><span class="id">C-06</span> Identifiants admin pré-remplis en dur sur l'écran de login <span class="badge critical">Critique</span></h3>
+  <p><code>LoginPage</code> pré-remplit le formulaire avec <code>admin@crm.local / admin123</code> (<code>defaultValues</code>) et affiche un panneau « Comptes de démo » avec trois comptes et leurs mots de passe. Le seed crée ces comptes avec des mots de passe faibles connus (<code>admin123</code>, <code>password123</code>…).</p>
+  <div class="why"><strong>Pourquoi c'est grave :</strong> si ce build part en production (le domaine <code>dcrm.dcb-technologies.fr</code> est configuré), n'importe quel visiteur voit les identifiants admin pré-remplis. Et si le seed a été exécuté en prod, ces comptes existent réellement. À noter : le panneau mentionne <code>lucas@crm.local</code> qui n'existe même pas dans le seed (c'est <code>jean.dupont@crm.local</code>).</div>
+  <div class="files">Fichiers : <code>client/src/pages/auth/LoginPage.tsx:25,104-123</code>, <code>server/src/prisma/seed.ts:153-175</code></div>
+</div>
+
+<div class="finding critical">
+  <h3><span class="id">C-07</span> Aucune migration Prisma versionnée, mais <code>start:prod</code> exécute <code>migrate deploy</code> <span class="badge critique critical">Critique</span></h3>
+  <p>Le dossier <code>server/src/prisma/migrations/</code> n'existe pas — le schéma n'a été synchronisé qu'avec <code>db:push</code> (sans historique). Or le script <code>start:prod</code> commence par <code>prisma migrate deploy</code>, qui n'a rien à déployer et échouera ou divergera sur une base existante.</p>
+  <div class="why"><strong>Pourquoi c'est grave :</strong> impossible de faire évoluer le schéma en production de façon contrôlée (ni de rollback). Toute mise à jour de schéma en prod PostgreSQL devra se faire « à la main », ce qui finit toujours par une divergence dev/prod. C'est doublement risqué avec les différences SQLite/PostgreSQL déjà identifiées (C-03, E-07).</div>
+  <div class="files">Fichiers : <code>server/package.json:8</code>, absence de <code>server/src/prisma/migrations/</code></div>
+</div>
+
+<div class="finding critical">
+  <h3><span class="id">C-08</span> <code>trust proxy</code> absent derrière nginx/Plesk <span class="badge critical">Critique</span></h3>
+  <p>En production, Express tourne derrière le nginx de Plesk, mais <code>app.set('trust proxy', …)</code> n'est jamais appelé. <code>express-rate-limit</code> identifie alors tous les clients par l'IP du proxy.</p>
+  <div class="why"><strong>Pourquoi c'est grave :</strong> le rate limit global (500 req/15 min) et le rate limit anti-brute-force du login (20 req/15 min) deviennent <strong>partagés entre tous les utilisateurs</strong> : 20 tentatives de login cumulées sur toute l'entreprise bloquent tout le monde pendant 15 minutes ; et inversement, le « blocage par IP » d'un attaquant ne le distingue plus des autres. Les logs (morgan) enregistrent aussi la mauvaise IP.</div>
+  <div class="files">Fichier : <code>server/src/index.ts:49-76</code></div>
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="eleve">3. Constats de sévérité élevée</h2>
+
+<div class="finding high">
+  <h3><span class="id">E-01</span> Modules « calls » et « apikeys » sans aucun contrôle de permission <span class="badge high">Élevé</span></h3>
+  <p>Toutes les routes appels (liste, détail, création, modification, <strong>suppression</strong>, écoute des enregistrements) et clés API (création, révocation) ne sont protégées que par <code>authenticate</code> — aucune permission <code>calls:*</code> ou <code>apikeys:*</code> n'existe.</p>
+  <div class="why"><strong>Pourquoi :</strong> n'importe quel utilisateur (TECHNICIEN inclus) peut supprimer des appels et leurs enregistrements, écouter tous les enregistrements (données sensibles RGPD), et générer une clé API permanente héritant de son rôle — y compris un ADMIN qui obtient ainsi une clé <code>['*']</code> sans expiration ni traçabilité d'usage au-delà de <code>lastUsedAt</code>.</div>
+  <div class="files">Fichiers : <code>server/src/routes/calls.ts</code>, <code>server/src/routes/apikeys.ts</code>, seed des permissions (<code>seed.ts</code>)</div>
+</div>
+
+<div class="finding high">
+  <h3><span class="id">E-02</span> Upload d'enregistrements sans validation de type de fichier <span class="badge high">Élevé</span></h3>
+  <p><code>POST /calls/:id/recording</code> accepte n'importe quel fichier jusqu'à 200 Mo, en conservant l'extension d'origine, sans vérification MIME ni magic bytes. Le fichier est ensuite servi en <code>audio/mpeg</code>.</p>
+  <div class="why"><strong>Pourquoi :</strong> stockage arbitraire (exécutables, contenus illicites) sur le serveur de prod ; saturation disque (200 Mo × n appels) ; aucune permission dédiée (cf. E-01).</div>
+  <div class="files">Fichier : <code>server/src/routes/calls.ts:11-22,279-297</code></div>
+</div>
+
+<div class="finding high">
+  <h3><span class="id">E-03</span> Le fallback SPA avale les routes <code>GET /api/*</code> inconnues <span class="badge high">Élevé</span></h3>
+  <p>En production, <code>app.get('*')</code> est déclaré après les routeurs API mais avant <code>notFound</code> : un <code>GET /api/nimporte-quoi</code> renvoie <code>index.html</code> (HTML, 200) au lieu d'un 404 JSON.</p>
+  <div class="why"><strong>Pourquoi :</strong> les erreurs de route côté client deviennent indétectables (le front reçoit du HTML qu'il tente de parser en JSON → erreurs trompeuses « Unexpected token &lt; »), et le monitoring ne voit jamais de 404.</div>
+  <div class="files">Fichier : <code>server/src/index.ts:123-128</code> (utiliser un pattern excluant <code>/api</code>)</div>
+</div>
+
+<div class="finding high">
+  <h3><span class="id">E-04</span> IDOR : marquer comme lue la notification d'un autre utilisateur <span class="badge high">Élevé</span></h3>
+  <p><code>PATCH /notifications/:id/read</code> met à jour la notification par <code>id</code> seul, sans filtrer sur <code>userId</code> (contrairement au DELETE juste en dessous, qui filtre correctement).</p>
+  <div class="why"><strong>Pourquoi :</strong> un utilisateur peut altérer l'état des notifications d'un collègue (perte d'alertes « ticket urgent » marquées lues à son insu). Impact métier réel pour un outil de support.</div>
+  <div class="files">Fichier : <code>server/src/routes/notifications.ts:27-32</code></div>
+</div>
+
+<div class="finding high">
+  <h3><span class="id">E-05</span> Remplacement des permissions d'un rôle non transactionnel <span class="badge high">Élevé</span></h3>
+  <p><code>PUT /roles/:id/permissions</code> fait <code>deleteMany</code> puis <code>createMany</code> hors transaction. Si un <code>permissionId</code> est invalide (contrainte FK), la création échoue <strong>après</strong> la suppression.</p>
+  <div class="why"><strong>Pourquoi :</strong> le rôle se retrouve avec <em>zéro</em> permission : tous les utilisateurs du rôle perdent l'accès à l'application (leurs refresh tokens sont en plus supprimés par cette même route → déconnexion forcée vers une session sans droits).</div>
+  <div class="files">Fichier : <code>server/src/routes/roles.ts:161-169</code> (envelopper dans <code>prisma.$transaction</code>)</div>
+</div>
+
+<div class="finding high">
+  <h3><span class="id">E-06</span> Injection de formules CSV dans tous les exports <span class="badge high">Élevé</span></h3>
+  <p>Les exports CSV (entreprises, contacts, tickets) échappent les guillemets/virgules mais pas les cellules commençant par <code>=</code>, <code>+</code>, <code>-</code> ou <code>@</code>.</p>
+  <div class="why"><strong>Pourquoi :</strong> un nom d'entreprise ou un titre de ticket saisi comme <code>=HYPERLINK("http://evil";"…")</code> ou <code>=cmd|…</code> s'exécute à l'ouverture dans Excel sur le poste de l'utilisateur qui exporte. Les données proviennent de saisies (et du webhook public C-01 !).</div>
+  <div class="files">Fichiers : <code>server/src/routes/companies.ts:136-150</code>, <code>tickets.ts:108-124</code>, <code>contacts.ts:153+</code></div>
+</div>
+
+<div class="finding high">
+  <h3><span class="id">E-07</span> Recherche : <code>contains</code> sans <code>mode: 'insensitive'</code> → comportement différent en prod PostgreSQL <span class="badge high">Élevé</span></h3>
+  <p>Toutes les recherches (<code>/search</code>, filtres tickets/contacts/companies/calls…) utilisent <code>contains</code> nu. Sur SQLite c'est insensible à la casse ; sur PostgreSQL c'est <strong>sensible</strong>.</p>
+  <div class="why"><strong>Pourquoi :</strong> en production, chercher « dupont » ne trouvera plus « Dupont ». La recherche, fonction centrale d'un CRM, se dégradera silencieusement au passage en prod sans qu'aucun test ne le détecte.</div>
+  <div class="files">Fichiers : <code>server/src/routes/search.ts</code>, <code>tickets.ts</code>, <code>contacts.ts</code>, <code>companies.ts</code>, <code>calls.ts</code> (toutes les clauses <code>contains</code>)</div>
+</div>
+
+<div class="finding high">
+  <h3><span class="id">E-08</span> Scheduler : le cron horaire des automatisations se duplique à chaque rechargement <span class="badge high">Élevé</span></h3>
+  <p><code>startScheduler()</code> stoppe et recrée <code>currentTask</code> et <code>reminderTask</code>, mais le troisième cron (automatisations, <code>'0 * * * *'</code>) est créé <strong>sans être stocké ni stoppé</strong>. Chaque sauvegarde des paramètres scheduler (<code>PUT /settings/schedulerEnabled|schedulerTime</code> → <code>restartScheduler()</code>) ajoute une exécution horaire supplémentaire.</p>
+  <div class="why"><strong>Pourquoi :</strong> après n modifications des réglages, les automatisations tournent n+1 fois par heure : notifications en double/triple, logs d'automatisation multipliés, charge inutile.</div>
+  <div class="files">Fichier : <code>server/src/scheduler.ts:139-151</code></div>
+</div>
+
+<div class="finding high">
+  <h3><span class="id">E-09</span> Vulnérabilités npm connues <span class="badge high">Élevé</span> <span class="badge verified">Vérifié</span></h3>
+  <p><strong>Client :</strong> 6 vulnérabilités (3 high — chaîne react-router/react-router-dom ≤ 7.14.1). <strong>Serveur :</strong> 4 modérées (express 4.21.x → qs vulnérable ; uuid &lt; 11.1.1).</p>
+  <div class="why"><strong>Pourquoi :</strong> correctifs disponibles via <code>npm audit fix</code> — dette de sécurité gratuite à résorber.</div>
+  <div class="files">Commande : <code>npm audit fix</code> dans <code>client/</code> et <code>server/</code> puis re-test</div>
+</div>
+
+<div class="finding high">
+  <h3><span class="id">E-10</span> Refresh tokens : stockage en clair, pas de détection de réutilisation, pas de purge <span class="badge high">Élevé</span></h3>
+  <p>Les refresh tokens (valides 7 jours) sont stockés en clair dans la table <code>RefreshToken</code>. La rotation existe, mais une réutilisation d'un ancien token (signe de vol) n'invalide pas la famille de tokens. Aucun job ne purge les tokens expirés. Le changement de mot de passe via <code>PATCH /users/:id/password</code> n'invalide pas les refresh tokens existants (contrairement au reset par email qui le fait).</p>
+  <div class="why"><strong>Pourquoi :</strong> un dump de la base donne des sessions valides 7 jours ; un token volé reste utilisable même après changement de mot de passe ; la table grossit indéfiniment.</div>
+  <div class="files">Fichiers : <code>server/src/routes/auth.ts</code>, <code>users.ts:146-170</code>, <code>scheduler.ts</code> (ajouter purge)</div>
+</div>
+
+<div class="finding high">
+  <h3><span class="id">E-11</span> Erreurs Prisma non mappées : 500 génériques et catch muets <span class="badge high">Élevé</span></h3>
+  <p>Le pattern dominant est <code>catch { res.status(500)… }</code> sans log de l'erreur. Les erreurs Prisma prévisibles ne sont pas traduites : email dupliqué à la création d'utilisateur (P2002) → 500 au lieu de 409 ; id introuvable en update/delete (P2025) → 500 au lieu de 404 ; FK invalide (P2003) → 500 au lieu de 400.</p>
+  <div class="why"><strong>Pourquoi :</strong> impossible de diagnostiquer un incident en prod (rien dans les logs), et le front affiche « Erreur serveur » pour des cas utilisateurs banals (email déjà pris).</div>
+  <div class="files">Fichiers : toutes les routes ; centraliser dans <code>middleware/errorHandler.ts</code> + helper de mapping Prisma</div>
+</div>
+
+<div class="finding high">
+  <h3><span class="id">E-12</span> Changement de mot de passe : crash 500 si <code>currentPassword</code> absent <span class="badge high">Élevé</span></h3>
+  <p>Dans <code>PATCH /users/:id/password</code>, si l'appel omet <code>currentPassword</code>, <code>bcrypt.compare(undefined, …)</code> lève une exception → 500. Le corps n'est pas validé par Zod (seul endpoint du fichier sans schéma).</p>
+  <div class="why"><strong>Pourquoi :</strong> erreur 500 à la place d'un message de validation propre ; incohérent avec le reste du code qui valide tout via Zod.</div>
+  <div class="files">Fichier : <code>server/src/routes/users.ts:146-170</code></div>
+</div>
+
+<div class="finding high">
+  <h3><span class="id">E-13</span> Config production : CSP Helmet par défaut non testée avec le SPA, CORS LAN en prod <span class="badge high">Élevé</span></h3>
+  <p>Helmet 8 active une Content-Security-Policy par défaut ; Express sert le build React avec ces en-têtes en prod (risque de blocage d'assets/inline selon le build, à valider). Les regex CORS autorisent toute origine <code>192.168.x.x</code> / <code>10.x.x.x</code> y compris en production, et les requêtes sans origin sont toujours acceptées.</p>
+  <div class="why"><strong>Pourquoi :</strong> soit la CSP casse silencieusement des pages en prod, soit elle a été désactivée sans trace ; et la surface CORS prod devrait se limiter au domaine officiel.</div>
+  <div class="files">Fichier : <code>server/src/index.ts:52-65</code></div>
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="moyen">4. Constats de sévérité moyenne</h2>
+
+<div class="finding medium">
+  <h3><span class="id">M-01</span> <code>ProtectedRoute</code> jamais utilisé : aucune garde de permission par route côté client <span class="badge medium">Moyen</span></h3>
+  <p>Le composant existe (avec support des permissions) mais <code>App.tsx</code> ne l'utilise pas : toutes les pages sont accessibles à tout utilisateur connecté (ex. <code>/users</code>, <code>/settings/roles</code>) ; seules les API renvoient 403, laissant des pages vides ou en erreur.</p>
+  <div class="files"><code>client/src/App.tsx</code>, <code>client/src/components/ProtectedRoute.tsx</code></div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="id">M-02</span> Taxonomie des permissions incohérente <span class="badge medium">Moyen</span></h3>
+  <ul>
+    <li><code>GET /settings</code> (lecture) exige <code>settings:write</code></li>
+    <li><code>POST /users/targets</code> (écriture) exige <code>reports:read</code></li>
+    <li>Les licences utilisent les permissions <code>equipment:*</code></li>
+    <li><code>knowledge.ts</code> mélange permissions et contrôles de rôle en dur (<code>ADMIN || MANAGER</code>)</li>
+    <li><code>GET/PUT /users/:id</code> utilisent des checks de rôle au lieu de permissions</li>
+    <li>Le seed contient des permissions <code>interventions:*</code> qu'aucune route n'utilise</li>
+  </ul>
+  <div class="files"><code>settings.ts:26</code>, <code>users.ts:59,76,91-134</code>, <code>licenses.ts</code>, <code>knowledge.ts:20,37</code>, <code>seed.ts</code></div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="id">M-03</span> La recherche globale ignore les permissions par module <span class="badge medium">Moyen</span></h3>
+  <p><code>GET /search</code> renvoie contacts, entreprises, tickets et opportunités à tout utilisateur authentifié, même sans <code>pipeline:read</code> ou <code>contacts:read</code>.</p>
+  <div class="files"><code>server/src/routes/search.ts</code></div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="id">M-04</span> Moteur d'automatisation : stages « WON »/« LOST » en dur et re-notifications horaires <span class="badge medium">Moyen</span></h3>
+  <p><code>runOpportunityInactive</code> exclut les stages <code>['WON','LOST']</code> en dur alors que les pipelines/stages sont dynamiques (flags <code>isWon</code>/<code>isLost</code> en base) — une opportunité gagnée dans un pipeline personnalisé sera relancée. La déduplication des tickets en retard utilise une fenêtre d'1 h pour un job qui tourne toutes les heures → re-notification potentielle à chaque exécution.</p>
+  <div class="files"><code>server/src/automation-engine.ts:349,296-304</code></div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="id">M-05</span> Double source de vérité : <code>User.role</code> (texte) vs <code>User.roleId</code> (relation) <span class="badge medium">Moyen</span></h3>
+  <p>Le rôle existe en deux exemplaires qui peuvent diverger (cf. C-04). Les rôles personnalisés créés via l'UI ne correspondent à aucune valeur de l'enum <code>z.enum(['ADMIN','MANAGER','COMMERCIAL','TECHNICIEN'])</code> utilisé dans <code>users.ts</code> : impossible d'assigner un rôle custom à un utilisateur.</p>
+  <div class="files"><code>schema.prisma:21,26-27</code>, <code>users.ts:11-27</code>, <code>roles.ts</code></div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="id">M-06</span> Aucun test automatisé, aucune CI, pas de lint serveur <span class="badge medium">Moyen</span></h3>
+  <p>Zéro framework de test dans les deux <code>package.json</code>, pas de dossier <code>.github/</code>, pas d'ESLint côté serveur. 59 fichiers modifiés non committés au moment de l'audit (gros risque de perte / de commit fourre-tout).</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="id">M-07</span> Pas de logger structuré ni de piste d'audit <span class="badge medium">Moyen</span></h3>
+  <p>Uniquement <code>console.log/error</code> + morgan. Aucune trace de qui a supprimé un contact, modifié un rôle, révoqué une clé API… Pour un CRM multi-utilisateur, l'absence d'audit trail rend tout incident inanalysable.</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="id">M-08</span> Utilisateurs désactivés irrécupérables depuis l'UI <span class="badge medium">Moyen</span></h3>
+  <p><code>DELETE /users/:id</code> fait un soft delete (<code>isActive: false</code>) mais <code>GET /users</code> filtre <code>isActive: true</code> : un utilisateur désactivé disparaît de toutes les listes et <strong>ne peut plus être réactivé</strong> (la réactivation par <code>PUT /users/:id</code> existe côté API mais aucune UI ne peut l'atteindre).</p>
+  <div class="files"><code>server/src/routes/users.ts:30-39,137-143</code></div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="id">M-09</span> RGPD : enregistrements d'appels et données personnelles sans gouvernance <span class="badge medium">Moyen</span></h3>
+  <p>Les enregistrements d'appels (données sensibles) sont conservés sans durée de rétention, accessibles à tous les utilisateurs connectés (E-01), sans journalisation des écoutes. Pas de procédure d'effacement (droit à l'oubli) pour contacts/appels. Le token de reset de mot de passe transite en query string (peut finir dans des logs).</p>
+</div>
+
+<div class="finding medium">
+  <h3><span class="id">M-10</span> Documentation interne non versionnée et <code>uploads/</code> non ignoré <span class="badge medium">Moyen</span></h3>
+  <p>Le <code>.gitignore</code> exclut <code>*.md</code> : PLAN.md, API.md, PROGRESS.md, DESIGN.md (référencés par CLAUDE.md) n'existent que sur ce poste — perte garantie en cas de changement de machine ou de travail à plusieurs. À l'inverse, <code>server/uploads/</code> n'est pas ignoré : risque de committer des enregistrements d'appels.</p>
+  <div class="files"><code>.gitignore</code></div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="id">M-11</span> Incohérences des hooks API client <span class="badge medium">Moyen</span></h3>
+  <p><code>useList</code> renvoie la réponse complète (<code>{success, data, meta}</code>) alors que <code>useItem</code>/<code>useCreate</code>/<code>useUpdate</code> renvoient <code>data.data</code> : chaque page doit se souvenir de la convention, source de bugs de typage (<code>T</code> ne décrit pas la même chose). <code>useUpdate</code> prend l'<code>id</code> à la création du hook (pattern rigide pour les listes).</p>
+  <div class="files"><code>client/src/hooks/useApi.ts</code></div>
+</div>
+
+<div class="finding medium">
+  <h3><span class="id">M-12</span> Webhook VoIP : correspondance de numéro fragile <span class="badge medium">Moyen</span></h3>
+  <p>Le numéro appelant est normalisé (suppression espaces/+/­tirets) puis comparé avec <code>contains</code> aux champs <code>phone</code>/<code>mobile</code> stockés <em>non normalisés</em> (ex. seed : « 04 72 12 34 56 »). « 0472123456 » ne matchera jamais « 04 72 12 34 56 » → l'auto-rattachement contact/société ne fonctionne quasiment jamais, et <code>contains</code> sur un numéro court peut matcher le mauvais contact.</p>
+  <div class="files"><code>server/src/routes/calls.ts:42-53</code> (stocker un champ <code>phoneNormalized</code> indexé)</div>
+</div>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="mineur">5. Constats mineurs / informatifs</h2>
+<table>
+  <tr><th>ID</th><th>Constat</th><th>Détail</th></tr>
+  <tr><td class="id">L-01</td><td>Erreurs TS serveur liées aux types Express</td><td><code>@types/express@^5</code> installé avec Express 4 → <code>req.params.id</code> typé <code>string | string[]</code> partout (~12 erreurs). Revenir à <code>@types/express@^4</code>.</td></tr>
+  <tr><td class="id">L-02</td><td><code>app.listen(PORT)</code> mal typé</td><td><code>PORT</code> est <code>string | number</code> → erreur TS (index.ts:133). <code>Number(process.env.PORT)</code>.</td></tr>
+  <tr><td class="id">L-03</td><td>Dépendances client mal rangées</td><td><code>autoprefixer</code>, <code>postcss</code>, <code>tailwindcss</code>, <code>@types/leaflet</code> en <code>dependencies</code> au lieu de <code>devDependencies</code> ; <code>@types/react-router-dom@5</code> inutile (RRD v7 fournit ses types).</td></tr>
+  <tr><td class="id">L-04</td><td><code>uuid</code> probablement inutilisé côté serveur</td><td>Prisma génère les uuid ; à vérifier puis retirer (c'est aussi l'une des vulnérabilités npm).</td></tr>
+  <tr><td class="id">L-05</td><td><code>(prisma as any)</code> dans apikeys/middleware</td><td>Le client Prisma généré est à jour (le modèle ApiKey existe) : retirer les casts <code>any</code> et regénérer le client.</td></tr>
+  <tr><td class="id">L-06</td><td>Délai anti-énumération partiel sur forgot-password</td><td>Le délai fixe de 300 ms n'absorbe pas le temps d'envoi SMTP (souvent &gt; 300 ms) : le timing reste un oracle. Envoyer l'email hors requête (file d'attente / setImmediate).</td></tr>
+  <tr><td class="id">L-07</td><td>Réponse login : deux requêtes user</td><td><code>findUnique</code> puis re-<code>findUnique</code> avec includes — fusionner en une requête.</td></tr>
+  <tr><td class="id">L-08</td><td>authStore : double stockage du token</td><td><code>accessToken</code> persisté à la fois dans <code>localStorage.accessToken</code> et dans le persist <code>crm-auth</code> (risque de désynchronisation, déjà contourné dans l'intercepteur). Choisir une seule source. À terme, envisager un stockage mémoire (XSS).</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="manquant">6. Fonctionnalités manquantes</h2>
+<table>
+  <tr><th>Domaine</th><th>Manque</th><th>Impact</th></tr>
+  <tr><td>Qualité</td><td><strong>Tests automatisés</strong> (unitaires API + e2e) et <strong>CI</strong> (lint + tsc + tests + build sur chaque push)</td><td>Les régressions actuelles (C-02, C-03) auraient toutes été détectées par une CI minimale.</td></tr>
+  <tr><td>Sécurité</td><td>Signature HMAC du webhook VoIP, verrouillage de compte après échecs, politique de mot de passe, 2FA (au moins pour ADMIN)</td><td>Surface d'attaque du point d'entrée public et des comptes à privilèges.</td></tr>
+  <tr><td>Exploitation</td><td>Logger structuré (pino/winston), Sentry ou équivalent, métriques, stratégie de sauvegarde/restauration PostgreSQL documentée et testée</td><td>Aujourd'hui un incident prod est invisible et irrécupérable.</td></tr>
+  <tr><td>Conformité</td><td>Rétention/purge des enregistrements d'appels, journal des accès aux enregistrements, procédure droit à l'oubli</td><td>Obligations RGPD pour une entreprise française manipulant des appels clients.</td></tr>
+  <tr><td>Produit</td><td>Pièces jointes sur les tickets ; réactivation des utilisateurs désactivés (M-08) ; édition des stages utilisée partout au lieu des statuts en dur ; invitation par email à la création d'un utilisateur (au lieu d'un mot de passe transmis manuellement)</td><td>Confort/complétude pour un usage support quotidien.</td></tr>
+  <tr><td>Temps réel</td><td>Notifications en SSE/WebSocket (actuellement rechargements périodiques)</td><td>Réactivité des alertes tickets urgents / appels entrants.</td></tr>
+  <tr><td>Hors scope assumé</td><td>Devis/factures (gérés par Pennylane)</td><td>OK — mais retirer les routes correspondantes d'API.md pour éviter la confusion.</td></tr>
+</table>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="positif">7. Points positifs</h2>
+<ul>
+  <li>Format de réponse API unifié et systématiquement respecté.</li>
+  <li>Refresh token httpOnly + rotation + invalidation en base (logout, reset, changement de permissions de rôle) — au-dessus de la moyenne.</li>
+  <li>RBAC à permissions fines avec UI de gestion des rôles ; invalidation des refresh tokens à la modification d'un rôle.</li>
+  <li>Validation Zod quasi systématique des corps de requêtes.</li>
+  <li>Rate limiting global + renforcé sur login/forgot-password ; mots de passe bcryptés (coût 12) ; réponse anti-énumération sur forgot-password.</li>
+  <li>Bonne hygiène secrets : <code>.env</code> ignoré, exemples de prod sans secrets, validation des variables d'env au démarrage.</li>
+  <li>Front : lazy loading des pages, chunking manuel raisonné, hooks génériques TanStack Query, aucun <code>dangerouslySetInnerHTML</code>, aucun <code>console.log</code> résiduel.</li>
+  <li>Transaction utilisée là où c'est le plus critique (génération de référence ticket).</li>
+</ul>
+
+<!-- ════════════════════════════════════════════ -->
+<h2 id="plan">8. Plan d'action recommandé</h2>
+
+<div class="phase">
+  <h3>Phase 1 — Stabiliser (bloquant avant toute mise en prod)</h3>
+  <p>C-01 (sécuriser webhook), C-02 (réparer le build client + modales), C-03 (skipDuplicates), C-04 + C-05 (chaîne RBAC seed/login/bypass ADMIN), C-06 (retirer credentials démo), C-07 (initialiser les migrations Prisma), C-08 (trust proxy).</p>
+</div>
+<div class="phase">
+  <h3>Phase 2 — Sécuriser</h3>
+  <p>E-01/E-02 (permissions calls + apikeys, validation upload), E-04 (IDOR), E-05 (transaction rôles), E-06 (CSV injection), E-09 (npm audit fix), E-10 (refresh tokens), E-12, E-13.</p>
+</div>
+<div class="phase">
+  <h3>Phase 3 — Fiabiliser la prod</h3>
+  <p>E-03, E-07 (recherche insensible à la casse), E-08 (scheduler), E-11 (gestion d'erreurs + logs), M-07 (logger), M-09/M-10 (RGPD, gitignore, docs versionnées).</p>
+</div>
+<div class="phase">
+  <h3>Phase 4 — Qualité &amp; produit</h3>
+  <p>Tests + CI (M-06), gardes de routes client (M-01), cohérence permissions (M-02, M-03), automatisations dynamiques (M-04), modèle de rôle unifié (M-05), M-08, M-11, M-12 et les mineurs L-01…L-08.</p>
+</div>
+
+<p class="note">Chaque constat est détaillé en tâche actionnable (fichiers, approche, critères d'acceptation) dans <code>AUDIT-MODIFICATIONS.md</code>, prêt à être traité par des agents.</p>
+
+</div>
+</body>
+</html>

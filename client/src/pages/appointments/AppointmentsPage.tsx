@@ -355,7 +355,7 @@ export function AppointmentsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3 flex-wrap">
+      <div className="flex gap-3 flex-wrap items-center">
         <select className="input w-auto" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
           <option value="">Tous les types</option>
           {Object.entries(APPOINTMENT_TYPES).map(([k, v]) => (
@@ -377,7 +377,7 @@ export function AppointmentsPage() {
         <>
           {/* ── Week Calendar View ── */}
           {viewMode === 'calendar' && (
-            <div className="card overflow-hidden flex flex-col flex-1 min-h-0">
+            <div className="card overflow-x-auto flex flex-col flex-1 min-h-0">
               {/* Week navigation */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
                 <div className="flex items-center gap-1">
@@ -515,7 +515,7 @@ export function AppointmentsPage() {
 
           {/* ── List View ── */}
           {viewMode === 'list' && (
-            <div className="table-container">
+            <div className="table-container overflow-x-auto">
               <table>
                 <thead>
                   <tr>
@@ -816,7 +816,7 @@ function AppointmentFormFields({
       </div>
 
       {/* Dates */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="form-group">
           <label className="label">Début *</label>
           <input {...register('startAt')} type="datetime-local" className={`input ${errors.startAt ? 'input-error' : ''}`} />

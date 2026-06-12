@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
@@ -37,7 +37,7 @@ function lastNQuarters(n: number): string[] {
 // ─── SALES TARGETS ────────────────────────────────────────────────────────────
 
 // GET /api/reports/sales-targets
-router.get('/sales-targets', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/sales-targets', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { period, userId } = req.query as Record<string, string>
 
@@ -78,7 +78,7 @@ router.get('/sales-targets', async (req: AuthRequest, res: Response): Promise<vo
 })
 
 // POST /api/reports/sales-targets
-router.post('/sales-targets', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/sales-targets', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = z.object({
       userId: z.string().min(1),
@@ -102,7 +102,7 @@ router.post('/sales-targets', requireRole(['ADMIN', 'MANAGER']), async (req: Aut
 })
 
 // PUT /api/reports/sales-targets/:id
-router.put('/sales-targets/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/sales-targets/:id', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { target } = z.object({ target: z.number().min(0) }).parse(req.body)
     const updated = await prisma.salesTarget.update({
@@ -118,7 +118,7 @@ router.put('/sales-targets/:id', requireRole(['ADMIN', 'MANAGER']), async (req: 
 })
 
 // DELETE /api/reports/sales-targets/:id
-router.delete('/sales-targets/:id', requireRole(['ADMIN']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/sales-targets/:id', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.salesTarget.delete({ where: { id: req.params.id } })
     res.json({ success: true })
@@ -128,7 +128,7 @@ router.delete('/sales-targets/:id', requireRole(['ADMIN']), async (req: AuthRequ
 // ─── PIPELINE FORECAST ────────────────────────────────────────────────────────
 
 // GET /api/reports/pipeline-forecast?pipelineId=
-router.get('/pipeline-forecast', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/pipeline-forecast', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { pipelineId } = req.query as Record<string, string>
 
@@ -171,7 +171,7 @@ router.get('/pipeline-forecast', async (req: AuthRequest, res: Response): Promis
 // ─── COMMERCIAL PERFORMANCE ───────────────────────────────────────────────────
 
 // GET /api/reports/commercial-performance?period=2026-Q2
-router.get('/commercial-performance', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/commercial-performance', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { period } = req.query as Record<string, string>
     const dates = period ? periodToDates(period) : null
@@ -222,7 +222,7 @@ router.get('/commercial-performance', requireRole(['ADMIN', 'MANAGER']), async (
 
 // ─── AVAILABLE PERIODS ────────────────────────────────────────────────────────
 
-router.get('/periods', async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/periods', requirePermission('reports:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   res.json({ success: true, data: lastNQuarters(8) })
 })
 

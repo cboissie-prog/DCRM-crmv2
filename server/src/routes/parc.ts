@@ -1,6 +1,6 @@
 import { Router, Response } from 'express'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
@@ -11,7 +11,7 @@ const ALERT_DAYS = 60 // jours avant expiration = alerte
 // Retourne les entreprises ayant au moins un équipement, une licence ou un contrat,
 // avec les compteurs et le nombre d'alertes actives.
 
-router.get('/overview', async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/overview', requirePermission('equipment:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const alertThreshold = new Date()
     alertThreshold.setDate(alertThreshold.getDate() + ALERT_DAYS)

@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
@@ -27,7 +27,7 @@ const companySchema = z.object({
 
 const COMPANY_SORT_FIELDS = new Set(['createdAt', 'updatedAt', 'name', 'city', 'sector', 'employees', 'annualRevenue'])
 
-router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('companies:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { search, sector, page, limit, sortBy, sortOrder } = req.query as Record<string, string>
     const pageNum = Math.max(1, parseInt(page) || 1)
@@ -56,7 +56,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.post('/', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requirePermission('companies:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = companySchema.parse(req.body)
     const company = await prisma.company.create({ data: body })
@@ -68,7 +68,7 @@ router.post('/', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: Au
 })
 
 // POST /companies/import/csv
-router.post('/import/csv', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/import/csv', requirePermission('companies:import'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { rows } = z.object({ rows: z.array(z.record(z.string())) }).parse(req.body)
     if (rows.length === 0) { res.status(400).json({ success: false, error: { code: 'EMPTY', message: 'Aucune ligne à importer' } }); return }
@@ -119,7 +119,7 @@ router.post('/import/csv', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), asyn
 })
 
 // GET /companies/export/csv
-router.get('/export/csv', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/export/csv', requirePermission('companies:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { search, sector } = req.query as Record<string, string>
     const where: Record<string, unknown> = { isActive: true }
@@ -151,7 +151,7 @@ router.get('/export/csv', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:id', requirePermission('companies:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const company = await prisma.company.findUnique({
       where: { id: req.params.id },
@@ -171,7 +171,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.put('/:id', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id', requirePermission('companies:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = companySchema.partial().parse(req.body)
     const company = await prisma.company.update({ where: { id: req.params.id }, data: body })
@@ -182,7 +182,7 @@ router.put('/:id', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: 
   }
 })
 
-router.delete('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id', requirePermission('companies:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.company.update({ where: { id: req.params.id }, data: { isActive: false } })
     res.json({ success: true, data: { message: 'Entreprise supprimée' } })
@@ -190,7 +190,7 @@ router.delete('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest
 })
 
 // GET /companies/map - données pour la carte
-router.get('/data/map', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/data/map', requirePermission('companies:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const companies = await prisma.company.findMany({
       where: { isActive: true, lat: { not: null }, lng: { not: null } },

@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
@@ -23,7 +23,7 @@ const contactSchema = z.object({
 const CONTACT_SORT_FIELDS = new Set(['createdAt', 'updatedAt', 'firstName', 'lastName', 'email', 'status', 'source', 'leadScore'])
 
 // GET /contacts
-router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('contacts:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { search, status, source, companyId, page, limit, sortBy, sortOrder } = req.query as Record<string, string>
     const pageNum = Math.max(1, parseInt(page) || 1)
@@ -54,7 +54,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 })
 
 // POST /contacts
-router.post('/', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requirePermission('contacts:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = contactSchema.parse(req.body)
     const contact = await prisma.contact.create({ data: body, include: { company: { select: { id: true, name: true } } } })
@@ -88,7 +88,7 @@ const STATUS_MAP: Record<string, string> = {
   'prospect': 'PROSPECT', 'client': 'CLIENT', 'inactif': 'INACTIVE', 'perdu': 'LOST',
 }
 
-router.post('/import/csv', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/import/csv', requirePermission('contacts:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { rows } = z.object({ rows: z.array(z.record(z.string())) }).parse(req.body)
     if (rows.length === 0) { res.status(400).json({ success: false, error: { code: 'EMPTY', message: 'Aucune ligne à importer' } }); return }
@@ -150,7 +150,7 @@ router.post('/import/csv', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), asyn
 })
 
 // GET /contacts/export/csv
-router.get('/export/csv', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/export/csv', requirePermission('contacts:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { search, status } = req.query as Record<string, string>
     const where: Record<string, unknown> = { isActive: true }
@@ -184,7 +184,7 @@ router.get('/export/csv', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async
 })
 
 // GET /contacts/:id
-router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:id', requirePermission('contacts:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const contact = await prisma.contact.findUnique({
       where: { id: req.params.id },
@@ -203,7 +203,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
 })
 
 // PUT /contacts/:id
-router.put('/:id', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id', requirePermission('contacts:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = contactSchema.partial().parse(req.body)
     const contact = await prisma.contact.update({ where: { id: req.params.id }, data: body, include: { company: { select: { id: true, name: true } } } })
@@ -215,7 +215,7 @@ router.put('/:id', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: 
 })
 
 // DELETE /contacts/:id (soft delete)
-router.delete('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id', requirePermission('contacts:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.contact.update({ where: { id: req.params.id }, data: { isActive: false } })
     res.json({ success: true, data: { message: 'Contact supprimé' } })

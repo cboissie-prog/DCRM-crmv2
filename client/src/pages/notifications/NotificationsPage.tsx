@@ -81,7 +81,7 @@ export function NotificationsPage() {
           <h1 className="page-title">Notifications</h1>
           <p className="page-subtitle">{unread > 0 ? `${unread} non lue${unread > 1 ? 's' : ''}` : 'Tout est lu'}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {unread > 0 && (
             <button
               className="btn-secondary flex items-center gap-1.5"
@@ -115,7 +115,7 @@ export function NotificationsPage() {
           {notifications.map(notif => (
             <div
               key={notif.id}
-              className={`group flex items-start gap-4 px-5 py-4 transition-colors ${!notif.isRead ? 'bg-blue-50/40' : ''}`}
+              className={`group flex items-start gap-3 px-3 sm:px-5 py-4 transition-colors ${!notif.isRead ? 'bg-blue-50/40' : ''}`}
             >
               <div
                 className={`flex items-start gap-4 flex-1 min-w-0 ${notif.link ? 'cursor-pointer hover:bg-slate-50' : ''}`}

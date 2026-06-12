@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { fireAutomations } from '../automation-engine'
 
 const router = Router()
@@ -34,7 +34,7 @@ const leadSchema = z.object({
 
 // ─── LEADS ───────────────────────────────────────────────
 
-router.get('/leads', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/leads', requirePermission('pipeline:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { status, source, page, limit } = req.query as Record<string, string>
     const pageNum = Math.max(1, parseInt(page) || 1)
@@ -54,7 +54,7 @@ router.get('/leads', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.post('/leads', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/leads', requirePermission('pipeline:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = leadSchema.parse(req.body)
     const lead = await prisma.lead.create({ data: body, include: { contact: { include: { company: { select: { id: true, name: true } } } } } })
@@ -71,7 +71,7 @@ router.post('/leads', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (re
   }
 })
 
-router.put('/leads/:id', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/leads/:id', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = leadSchema.partial().parse(req.body)
     const lead = await prisma.lead.update({ where: { id: req.params.id }, data: body, include: { contact: true } })
@@ -85,7 +85,7 @@ router.put('/leads/:id', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async 
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.patch('/leads/:id/status', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.patch('/leads/:id/status', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { status } = z.object({
       status: z.enum(['NEW', 'CONTACTED', 'QUALIFIED', 'CONVERTED', 'LOST', 'UNREACHABLE']),
@@ -102,14 +102,14 @@ router.patch('/leads/:id/status', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']
   }
 })
 
-router.delete('/leads/:id', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/leads/:id', requirePermission('pipeline:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.lead.delete({ where: { id: req.params.id } })
     res.json({ success: true })
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.post('/leads/:id/convert', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/leads/:id/convert', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { pipelineId: bodyPipelineId, stage: bodyStage } = z.object({
       pipelineId: z.string().optional(),
@@ -144,7 +144,7 @@ router.post('/leads/:id/convert', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']
 
 // ─── OPPORTUNITIES ──────────────────────────────────────
 
-router.get('/opportunities', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/opportunities', requirePermission('pipeline:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { stage, assignedToId, companyId, pipelineId, page = '1', limit = '50' } = req.query as Record<string, string>
     const where: Record<string, unknown> = {}
@@ -169,7 +169,7 @@ router.get('/opportunities', async (req: AuthRequest, res: Response): Promise<vo
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.post('/opportunities', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/opportunities', requirePermission('pipeline:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = opportunitySchema.parse(req.body)
     const data: Record<string, unknown> = { ...body }
@@ -186,7 +186,7 @@ router.post('/opportunities', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), a
   }
 })
 
-router.get('/opportunities/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/opportunities/:id', requirePermission('pipeline:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const opp = await prisma.opportunity.findUnique({
       where: { id: req.params.id },
@@ -204,7 +204,7 @@ router.get('/opportunities/:id', async (req: AuthRequest, res: Response): Promis
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.put('/opportunities/:id', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/opportunities/:id', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = opportunitySchema.partial().parse(req.body)
     const data: Record<string, unknown> = { ...body }
@@ -220,7 +220,7 @@ router.put('/opportunities/:id', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL'])
   }
 })
 
-router.patch('/opportunities/:id/stage', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.patch('/opportunities/:id/stage', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { stage, lostReason } = req.body
     const previous = await prisma.opportunity.findUnique({ where: { id: req.params.id }, select: { stage: true, title: true, value: true, companyId: true, assignedToId: true } })

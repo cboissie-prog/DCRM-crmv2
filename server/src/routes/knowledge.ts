@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
@@ -15,7 +15,7 @@ const articleSchema = z.object({
 })
 
 // GET /knowledge/categories — compteurs par catégorie
-router.get('/categories', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/categories', requirePermission('knowledge:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const isEditor = req.userRole === 'ADMIN' || req.userRole === 'MANAGER'
     const baseWhere = isEditor ? {} : { isPublished: true }
@@ -29,7 +29,7 @@ router.get('/categories', async (req: AuthRequest, res: Response): Promise<void>
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('knowledge:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { search, category, page, limit } = req.query as Record<string, string>
     const pageNum = Math.max(1, parseInt(page) || 1)
@@ -46,7 +46,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.post('/', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requirePermission('knowledge:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = articleSchema.parse(req.body)
     const article = await prisma.knowledgeArticle.create({ data: body })
@@ -57,7 +57,7 @@ router.post('/', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res
   }
 })
 
-router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:id', requirePermission('knowledge:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const article = await prisma.knowledgeArticle.findUnique({ where: { id: req.params.id } })
     if (!article) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Article introuvable' } }); return }
@@ -66,7 +66,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.put('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id', requirePermission('knowledge:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = articleSchema.partial().parse(req.body)
     const article = await prisma.knowledgeArticle.update({ where: { id: req.params.id }, data: body })
@@ -74,7 +74,7 @@ router.put('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, r
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.delete('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id', requirePermission('knowledge:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.knowledgeArticle.delete({ where: { id: req.params.id } })
     res.json({ success: true, data: { message: 'Article supprimé' } })

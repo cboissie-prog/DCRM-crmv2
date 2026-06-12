@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
@@ -21,7 +21,7 @@ const productSchema = z.object({
   isActive: z.boolean().optional(),
 })
 
-router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('products:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { search, category, type, page, limit } = req.query as Record<string, string>
     const pageNum = Math.max(1, parseInt(page) || 1)
@@ -42,7 +42,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.post('/', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requirePermission('products:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = productSchema.parse(req.body)
     const product = await prisma.product.create({ data: body })
@@ -53,7 +53,7 @@ router.post('/', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res
   }
 })
 
-router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:id', requirePermission('products:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const product = await prisma.product.findUnique({ where: { id: req.params.id } })
     if (!product) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Produit introuvable' } }); return }
@@ -61,7 +61,7 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.put('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id', requirePermission('products:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = productSchema.partial().parse(req.body)
     const product = await prisma.product.update({ where: { id: req.params.id }, data: body })
@@ -72,7 +72,7 @@ router.put('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, r
   }
 })
 
-router.delete('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id', requirePermission('products:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.product.update({ where: { id: req.params.id }, data: { isActive: false } })
     res.json({ success: true, data: { message: 'Produit désactivé' } })

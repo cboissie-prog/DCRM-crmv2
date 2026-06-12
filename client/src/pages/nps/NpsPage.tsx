@@ -124,7 +124,7 @@ export function NpsPage() {
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
             Score NPS
           </p>
-          <p className={cn('text-6xl font-bold tabular-nums', getNpsScoreColor(npsScore))}>
+          <p className={cn('text-5xl sm:text-6xl font-bold tabular-nums', getNpsScoreColor(npsScore))}>
             {total > 0 ? (npsScore > 0 ? `+${npsScore}` : npsScore) : '—'}
           </p>
           <p className="text-xs text-slate-400 mt-2">% promoteurs − % détracteurs</p>
@@ -192,7 +192,7 @@ export function NpsPage() {
               />
             )}
           </div>
-          <div className="flex justify-between text-xs text-slate-400 mt-2">
+          <div className="flex flex-wrap justify-between gap-2 text-xs text-slate-400 mt-2">
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
               Promoteurs {promotersPct}%

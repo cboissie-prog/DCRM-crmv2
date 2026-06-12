@@ -376,7 +376,7 @@ function ProductFormFields({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="form-group">
           <label className="label">{isContractTemplate ? 'Nom du modèle *' : 'Nom *'}</label>
           <input {...register('name')} className={`input ${errors.name ? 'input-error' : ''}`} placeholder={isContractTemplate ? 'Ex: Maintenance informatique standard' : isSoftware ? 'Ex: Microsoft Office 365' : ''} />
@@ -393,7 +393,7 @@ function ProductFormFields({
         <textarea {...register('description')} className="input" rows={2} placeholder={isContractTemplate ? 'Détails des prestations incluses...' : ''} />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="form-group">
           <label className="label">Catégorie *</label>
           <select {...register('category')} className={`input ${errors.category ? 'input-error' : ''}`}>
@@ -410,7 +410,7 @@ function ProductFormFields({
         )}
       </div>
 
-      <div className={`grid gap-4 ${isContractTemplate ? 'grid-cols-2' : 'grid-cols-3'}`}>
+      <div className={`grid gap-4 ${isContractTemplate ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'}`}>
         <div className="form-group">
           <label className="label">{isContractTemplate ? 'Montant mensuel HT (€) *' : 'Prix HT (€) *'}</label>
           <input {...register('price')} type="number" step="0.01" min="0" className={`input ${errors.price ? 'input-error' : ''}`} />
@@ -428,7 +428,7 @@ function ProductFormFields({
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {!isContractTemplate && (
           <div className="form-group">
             <label className="label">Stock</label>

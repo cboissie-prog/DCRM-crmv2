@@ -87,7 +87,7 @@ export function ContactDetailPage() {
 
   return (
     <div className="space-y-5 fade-in">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/contacts')} className="btn-ghost btn-sm p-2 rounded-lg">
             <ArrowLeft className="w-4 h-4" />
@@ -98,7 +98,7 @@ export function ContactDetailPage() {
           </div>
         </div>
         {canEdit && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button className="btn-secondary btn-sm flex items-center gap-1.5" onClick={openEdit}>
               <Pencil className="w-3.5 h-3.5" /> Modifier
             </button>
@@ -251,7 +251,7 @@ export function ContactDetailPage() {
       {/* ── Edit Modal ── */}
       <Modal open={showEdit} onClose={() => setShowEdit(false)} title="Modifier le contact">
         <form onSubmit={editForm.handleSubmit(v => editMutation.mutate(v))} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group">
               <label className="label">Prénom *</label>
               <input {...editForm.register('firstName')} className={`input ${editForm.formState.errors.firstName ? 'input-error' : ''}`} />
@@ -267,7 +267,7 @@ export function ContactDetailPage() {
             <label className="label">Email</label>
             <input {...editForm.register('email')} type="email" className="input" />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group">
               <label className="label">Téléphone</label>
               <input {...editForm.register('phone')} className="input" />
@@ -281,7 +281,7 @@ export function ContactDetailPage() {
             <label className="label">Poste</label>
             <input {...editForm.register('position')} className="input" />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group">
               <label className="label">Source</label>
               <select {...editForm.register('source')} className="input">

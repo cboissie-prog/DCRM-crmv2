@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
@@ -19,7 +19,7 @@ const appointmentSchema = z.object({
   contactIds: z.array(z.string()).optional(),
 })
 
-router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('appointments:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { from, to, userId } = req.query as Record<string, string>
     const where: Record<string, unknown> = {}
@@ -40,7 +40,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.post('/', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL', 'TECHNICIEN']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requirePermission('appointments:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = appointmentSchema.parse(req.body)
     const { userIds = [], contactIds = [], ...rest } = body
@@ -83,7 +83,7 @@ router.post('/', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL', 'TECHNICIEN']), 
   }
 })
 
-router.put('/:id', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL', 'TECHNICIEN']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id', requirePermission('appointments:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { userIds, contactIds, ...rest } = req.body
     const data: Record<string, unknown> = { ...rest }
@@ -94,7 +94,7 @@ router.put('/:id', requireRole(['ADMIN', 'MANAGER', 'COMMERCIAL', 'TECHNICIEN'])
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.delete('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id', requirePermission('appointments:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.appointment.delete({ where: { id: req.params.id } })
     res.json({ success: true, data: { message: 'RDV supprimé' } })

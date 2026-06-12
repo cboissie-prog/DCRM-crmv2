@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
@@ -20,7 +20,7 @@ const licenseSchema = z.object({
   notes: z.string().optional(),
 })
 
-router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('equipment:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { companyId, type, expiringSoon, page, limit } = req.query as Record<string, string>
     const pageNum = Math.max(1, parseInt(page) || 1)
@@ -48,7 +48,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-router.post('/', requireRole(['ADMIN', 'MANAGER', 'TECHNICIEN']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requirePermission('equipment:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = licenseSchema.parse(req.body)
     const data: Record<string, unknown> = { ...body }
@@ -65,7 +65,7 @@ router.post('/', requireRole(['ADMIN', 'MANAGER', 'TECHNICIEN']), async (req: Au
   }
 })
 
-router.put('/:id', requireRole(['ADMIN', 'MANAGER', 'TECHNICIEN']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id', requirePermission('equipment:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = licenseSchema.partial().parse(req.body)
     const data: Record<string, unknown> = { ...body }
@@ -79,7 +79,7 @@ router.put('/:id', requireRole(['ADMIN', 'MANAGER', 'TECHNICIEN']), async (req: 
   }
 })
 
-router.delete('/:id', requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id', requirePermission('equipment:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.license.delete({ where: { id: req.params.id } })
     res.json({ success: true, data: { message: 'Licence supprimée' } })

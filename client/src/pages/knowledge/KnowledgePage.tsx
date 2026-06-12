@@ -76,7 +76,13 @@ function ArticleCard({
   canEdit: boolean
 }) {
   const cat = getCat(article.category)
-  const excerpt = article.content.replace(/\n+/g, ' ').slice(0, 120)
+  const excerpt = article.content
+    .replace(/#{1,6}\s+/g, '')
+    .replace(/\|[^\n]+\|/g, '')
+    .replace(/[-*+]\s+/g, '')
+    .replace(/\n+/g, ' ')
+    .trim()
+    .slice(0, 120)
 
   return (
     <div
@@ -171,7 +177,7 @@ function ArticleReader({
       {/* Reader header */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
         <div className={`h-1.5 w-full ${cat.bar}`} />
-        <div className="px-8 py-6">
+        <div className="px-4 sm:px-8 py-4 sm:py-6">
           <div className="flex items-start justify-between gap-4 mb-4">
             <button
               onClick={onClose}
@@ -320,10 +326,10 @@ export function KnowledgePage() {
   const totalArticles = catData?.total ?? 0
 
   return (
-    <div className="fade-in flex gap-6 h-full">
+    <div className="fade-in flex flex-col lg:flex-row gap-6 h-full">
 
       {/* ── Sidebar catégories ── */}
-      <aside className="w-56 flex-shrink-0 space-y-1">
+      <aside className="lg:w-56 flex-shrink-0 space-y-1">
         <div className="mb-3">
           <h1 className="page-title">Base de connaissance</h1>
           <p className="page-subtitle text-xs">{totalArticles} article{totalArticles !== 1 ? 's' : ''}</p>
@@ -508,8 +514,8 @@ function ArticleFormFields({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="col-span-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="col-span-1 sm:col-span-2">
           <label className="label">Titre *</label>
           <input {...register('title')} className={`input ${errors.title ? 'input-error' : ''}`} placeholder="Titre de l'article" />
           {errors.title && <p className="form-error">{errors.title.message}</p>}

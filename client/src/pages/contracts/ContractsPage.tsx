@@ -180,7 +180,7 @@ export function ContractsPage() {
       {/* Filters */}
       <div className="flex gap-3 flex-wrap items-center">
         <select
-          className="input w-auto"
+          className="input flex-1 min-w-[160px]"
           value={typeFilter}
           onChange={e => { setTypeFilter(e.target.value); setPage(1) }}
         >
@@ -188,7 +188,7 @@ export function ContractsPage() {
           {CONTRACT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         <select
-          className="input w-auto"
+          className="input flex-1 min-w-[140px]"
           value={statusFilter}
           onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
         >
@@ -310,8 +310,8 @@ export function ContractsPage() {
               </select>
             </div>
           )}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="form-group col-span-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="form-group sm:col-span-2">
               <label className="label">Entreprise *</label>
               <select {...register('companyId')} className={`input ${errors.companyId ? 'input-error' : ''}`}>
                 <option value="">Sélectionner une entreprise</option>
@@ -333,12 +333,12 @@ export function ContractsPage() {
                 {CONTRACT_STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
-            <div className="form-group col-span-2">
+            <div className="form-group sm:col-span-2">
               <label className="label">Titre *</label>
               <input {...register('title')} className={`input ${errors.title ? 'input-error' : ''}`} />
               {errors.title && <p className="form-error">{errors.title.message}</p>}
             </div>
-            <div className="form-group col-span-2">
+            <div className="form-group sm:col-span-2">
               <label className="label">Description</label>
               <textarea {...register('description')} className="input" rows={2} />
             </div>
@@ -368,11 +368,11 @@ export function ContractsPage() {
               <label className="label">Montant annuel (€)</label>
               <input {...register('annualAmount')} type="number" min={0} step={0.01} className="input" />
             </div>
-            <div className="form-group col-span-2 flex items-center gap-3">
+            <div className="form-group sm:col-span-2 flex items-center gap-3">
               <input {...register('autoRenewal')} type="checkbox" id="autoRenewal" className="w-4 h-4 rounded text-primary-600" />
               <label htmlFor="autoRenewal" className="label mb-0 cursor-pointer">Renouvellement automatique</label>
             </div>
-            <div className="form-group col-span-2">
+            <div className="form-group sm:col-span-2">
               <label className="label">Notes</label>
               <textarea {...register('notes')} className="input" rows={2} />
             </div>

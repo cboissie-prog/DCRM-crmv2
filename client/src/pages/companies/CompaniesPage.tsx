@@ -119,7 +119,7 @@ export function CompaniesPage() {
           <h1 className="page-title">Entreprises</h1>
           <p className="page-subtitle">{data?.meta.total || 0} entreprises</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             className="btn-secondary flex items-center gap-1.5"
             onClick={() => downloadCsv('/companies/export/csv', { search: search || undefined }, `entreprises-${new Date().toISOString().slice(0,10)}.csv`)}
@@ -325,7 +325,7 @@ function CompanyForm({
         <input {...register('name')} className={`input ${errors.name ? 'input-error' : ''}`} />
         {errors.name && <p className="form-error">{errors.name.message}</p>}
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="form-group">
           <label className="label">SIRET</label>
           <input {...register('siret')} className="input" />
@@ -335,7 +335,7 @@ function CompanyForm({
           <input {...register('website')} className="input" placeholder="https://" />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="form-group">
           <label className="label">Secteur</label>
           <select {...register('sector')} className="input">
@@ -348,7 +348,7 @@ function CompanyForm({
           <input {...register('employees')} type="number" className="input" />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="form-group">
           <label className="label">Ville</label>
           <input {...register('city')} className="input" />

@@ -4,8 +4,150 @@ import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
+const PERMISSIONS = [
+  // Dashboard
+  { key: 'dashboard:read', label: 'Voir le tableau de bord', category: 'Dashboard' },
+  // Utilisateurs
+  { key: 'users:read', label: 'Voir les utilisateurs', category: 'Utilisateurs' },
+  { key: 'users:create', label: 'Créer un utilisateur', category: 'Utilisateurs' },
+  { key: 'users:update', label: 'Modifier un utilisateur', category: 'Utilisateurs' },
+  { key: 'users:delete', label: 'Supprimer un utilisateur', category: 'Utilisateurs' },
+  // Sociétés
+  { key: 'companies:read', label: 'Voir les sociétés', category: 'Sociétés' },
+  { key: 'companies:create', label: 'Créer une société', category: 'Sociétés' },
+  { key: 'companies:update', label: 'Modifier une société', category: 'Sociétés' },
+  { key: 'companies:delete', label: 'Supprimer une société', category: 'Sociétés' },
+  { key: 'companies:import', label: 'Importer des sociétés (CSV)', category: 'Sociétés' },
+  // Contacts
+  { key: 'contacts:read', label: 'Voir les contacts', category: 'Contacts' },
+  { key: 'contacts:create', label: 'Créer un contact', category: 'Contacts' },
+  { key: 'contacts:update', label: 'Modifier un contact', category: 'Contacts' },
+  { key: 'contacts:delete', label: 'Supprimer un contact', category: 'Contacts' },
+  // Tickets
+  { key: 'tickets:read', label: 'Voir les tickets', category: 'Tickets' },
+  { key: 'tickets:create', label: 'Créer un ticket', category: 'Tickets' },
+  { key: 'tickets:update', label: 'Modifier un ticket', category: 'Tickets' },
+  { key: 'tickets:delete', label: 'Supprimer un ticket', category: 'Tickets' },
+  { key: 'tickets:export', label: 'Exporter les tickets (CSV)', category: 'Tickets' },
+  // Pipeline / Leads
+  { key: 'pipeline:read', label: 'Voir le pipeline', category: 'Pipeline' },
+  { key: 'pipeline:create', label: 'Créer un lead', category: 'Pipeline' },
+  { key: 'pipeline:update', label: 'Modifier un lead', category: 'Pipeline' },
+  { key: 'pipeline:delete', label: 'Supprimer un lead', category: 'Pipeline' },
+  // Équipements
+  { key: 'equipment:read', label: 'Voir les équipements', category: 'Équipements' },
+  { key: 'equipment:create', label: 'Créer un équipement', category: 'Équipements' },
+  { key: 'equipment:update', label: 'Modifier un équipement', category: 'Équipements' },
+  { key: 'equipment:delete', label: 'Supprimer un équipement', category: 'Équipements' },
+  // Contrats
+  { key: 'contracts:read', label: 'Voir les contrats', category: 'Contrats' },
+  { key: 'contracts:create', label: 'Créer un contrat', category: 'Contrats' },
+  { key: 'contracts:update', label: 'Modifier un contrat', category: 'Contrats' },
+  { key: 'contracts:delete', label: 'Supprimer un contrat', category: 'Contrats' },
+  // Produits
+  { key: 'products:read', label: 'Voir les produits', category: 'Produits' },
+  { key: 'products:create', label: 'Créer un produit', category: 'Produits' },
+  { key: 'products:update', label: 'Modifier un produit', category: 'Produits' },
+  { key: 'products:delete', label: 'Supprimer un produit', category: 'Produits' },
+  // Interventions
+  { key: 'interventions:read', label: 'Voir les interventions', category: 'Interventions' },
+  { key: 'interventions:create', label: 'Créer une intervention', category: 'Interventions' },
+  { key: 'interventions:update', label: 'Modifier une intervention', category: 'Interventions' },
+  { key: 'interventions:delete', label: 'Supprimer une intervention', category: 'Interventions' },
+  // Rapports
+  { key: 'reports:read', label: 'Voir les rapports et statistiques', category: 'Rapports' },
+  // Automatisations
+  { key: 'automation:read', label: 'Voir les automatisations', category: 'Automatisations' },
+  { key: 'automation:create', label: 'Créer une automatisation', category: 'Automatisations' },
+  { key: 'automation:update', label: 'Modifier une automatisation', category: 'Automatisations' },
+  { key: 'automation:delete', label: 'Supprimer une automatisation', category: 'Automatisations' },
+  // Activités
+  { key: 'activities:read', label: 'Voir les activités', category: 'Activités' },
+  { key: 'activities:create', label: 'Créer une activité', category: 'Activités' },
+  { key: 'activities:update', label: 'Modifier une activité', category: 'Activités' },
+  { key: 'activities:delete', label: 'Supprimer une activité', category: 'Activités' },
+  // Rendez-vous
+  { key: 'appointments:read', label: 'Voir les rendez-vous', category: 'Rendez-vous' },
+  { key: 'appointments:create', label: 'Créer un rendez-vous', category: 'Rendez-vous' },
+  { key: 'appointments:update', label: 'Modifier un rendez-vous', category: 'Rendez-vous' },
+  { key: 'appointments:delete', label: 'Supprimer un rendez-vous', category: 'Rendez-vous' },
+  // Base de connaissances
+  { key: 'knowledge:read', label: 'Voir la base de connaissances', category: 'Connaissances' },
+  { key: 'knowledge:create', label: 'Créer un article', category: 'Connaissances' },
+  { key: 'knowledge:update', label: 'Modifier un article', category: 'Connaissances' },
+  { key: 'knowledge:delete', label: 'Supprimer un article', category: 'Connaissances' },
+  // Paramètres
+  { key: 'settings:read', label: 'Voir les paramètres', category: 'Paramètres' },
+  { key: 'settings:write', label: 'Modifier les paramètres', category: 'Paramètres' },
+  { key: 'settings:roles', label: 'Gérer les rôles et permissions', category: 'Paramètres' },
+]
+
 async function main() {
   console.log('🌱 Seeding database...')
+
+  // ─── PERMISSIONS ───────────────────────────────────────
+  for (const perm of PERMISSIONS) {
+    await prisma.permission.upsert({
+      where: { key: perm.key },
+      update: { label: perm.label, category: perm.category },
+      create: perm,
+    })
+  }
+  console.log('✅ Permissions créées')
+
+  // ─── RÔLES ─────────────────────────────────────────────
+  const allKeys = PERMISSIONS.map(p => p.key)
+  const managerKeys = allKeys.filter(k => k !== 'users:delete' && k !== 'settings:roles')
+  const commercialKeys = [
+    'dashboard:read',
+    'companies:read', 'companies:create', 'companies:update', 'companies:delete', 'companies:import',
+    'contacts:read', 'contacts:create', 'contacts:update', 'contacts:delete',
+    'pipeline:read', 'pipeline:create', 'pipeline:update', 'pipeline:delete',
+    'tickets:read', 'tickets:create', 'tickets:update',
+    'products:read',
+    'reports:read',
+    'activities:read', 'activities:create', 'activities:update', 'activities:delete',
+    'appointments:read', 'appointments:create', 'appointments:update', 'appointments:delete',
+  ]
+  const technicienKeys = [
+    'dashboard:read',
+    'companies:read',
+    'contacts:read',
+    'tickets:read', 'tickets:create', 'tickets:update',
+    'equipment:read', 'equipment:create', 'equipment:update', 'equipment:delete',
+    'interventions:read', 'interventions:create', 'interventions:update', 'interventions:delete',
+    'contracts:read',
+    'activities:read', 'activities:create', 'activities:update', 'activities:delete',
+    'appointments:read', 'appointments:create', 'appointments:update', 'appointments:delete',
+    'knowledge:read',
+  ]
+
+  const rolesConfig = [
+    { name: 'ADMIN', label: 'Administrateur', isSystem: true, permKeys: allKeys },
+    { name: 'MANAGER', label: 'Manager', isSystem: true, permKeys: managerKeys },
+    { name: 'COMMERCIAL', label: 'Commercial', isSystem: true, permKeys: commercialKeys },
+    { name: 'TECHNICIEN', label: 'Technicien', isSystem: true, permKeys: technicienKeys },
+  ]
+
+  for (const rc of rolesConfig) {
+    const role = await prisma.role.upsert({
+      where: { name: rc.name },
+      update: { label: rc.label, isSystem: rc.isSystem },
+      create: { name: rc.name, label: rc.label, isSystem: rc.isSystem },
+    })
+
+    // Récupérer les permissions concernées
+    const permissions = await prisma.permission.findMany({
+      where: { key: { in: rc.permKeys } },
+    })
+
+    // Upsert des RolePermission (on supprime puis recrée pour rester idempotent)
+    await prisma.rolePermission.deleteMany({ where: { roleId: role.id } })
+    await prisma.rolePermission.createMany({
+      data: permissions.map(p => ({ roleId: role.id, permissionId: p.id })),
+    })
+  }
+  console.log('✅ Rôles créés avec leurs permissions')
 
   // ─── USERS ─────────────────────────────────────────────
   const adminPwd = await bcrypt.hash('admin123', 12)

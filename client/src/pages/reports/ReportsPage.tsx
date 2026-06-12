@@ -170,7 +170,7 @@ function ObjectifsTab() {
     <div className="space-y-5">
       {/* Période selector */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
+        <div className="flex flex-wrap items-center gap-2 bg-slate-100 rounded-xl p-1">
           {periods.map(p => (
             <button
               key={p}
@@ -193,7 +193,7 @@ function ObjectifsTab() {
 
       {/* KPIs globaux */}
       {targets.length > 0 && (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-white rounded-2xl border border-slate-200 p-4">
             <p className="text-xs text-slate-500 mb-1">Objectif total</p>
             <p className="text-xl font-bold text-slate-900">{formatCurrency(totalTarget)}</p>
@@ -379,7 +379,7 @@ function PrevisionTab() {
       {isLoading ? <PageSpinner /> : !forecast ? null : (
         <>
           {/* KPIs */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white rounded-2xl border border-slate-200 p-4">
               <p className="text-xs text-slate-500 mb-1">Opportunités actives</p>
               <p className="text-2xl font-bold text-slate-900">{forecast.total.count}</p>
@@ -485,7 +485,7 @@ function PerformanceTab() {
   return (
     <div className="space-y-5">
       {/* Période selector */}
-      <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1 w-fit">
+      <div className="flex flex-wrap items-center gap-2 bg-slate-100 rounded-xl p-1 w-fit">
         <button
           onClick={() => setSelectedPeriod('')}
           className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-colors', currentPeriod === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700')}
@@ -586,7 +586,7 @@ export function ReportsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
+      <div className="flex flex-wrap gap-1 bg-slate-100 rounded-xl p-1 w-fit">
         {visibleTabs.map(tab => (
           <button
             key={tab.id}

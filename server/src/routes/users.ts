@@ -2,14 +2,11 @@ import { Router, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requireRole } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 
 const router = Router()
 router.use(authenticate)
 
-const ALL_ROLES = ['ADMIN', 'MANAGER', 'COMMERCIAL', 'TECHNICIEN']
-const ADMIN_MANAGER = ['ADMIN', 'MANAGER']
-const ADMIN_ONLY = ['ADMIN']
 
 const userSchema = z.object({
   email: z.string().email(),
@@ -30,7 +27,7 @@ const updateUserSchema = z.object({
 })
 
 // GET / — liste users (ADMIN, MANAGER)
-router.get('/', requireRole(ADMIN_MANAGER), async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('users:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const users = await prisma.user.findMany({
       where: { isActive: true },
@@ -42,12 +39,13 @@ router.get('/', requireRole(ADMIN_MANAGER), async (_req: AuthRequest, res: Respo
 })
 
 // POST / — créer un user (ADMIN seulement)
-router.post('/', requireRole(ADMIN_ONLY), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requirePermission('users:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = userSchema.parse(req.body)
     const hashedPassword = await bcrypt.hash(body.password, 12)
+    const roleRecord = body.role ? await prisma.role.findUnique({ where: { name: body.role } }) : null
     const user = await prisma.user.create({
-      data: { ...body, password: hashedPassword },
+      data: { ...body, password: hashedPassword, roleId: roleRecord?.id ?? null },
       select: { id: true, email: true, firstName: true, lastName: true, phone: true, role: true, isActive: true, createdAt: true },
     })
     res.status(201).json({ success: true, data: user })
@@ -58,7 +56,7 @@ router.post('/', requireRole(ADMIN_ONLY), async (req: AuthRequest, res: Response
 })
 
 // GET /targets — objectifs de vente (ADMIN, MANAGER)
-router.get('/targets', requireRole(ADMIN_MANAGER), async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/targets', requirePermission('reports:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const targets = await prisma.salesTarget.findMany({
       include: { user: { select: { id: true, firstName: true, lastName: true, avatar: true } } },
@@ -75,7 +73,7 @@ const targetSchema = z.object({
 })
 
 // POST /targets — définir un objectif (ADMIN, MANAGER)
-router.post('/targets', requireRole(ADMIN_MANAGER), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/targets', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { userId, period, target } = targetSchema.parse(req.body)
     const existing = await prisma.salesTarget.findFirst({ where: { userId, period } })
@@ -122,9 +120,10 @@ router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
       delete body.role
       delete body.isActive
     }
+    const roleRecord = body.role ? await prisma.role.findUnique({ where: { name: body.role } }) : undefined
     const user = await prisma.user.update({
-      where: { id: req.params.id },
-      data: body,
+      where: { id: req.params.id as string },
+      data: { ...body, ...(roleRecord ? { roleId: roleRecord.id } : {}) },
       select: { id: true, email: true, firstName: true, lastName: true, phone: true, role: true, isActive: true },
     })
     res.json({ success: true, data: user })
@@ -135,7 +134,7 @@ router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
 })
 
 // DELETE /:id — désactiver (ADMIN seulement, soft delete)
-router.delete('/:id', requireRole(ADMIN_ONLY), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id', requirePermission('users:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     if (req.params.id === req.userId) { res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Impossible de se désactiver soi-même' } }); return }
     await prisma.user.update({ where: { id: req.params.id }, data: { isActive: false } })

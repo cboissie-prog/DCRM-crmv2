@@ -124,7 +124,7 @@ export function TicketsListView() {
           <h1 className="page-title">Tickets SAV</h1>
           <p className="page-subtitle">{data?.meta.total || 0} tickets</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             className="btn-secondary flex items-center gap-1.5"
             onClick={() => downloadCsv('/tickets/export/csv', { status: statusFilter || undefined, priority: priorityFilter || undefined, category: categoryFilter || undefined }, `tickets-${new Date().toISOString().slice(0,10)}.csv`)}
@@ -149,20 +149,20 @@ export function TicketsListView() {
             onChange={e => { setSearch(e.target.value); setPage(1) }}
           />
         </div>
-        <select className="input w-auto" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}>
+        <select className="input flex-1 min-w-[140px]" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}>
           <option value="">Tous les statuts</option>
           {Object.entries(TICKET_STATUSES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
-        <select className="input w-auto" value={priorityFilter} onChange={e => { setPriorityFilter(e.target.value); setPage(1) }}>
+        <select className="input flex-1 min-w-[140px]" value={priorityFilter} onChange={e => { setPriorityFilter(e.target.value); setPage(1) }}>
           <option value="">Toutes priorités</option>
           {Object.entries(TICKET_PRIORITIES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
-        <select className="input w-auto" value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }}>
+        <select className="input flex-1 min-w-[140px]" value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }}>
           <option value="">Toutes catégories</option>
           {Object.entries(TICKET_CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
         {canManage && usersData && (
-          <select className="input w-auto" value={assignedFilter} onChange={e => { setAssignedFilter(e.target.value); setPage(1) }}>
+          <select className="input flex-1 min-w-[140px]" value={assignedFilter} onChange={e => { setAssignedFilter(e.target.value); setPage(1) }}>
             <option value="">Tous les techniciens</option>
             {usersData.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
           </select>
@@ -370,7 +370,7 @@ export function TicketDetailPage() {
           </div>
           <h1 className="page-title">{ticket.title}</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Chronomètre */}
           <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
             <Timer className="w-4 h-4 text-slate-400" />
@@ -690,7 +690,7 @@ function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalPr
           {errors.description && <p className="form-error">{errors.description.message}</p>}
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="form-group">
             <label className="label">Catégorie *</label>
             <select {...register('category')} className="input">
@@ -705,7 +705,7 @@ function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalPr
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="form-group">
             <label className="label">Contact</label>
             <select {...register('contactId')} className="input">
