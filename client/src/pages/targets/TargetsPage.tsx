@@ -11,8 +11,8 @@ import { PageSpinner } from '../../components/ui/Spinner'
 import { toast } from '../../components/ui/Toast'
 import { Avatar } from '../../components/ui/Avatar'
 import {
-  Target, TrendingUp, Euro, Trophy, Plus, Pencil, Trash2,
-  ChevronRight, AlertCircle, CheckCircle2, Clock,
+  Target, TrendingUp, Trophy, Plus, Pencil, Trash2,
+  ChevronRight, CheckCircle2, Clock,
 } from 'lucide-react'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -325,7 +325,7 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
 
       {/* Modal create/edit */}
       <Modal
-        isOpen={showModal}
+        open={showModal}
         onClose={() => { setShowModal(false); setEditing(null) }}
         title={editing ? 'Modifier l\'objectif' : 'Nouvel objectif'}
       >
@@ -339,7 +339,7 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
       </Modal>
 
       {/* Modal delete */}
-      <Modal isOpen={!!deleting} onClose={() => setDeleting(null)} title="Supprimer l'objectif">
+      <Modal open={!!deleting} onClose={() => setDeleting(null)} title="Supprimer l'objectif">
         <div className="space-y-4">
           <p className="text-sm text-slate-600">
             Supprimer l'objectif de <strong>{deleting?.user.firstName} {deleting?.user.lastName}</strong> pour {periodLabel(period)} ?
@@ -404,7 +404,7 @@ function PrevisionsTab({ period }: { period: string }) {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                 <YAxis tickFormatter={v => `${Math.round(v / 1000)}k`} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number) => [`${v.toLocaleString('fr-FR')} €`, '']} />
+                <Tooltip formatter={(v) => [`${Number(v).toLocaleString('fr-FR')} €`, '']} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Bar dataKey="Pipeline brut"    fill="#e2e8f0" radius={[4,4,0,0]} />
                 <Bar dataKey="Pipeline pondéré" fill="#6366f1" radius={[4,4,0,0]} />

@@ -231,6 +231,7 @@ function PermissionsDrawer({ role, open, onClose }: PermissionsDrawerProps) {
   // Initialise la sélection depuis le détail du rôle (une seule fois par ouverture)
   useEffect(() => {
     if (roleDetail && !initialized) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelected(new Set(roleDetail.permissions.map(p => p.id)))
       setInitialized(true)
     }
@@ -238,6 +239,7 @@ function PermissionsDrawer({ role, open, onClose }: PermissionsDrawerProps) {
 
   // Reset lors de la fermeture
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!open) setInitialized(false)
   }, [open])
 

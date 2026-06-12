@@ -91,8 +91,10 @@ export function ContactsPage() {
   const createMutation = useMutation({
     mutationFn: async (values: ContactForm) => {
       const companyId = await createCompanyIfNeeded(values)
+      /* eslint-disable @typescript-eslint/no-unused-vars */
       const { newCompanyName, newCompanySiret, newCompanyVatNumber, newCompanyWebsite,
               newCompanySector, newCompanyCity, newCompanyPostalCode, newCompanyBillingAddress, ...rest } = values
+      /* eslint-enable @typescript-eslint/no-unused-vars */
       return api.post('/contacts', { ...rest, companyId: companyId || undefined })
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['contacts'] }); setShowCreate(false); toast.success('Contact créé') },
@@ -102,8 +104,10 @@ export function ContactsPage() {
   const editMutation = useMutation({
     mutationFn: async ({ id, values }: { id: string; values: ContactForm }) => {
       const companyId = await createCompanyIfNeeded(values)
+      /* eslint-disable @typescript-eslint/no-unused-vars */
       const { newCompanyName, newCompanySiret, newCompanyVatNumber, newCompanyWebsite,
               newCompanySector, newCompanyCity, newCompanyPostalCode, newCompanyBillingAddress, ...rest } = values
+      /* eslint-enable @typescript-eslint/no-unused-vars */
       return api.put(`/contacts/${id}`, { ...rest, companyId: companyId || undefined })
     },
     onSuccess: () => {

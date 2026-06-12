@@ -336,7 +336,7 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
   }
   const onSubmit = (v: EquipmentForm) => {
     const payload = { ...v, contractId: v.contractId || undefined }
-    editing ? updateMutation.mutate({ id: editing.id, v: payload }) : createMutation.mutate(payload)
+    if (editing) { updateMutation.mutate({ id: editing.id, v: payload }) } else { createMutation.mutate(payload) }
   }
 
   return (
@@ -820,7 +820,7 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
   }
   const onSubmit = (v: LicenseForm) => {
     const payload = { ...v, equipmentId: v.equipmentId || undefined }
-    editing ? updateMutation.mutate({ id: editing.id, v: payload }) : createMutation.mutate(payload)
+    if (editing) { updateMutation.mutate({ id: editing.id, v: payload }) } else { createMutation.mutate(payload) }
   }
 
   return (

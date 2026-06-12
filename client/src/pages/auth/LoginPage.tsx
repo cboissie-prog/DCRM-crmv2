@@ -22,7 +22,6 @@ export function LoginPage() {
   // Tous les hooks avant le early return (Rules of Hooks)
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { email: 'admin@crm.local', password: 'admin123' },
   })
 
   if (isAuthenticated) return <Navigate to="/" replace />
@@ -101,26 +100,6 @@ export function LoginPage() {
               </Link>
             </div>
 
-            <div className="mt-4 pt-4 border-t border-slate-100">
-              <p className="text-xs text-slate-400 text-center">Comptes de démo :</p>
-              <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-slate-500">
-                <div className="text-center">
-                  <p className="font-medium">Admin</p>
-                  <p>admin@crm.local</p>
-                  <p>admin123</p>
-                </div>
-                <div className="text-center">
-                  <p className="font-medium">Commercial</p>
-                  <p>lucas@crm.local</p>
-                  <p>password123</p>
-                </div>
-                <div className="text-center">
-                  <p className="font-medium">Technicien</p>
-                  <p>alex@crm.local</p>
-                  <p>password123</p>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </div>

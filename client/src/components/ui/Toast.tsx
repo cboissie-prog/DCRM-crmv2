@@ -15,6 +15,7 @@ interface ToastStore {
   remove: (id: string) => void
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useToast = create<ToastStore>((set) => ({
   toasts: [],
   add: (toast) => {
@@ -25,6 +26,7 @@ export const useToast = create<ToastStore>((set) => ({
   remove: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }))
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const toast = {
   success: (title: string, message?: string) => useToast.getState().add({ type: 'success', title, message }),
   error: (title: string, message?: string) => useToast.getState().add({ type: 'error', title, message }),

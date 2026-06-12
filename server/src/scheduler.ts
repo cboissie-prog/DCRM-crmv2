@@ -1,4 +1,4 @@
-import cron from 'node-cron'
+import cron, { ScheduledTask } from 'node-cron'
 import prisma from './prisma/client'
 import { runOverdueTickets, runOpportunityInactive, runContractExpiring } from './automation-engine'
 
@@ -90,8 +90,9 @@ export async function runAppointmentReminders(): Promise<number> {
 
 // ─── Planificateur ────────────────────────────────────────────────────────────
 
-let currentTask: cron.ScheduledTask | null = null
-let reminderTask: cron.ScheduledTask | null = null
+let currentTask: ScheduledTask | null = null
+let reminderTask: ScheduledTask | null = null
+let automationTask: ScheduledTask | null = null
 
 function parseCronTime(hhmm: string): string {
   const [h, m] = hhmm.split(':').map(Number)
@@ -106,6 +107,7 @@ export async function startScheduler() {
 
   if (currentTask) { currentTask.stop(); currentTask = null }
   if (reminderTask) { reminderTask.stop(); reminderTask = null }
+  if (automationTask) { automationTask.stop(); automationTask = null }
 
   if (enabled !== 'true') {
     console.log('  ⏸  Scheduler désactivé (paramètre schedulerEnabled=false)')
@@ -136,7 +138,7 @@ export async function startScheduler() {
   }, { timezone: 'Europe/Paris' })
 
   // Automatisations planifiées toutes les heures
-  cron.schedule('0 * * * *', async () => {
+  automationTask = cron.schedule('0 * * * *', async () => {
     try {
       const [overdue, inactive, expiring] = await Promise.all([
         runOverdueTickets(),

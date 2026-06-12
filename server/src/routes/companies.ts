@@ -109,7 +109,7 @@ router.post('/import/csv', requirePermission('companies:import'), async (req: Au
     skipped += existingNames.size
 
     // 1 seule requête d'insertion pour tout le batch
-    await prisma.company.createMany({ data: toCreate, skipDuplicates: true })
+    await prisma.company.createMany({ data: toCreate })
 
     res.json({ success: true, data: { created: toCreate.length, skipped, total: rows.length } })
   } catch (err) {

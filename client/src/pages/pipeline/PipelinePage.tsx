@@ -14,7 +14,7 @@ import {
   Plus, Search, Euro, TrendingUp, Trophy,
   MoreHorizontal, Edit2, Trash2, ChevronRight,
   Building2, User, Calendar, X, Settings, GripVertical,
-  ChevronDown, Pencil, Bell, BellOff, FileText, CalendarCheck, Phone, Zap,
+  Pencil, Bell, BellOff, FileText, CalendarCheck, Phone, Zap,
 } from 'lucide-react'
 import api from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
@@ -1126,12 +1126,12 @@ function PipelineManagerModal({ pipelines, onClose }: PipelineManagerModalProps)
   const deletePipelineMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/pipelines/${id}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['pipelines'] }); setDeleteConfirm(null); if (selectedId === deleteConfirm?.id) setSelectedId(pipelines[0]?.id ?? '') },
-    onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Erreur'),
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message || 'Erreur'),
   })
   const createStageMutation = useMutation({
     mutationFn: (v: StageFormType) => api.post(`/pipelines/${selectedId}/stages`, v),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['pipelines'] }); setAddingStage(false); stageForm.reset() },
-    onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Erreur'),
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message || 'Erreur'),
   })
   const updateStageMutation = useMutation({
     mutationFn: ({ id, ...v }: StageFormType & { id: string }) => api.put(`/pipelines/${selectedId}/stages/${id}`, v),
@@ -1141,7 +1141,7 @@ function PipelineManagerModal({ pipelines, onClose }: PipelineManagerModalProps)
   const deleteStageMutation = useMutation({
     mutationFn: ({ pipelineId, stageId }: { pipelineId: string; stageId: string }) => api.delete(`/pipelines/${pipelineId}/stages/${stageId}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['pipelines'] }); setDeleteConfirm(null) },
-    onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Erreur'),
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message || 'Erreur'),
   })
 
   const openEditPipeline = (p: Pipeline) => {

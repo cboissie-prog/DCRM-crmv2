@@ -10,6 +10,7 @@
     "db:migrate": "prisma migrate dev --schema=src/prisma/schema.prisma",
     "db:migrate:deploy": "prisma migrate deploy --schema=src/prisma/schema.prisma",
     "db:seed": "tsx src/prisma/seed.ts",
+    "db:seed:demo": "tsx src/prisma/seed-demo.ts",
     "db:studio": "prisma studio --schema=src/prisma/schema.prisma"
   },
   "prisma": {
@@ -37,7 +38,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.17",
-    "@types/express": "^5.0.0",
+    "@types/express": "^4.17.25",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/morgan": "^1.9.9",
     "@types/node": "^22.10.2",

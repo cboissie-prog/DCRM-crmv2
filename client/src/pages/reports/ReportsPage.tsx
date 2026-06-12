@@ -8,7 +8,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
 import {
-  TrendingUp, Trophy, Target, Users, Plus, Pencil, Trash2, X, ChevronRight,
+  TrendingUp, Trophy, Target, Plus, Pencil, Trash2,
 } from 'lucide-react'
 import api from '../../lib/api'
 import { formatCurrency, cn } from '../../lib/utils'
@@ -138,7 +138,7 @@ function ObjectifsTab() {
   const createMutation = useMutation({
     mutationFn: (v: TargetForm) => api.post('/reports/sales-targets', v),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['sales-targets'] }); setShowCreate(false); toast.success('Objectif créé') },
-    onError: (err: any) => toast.error(err?.response?.data?.error?.message || 'Erreur'),
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message || 'Erreur'),
   })
   const updateMutation = useMutation({
     mutationFn: ({ id, target }: { id: string; target: number }) => api.put(`/reports/sales-targets/${id}`, { target }),
@@ -404,7 +404,7 @@ function PrevisionTab() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={v => `${Math.round(v / 1000)}k€`} />
-                  <Tooltip formatter={(v: number, name: string) => [formatCurrency(v), name === 'valeur' ? 'Valeur brute' : 'Pondérée']} />
+                  <Tooltip formatter={(v, name) => [formatCurrency(Number(v)), name === 'valeur' ? 'Valeur brute' : 'Pondérée']} />
                   <Bar dataKey="valeur" radius={[4, 4, 0, 0]} opacity={0.4}>
                     {chartData.map((d, i) => <Cell key={i} fill={d.color} />)}
                   </Bar>

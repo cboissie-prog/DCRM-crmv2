@@ -84,7 +84,7 @@ export function ForgotPasswordPage() {
                 </div>
 
                 <button type="submit" disabled={isSubmitting} className="btn btn-primary w-full justify-center">
-                  {isSubmitting ? <Spinner size="sm" /> : 'Envoyer le lien'}
+                  {isSubmitting ? <Spinner className="w-4 h-4" /> : 'Envoyer le lien'}
                 </button>
               </form>
 

@@ -47,7 +47,8 @@ import { errorHandler, notFound } from './middleware/errorHandler'
 import { startScheduler } from './scheduler'
 
 const app = express()
-const PORT = process.env.PORT || 3001
+app.set('trust proxy', 1)
+const PORT = Number(process.env.PORT) || 3001
 
 app.use(helmet())
 app.use(cors({
@@ -124,7 +125,10 @@ if (process.env.NODE_ENV === 'production') {
   const clientDist = path.join(__dirname, '../../client/dist')
   app.use(express.static(clientDist))
   // SPA fallback — toutes les routes non-API renvoient index.html
-  app.get('*', (_req, res) => res.sendFile(path.join(clientDist, 'index.html')))
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next()
+    res.sendFile(path.join(clientDist, 'index.html'))
+  })
 }
 
 app.use(notFound)

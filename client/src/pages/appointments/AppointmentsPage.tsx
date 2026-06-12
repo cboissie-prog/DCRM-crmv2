@@ -149,7 +149,7 @@ export function AppointmentsPage() {
   const [editingAppt, setEditingAppt]         = useState<Appointment | null>(null)
   const [deletingAppt, setDeletingAppt]       = useState<Appointment | null>(null)
   const [detailAppt, setDetailAppt]           = useState<Appointment | null>(null)
-  const [_prefilledDate, setPrefilledDate]     = useState<string>('')
+  const [, setPrefilledDate]     = useState<string>('')
 
   // ── Date range for query ────────────────────────────────────────────────────
   const weekEnd = new Date(weekStart)
@@ -275,7 +275,7 @@ export function AppointmentsPage() {
     })
     setPrefilledDate(prefilled ?? '')
     setShowCreate(true)
-  }, [createForm, today])
+  }, [createForm, today, user])
 
   const openEdit = useCallback((appt: Appointment) => {
     editForm.reset({

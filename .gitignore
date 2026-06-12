@@ -24,11 +24,11 @@ server/src/prisma/*.db
 # Logs PM2
 server/logs/
 
+# Enregistrements d'appels (serveur VoIP)
+server/uploads/
+
 # Claude Code local config
 .claude/
-
-# Documentation interne
-*.md
 
 # OS
 .DS_Store

@@ -133,6 +133,7 @@ function GlobalSearch() {
   }, [open])
 
   // Reset active index when results change
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setActiveIdx(-1) }, [data])
 
   const showDropdown = open && query.length >= 2

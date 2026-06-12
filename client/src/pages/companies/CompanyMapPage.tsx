@@ -105,7 +105,7 @@ export function CompanyMapPage() {
   const sectors   = data ? [...new Set(data.map(c => c.sector))].sort() : []
   const withTickets = data ? data.filter(c => c._count.tickets > 0).length : 0
 
-  const SidePanelContent = () => (
+  const renderSidePanel = (): React.ReactNode => (
     <>
       {/* Selected company */}
       {selected ? (
@@ -306,7 +306,7 @@ export function CompanyMapPage() {
 
         {/* Panneau latéral — desktop toujours visible */}
         <div className="hidden lg:flex w-72 flex-shrink-0 border-l border-slate-200 bg-white flex-col overflow-hidden">
-          <SidePanelContent />
+          {renderSidePanel()}
         </div>
 
         {/* Panneau mobile — overlay depuis la droite */}
@@ -321,7 +321,7 @@ export function CompanyMapPage() {
                   <span className="text-lg leading-none">×</span>
                 </button>
               </div>
-              <SidePanelContent />
+              {renderSidePanel()}
             </div>
           </>
         )}

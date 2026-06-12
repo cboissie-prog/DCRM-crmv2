@@ -36,7 +36,6 @@ interface AutomationLog {
 }
 
 interface ActionDef { type: string; params: Record<string, string> }
-interface ConditionDef { [key: string]: string | string[] }
 
 // ── Config ─────────────────────────────────────────────────────────────────────
 
@@ -79,7 +78,7 @@ interface ParamField {
 
 const PRIORITY_LABELS: Record<string, string> = { LOW: 'Basse', MEDIUM: 'Moyenne', HIGH: 'Haute', CRITICAL: 'Critique' }
 
-const TEMPLATES = [
+const TEMPLATES: { name: string; trigger: string; conditions: Record<string, string | string[] | number>; actions: ActionDef[] }[] = [
   { name: 'Ticket critique → alerte manager', trigger: 'TICKET_CREATED', conditions: { priority: ['CRITICAL'] }, actions: [{ type: 'NOTIFY_ROLE', params: { role: 'MANAGER', message: 'Un ticket critique vient d\'être ouvert' } }] },
   { name: 'Ticket en retard 24h → rappel', trigger: 'TICKET_OVERDUE', conditions: { hoursOpen: 24 }, actions: [{ type: 'NOTIFY_USER', params: { target: 'assignee', message: 'Ce ticket n\'a pas été mis à jour depuis 24h' } }] },
   { name: 'Opportunité inactive 15j → tâche', trigger: 'OPPORTUNITY_INACTIVE', conditions: { inactiveDays: 15 }, actions: [{ type: 'CREATE_ACTIVITY', params: { title: 'Relance opportunité inactive', type: 'TASK' } }] },
@@ -454,16 +453,6 @@ export function AutomationsPage() {
   const [formEdit,     setFormEdit]     = useState<FormState>(emptyForm())
   const [showTemplates, setShowTemplates] = useState(false)
 
-  if (user?.role !== 'ADMIN') {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 gap-3 fade-in">
-        <AlertTriangle className="w-12 h-12 text-amber-400" />
-        <p className="text-lg font-semibold text-slate-700">Accès refusé</p>
-        <p className="text-sm text-slate-400">Cette page est réservée aux administrateurs.</p>
-      </div>
-    )
-  }
-
   const { data, isLoading } = useQuery<{ data: Automation[] }>({
     queryKey: ['automations'],
     queryFn: async () => { const { data } = await api.get('/automations'); return data },
@@ -501,7 +490,9 @@ export function AutomationsPage() {
     if (template) {
       setFormCreate({
         name: template.name, description: '', trigger: template.trigger, isActive: true,
-        conditions: template.conditions as Record<string, string | string[]>,
+        conditions: Object.fromEntries(
+          Object.entries(template.conditions).map(([k, v]) => [k, Array.isArray(v) ? v : String(v)])
+        ) as Record<string, string | string[]>,
         actions: template.actions,
       })
     } else {
@@ -513,6 +504,16 @@ export function AutomationsPage() {
   const openEdit = (a: Automation) => {
     setEditingAuto(a)
     setFormEdit(automationToForm(a))
+  }
+
+  if (user?.role !== 'ADMIN') {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-3 fade-in">
+        <AlertTriangle className="w-12 h-12 text-amber-400" />
+        <p className="text-lg font-semibold text-slate-700">Accès refusé</p>
+        <p className="text-sm text-slate-400">Cette page est réservée aux administrateurs.</p>
+      </div>
+    )
   }
 
   return (

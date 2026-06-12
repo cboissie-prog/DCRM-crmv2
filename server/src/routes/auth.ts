@@ -36,18 +36,9 @@ function generateTokens(userId: string, role: string, permissions: string[]) {
 router.post('/login', async (req: Request, res: Response): Promise<void> => {
   try {
     const body = loginSchema.parse(req.body)
-    const user = await prisma.user.findUnique({ where: { email: body.email } })
-    if (!user || !user.isActive) {
-      res.status(401).json({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Email ou mot de passe incorrect' } })
-      return
-    }
-    const valid = await bcrypt.compare(body.password, user.password)
-    if (!valid) {
-      res.status(401).json({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Email ou mot de passe incorrect' } })
-      return
-    }
-    const userWithPermissions = await prisma.user.findUnique({
-      where: { id: user.id },
+    // Un seul findUnique avec include pour éviter la double requête
+    const user = await prisma.user.findUnique({
+      where: { email: body.email },
       include: {
         roleRef: {
           include: {
@@ -58,13 +49,25 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         }
       }
     })
-    const permissions = userWithPermissions?.roleRef?.permissions.map(rp => rp.permission.key) ?? []
+    if (!user || !user.isActive) {
+      res.status(401).json({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Email ou mot de passe incorrect' } })
+      return
+    }
+    const valid = await bcrypt.compare(body.password, user.password)
+    if (!valid) {
+      res.status(401).json({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Email ou mot de passe incorrect' } })
+      return
+    }
+    // Bypass ADMIN : accès total symbolisé par ['*']
+    const permissions: string[] = user.role === 'ADMIN'
+      ? ['*']
+      : (user.roleRef?.permissions.map(rp => rp.permission.key) ?? [])
     const { accessToken, refreshToken } = generateTokens(user.id, user.role, permissions)
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
     await prisma.refreshToken.create({ data: { token: refreshToken, userId: user.id, expiresAt } })
-    const { password: _, ...userWithoutPassword } = user
+    const { password: _, roleRef: __, ...userWithoutPassword } = user
     res.cookie('refreshToken', refreshToken, REFRESH_COOKIE_OPTIONS)
-    res.json({ success: true, data: { user: userWithoutPassword, accessToken } })
+    res.json({ success: true, data: { user: { ...userWithoutPassword, permissions }, accessToken } })
   } catch (err) {
     if (err instanceof z.ZodError) {
       res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } })
@@ -104,7 +107,10 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
       res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Utilisateur introuvable' } })
       return
     }
-    const permissions = userWithPermissions.roleRef?.permissions.map(rp => rp.permission.key) ?? []
+    // Bypass ADMIN : accès total symbolisé par ['*']
+    const permissions: string[] = userWithPermissions.role === 'ADMIN'
+      ? ['*']
+      : (userWithPermissions.roleRef?.permissions.map(rp => rp.permission.key) ?? [])
     const { accessToken, refreshToken: newRefreshToken } = generateTokens(userWithPermissions.id, userWithPermissions.role, permissions)
     await prisma.refreshToken.deleteMany({ where: { token: refreshToken } })
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)

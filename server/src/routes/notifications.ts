@@ -26,7 +26,11 @@ router.patch('/read-all', async (req: AuthRequest, res: Response): Promise<void>
 
 router.patch('/:id/read', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    await prisma.notification.update({ where: { id: req.params.id }, data: { isRead: true } })
+    const { count } = await prisma.notification.updateMany({
+      where: { id: req.params.id, userId: req.userId },
+      data: { isRead: true },
+    })
+    if (count === 0) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Notification introuvable' } }); return }
     res.json({ success: true, data: { message: 'Notification lue' } })
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })

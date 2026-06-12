@@ -140,7 +140,7 @@ router.post('/import/csv', requirePermission('contacts:create'), async (req: Aut
     skipped += valid.length - toCreate.length
 
     // 1 seule requête d'insertion pour tout le batch
-    await prisma.contact.createMany({ data: toCreate, skipDuplicates: true })
+    await prisma.contact.createMany({ data: toCreate })
 
     res.json({ success: true, data: { created: toCreate.length, skipped, total: rows.length } })
   } catch (err) {

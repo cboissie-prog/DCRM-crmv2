@@ -116,7 +116,7 @@ export function ResetPasswordPage() {
                 </div>
 
                 <button type="submit" disabled={isSubmitting} className="btn btn-primary w-full justify-center">
-                  {isSubmitting ? <Spinner size="sm" /> : 'Enregistrer le mot de passe'}
+                  {isSubmitting ? <Spinner className="w-4 h-4" /> : 'Enregistrer le mot de passe'}
                 </button>
               </form>
             </>

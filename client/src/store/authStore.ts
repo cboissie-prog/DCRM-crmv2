@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import api from '../lib/api'
+import api, { parseJwtPayload } from '../lib/api'
 
 interface User {
   id: string
@@ -34,8 +34,13 @@ export const useAuthStore = create<AuthState>()(
       login: async (email: string, password: string) => {
         const { data } = await api.post('/auth/login', { email, password })
         const { user, accessToken } = data.data
-        // S'assurer que permissions est toujours un tableau
-        const userWithPermissions: User = { ...user, permissions: user.permissions ?? [] }
+        // Récupérer permissions depuis la réponse ; fallback en parsant le JWT si absent
+        let permissions: string[] = user.permissions ?? null
+        if (!permissions) {
+          const payload = parseJwtPayload(accessToken)
+          permissions = Array.isArray(payload.permissions) ? (payload.permissions as string[]) : []
+        }
+        const userWithPermissions: User = { ...user, permissions }
         // Le refreshToken est stocké en cookie httpOnly par le serveur (inaccessible au JS)
         localStorage.setItem('accessToken', accessToken)
         set({ user: userWithPermissions, accessToken, isAuthenticated: true })
@@ -45,7 +50,9 @@ export const useAuthStore = create<AuthState>()(
         try {
           // Le serveur supprime le refreshToken DB + efface le cookie
           await api.post('/auth/logout')
-        } catch {}
+        } catch {
+          // logout best-effort : on nettoie localement même si l'API échoue
+        }
         localStorage.removeItem('accessToken')
         set({ user: null, accessToken: null, isAuthenticated: false })
       },

@@ -139,7 +139,6 @@ async function execAction(action: Action, ctx: AutomationContext): Promise<void>
             message,
             link,
           })),
-          skipDuplicates: true,
         })
       }
       break
@@ -155,7 +154,6 @@ async function execAction(action: Action, ctx: AutomationContext): Promise<void>
       if (users.length > 0) {
         await prisma.notification.createMany({
           data: users.map(u => ({ userId: u.id, type: 'AUTOMATION_TRIGGERED', title, message, link })),
-          skipDuplicates: true,
         })
       }
       break

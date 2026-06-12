@@ -280,7 +280,7 @@ export function LeadsPage() {
       setShowCreate(false)
       toast.success('Lead créé')
     },
-    onError: (err: any) => toast.error(err?.message || 'Erreur lors de la création'),
+    onError: (err: Error) => toast.error(err?.message || 'Erreur lors de la création'),
   })
 
   const editMutation = useMutation({

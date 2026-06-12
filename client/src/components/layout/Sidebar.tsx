@@ -2,7 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, TrendingUp,
   Wrench, Calendar, Bell, Settings,
-  ChevronDown, Monitor, BarChart2, Zap, LogOut, Activity, LayoutGrid, X, Phone,
+  ChevronDown, Monitor, LogOut, LayoutGrid, X, Phone,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useAuthStore } from '../../store/authStore'

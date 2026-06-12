@@ -85,7 +85,7 @@ export function ImportCsvModal({ isOpen, onClose, entity, invalidateKeys, templa
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title={`Importer des ${entity === 'contacts' ? 'contacts' : 'entreprises'}`}>
+    <Modal open={isOpen} onClose={handleClose} title={`Importer des ${entity === 'contacts' ? 'contacts' : 'entreprises'}`}>
       <div className="space-y-4">
         {/* Template download */}
         <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-100 rounded-lg">
@@ -153,7 +153,7 @@ export function ImportCsvModal({ isOpen, onClose, entity, invalidateKeys, templa
             disabled={!rows || mutation.isPending}
             className="btn btn-primary"
           >
-            {mutation.isPending ? <><Spinner size="sm" /> Import en cours…</> : `Importer ${rows ? `(${rows.length})` : ''}`}
+            {mutation.isPending ? <><Spinner className="w-4 h-4" /> Import en cours…</> : `Importer ${rows ? `(${rows.length})` : ''}`}
           </button>
         </div>
       </div>
