@@ -3,12 +3,14 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { randomBytes, createHash } from 'crypto'
 import { z } from 'zod'
+import { OAuth2Client } from 'google-auth-library'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
 import { sendPasswordResetEmail } from '../services/mailer'
 import logger from '../lib/logger'
 import { audit } from '../lib/audit'
+import { encrypt } from '../lib/crypto'
 
 /** Retourne le SHA-256 hex d'un token — le token en clair ne touche jamais la DB */
 function hashToken(token: string): string {
@@ -240,6 +242,223 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response): Promise
     if (!user) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Utilisateur introuvable' } }); return }
     res.json({ success: true, data: user })
   } catch (err) { handleRouteError(err, res) }
+})
+
+// ─── GOOGLE OAUTH 2.0 ────────────────────────────────────────────────────────
+
+const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET
+const GOOGLE_REDIRECT_URI  = process.env.GOOGLE_REDIRECT_URI ?? 'http://localhost:3001/api/auth/google/callback'
+const FRONTEND_URL         = process.env.FRONTEND_URL ?? 'http://localhost:5173'
+
+/** Retourne un OAuth2Client Google configuré, ou null si les variables manquent */
+function getOAuth2Client(): OAuth2Client | null {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) return null
+  return new OAuth2Client(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI)
+}
+
+/** Helper : renvoie 503 si Google OAuth n'est pas configuré */
+function requireGoogleConfig(res: Response): boolean {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    res.status(503).json({ success: false, error: { code: 'GOOGLE_DISABLED', message: 'Connexion Google non configurée' } })
+    return false
+  }
+  return true
+}
+
+const GAUTH_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  maxAge: 10 * 60 * 1000, // 10 minutes
+  path: '/',
+}
+
+// GET /auth/google — redirige vers la page d'autorisation Google
+router.get('/google', async (req: Request, res: Response): Promise<void> => {
+  if (!requireGoogleConfig(res)) return
+  try {
+    const oauth2Client = getOAuth2Client()!
+    const state = randomBytes(16).toString('hex')
+    res.cookie('gauth_state', state, GAUTH_COOKIE_OPTIONS)
+    const url = oauth2Client.generateAuthUrl({
+      access_type: 'online',
+      prompt: 'select_account',
+      scope: ['openid', 'email', 'profile'],
+      state,
+    })
+    res.redirect(url)
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// GET /auth/google/callback — callback OAuth2 de Google
+router.get('/google/callback', async (req: Request, res: Response): Promise<void> => {
+  if (!requireGoogleConfig(res)) return
+  const { code, state, error: oauthError } = req.query as Record<string, string>
+
+  // Erreur renvoyée par Google (ex: accès refusé par l'utilisateur)
+  if (oauthError) {
+    logger.warn({ oauthError }, '[GOOGLE OAUTH] Erreur renvoyée par Google')
+    res.redirect(`${FRONTEND_URL}/login?error=google_unauthorized`)
+    return
+  }
+
+  // Vérification anti-CSRF du state
+  const storedState = req.cookies?.gauth_state
+  if (!state || !storedState || state !== storedState) {
+    res.status(400).json({ success: false, error: { code: 'INVALID_STATE', message: 'State CSRF invalide' } })
+    return
+  }
+  res.clearCookie('gauth_state', { path: '/' })
+
+  try {
+    const oauth2Client = getOAuth2Client()!
+
+    // Échange le code d'autorisation contre des tokens
+    const { tokens } = await oauth2Client.getToken(code)
+    oauth2Client.setCredentials(tokens)
+
+    if (!tokens.id_token) {
+      res.status(400).json({ success: false, error: { code: 'NO_ID_TOKEN', message: 'Impossible d\'obtenir le id_token Google' } })
+      return
+    }
+
+    // Vérifie et décode le id_token
+    const ticket = await oauth2Client.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: GOOGLE_CLIENT_ID!,
+    })
+    const payload = ticket.getPayload()
+    if (!payload) {
+      res.status(400).json({ success: false, error: { code: 'INVALID_ID_TOKEN', message: 'id_token invalide' } })
+      return
+    }
+
+    const { sub: googleId, email, email_verified, given_name, family_name } = payload
+    if (!email || !email_verified) {
+      res.redirect(`${FRONTEND_URL}/login?error=google_unauthorized`)
+      return
+    }
+
+    // ── Logique de liaison / création d'utilisateur ──────────────────────────
+
+    // Cherche par googleId d'abord
+    let user = await prisma.user.findUnique({
+      where: { googleId },
+      include: { roleRef: { include: { permissions: { include: { permission: true } } } } },
+    })
+
+    if (!user) {
+      // Cherche par email
+      const userByEmail = await prisma.user.findUnique({
+        where: { email },
+        include: { roleRef: { include: { permissions: { include: { permission: true } } } } },
+      })
+
+      if (userByEmail) {
+        // Cas 2 : utilisateur existant par email → liaison
+        if (!userByEmail.isActive) {
+          res.redirect(`${FRONTEND_URL}/login?error=account_disabled`)
+          return
+        }
+        user = await prisma.user.update({
+          where: { id: userByEmail.id },
+          data: { googleId },
+          include: { roleRef: { include: { permissions: { include: { permission: true } } } } },
+        })
+        const fakeReq = { userId: user.id } as AuthRequest
+        audit(fakeReq, 'GOOGLE_ACCOUNT_LINKED', 'User', user.id, { email, googleId })
+      } else {
+        // Cas 3 ou 4 : vérification domaine autorisé
+        const emailDomain = email.split('@')[1] ?? ''
+
+        // Lire le setting googleAllowedDomain (fallback : dcb-technologies.fr)
+        const domainSetting = await prisma.setting.findUnique({ where: { key: 'googleAllowedDomain' } })
+        const allowedDomain = domainSetting?.value ?? 'dcb-technologies.fr'
+
+        // Lire le setting googleAutoCreateRole (fallback : COMMERCIAL)
+        const roleSetting = await prisma.setting.findUnique({ where: { key: 'googleAutoCreateRole' } })
+        const autoRole = roleSetting?.value ?? 'COMMERCIAL'
+
+        if (emailDomain !== allowedDomain) {
+          res.redirect(`${FRONTEND_URL}/login?error=google_unauthorized`)
+          return
+        }
+
+        // Auto-création
+        const roleRef = await prisma.role.findUnique({ where: { name: autoRole } })
+        const newPassword = await bcrypt.hash(randomBytes(32).toString('hex'), 12)
+
+        user = await prisma.user.create({
+          data: {
+            email,
+            password: newPassword,
+            firstName: given_name ?? email.split('@')[0],
+            lastName: family_name ?? '',
+            googleId,
+            role: autoRole,
+            roleId: roleRef?.id ?? null,
+          },
+          include: { roleRef: { include: { permissions: { include: { permission: true } } } } },
+        })
+        const fakeReq = { userId: user.id } as AuthRequest
+        audit(fakeReq, 'USER_AUTOCREATED_GOOGLE', 'User', user.id, { email, googleId, role: autoRole })
+      }
+    }
+
+    // Vérification isActive (pour les cas où l'user existait par googleId)
+    if (!user.isActive) {
+      res.redirect(`${FRONTEND_URL}/login?error=account_disabled`)
+      return
+    }
+
+    // Si Google renvoie un refresh_token, on le chiffre et stocke dans GoogleCredential
+    if (tokens.refresh_token) {
+      try {
+        const encryptedToken = encrypt(tokens.refresh_token)
+        await prisma.googleCredential.upsert({
+          where: { userId: user.id },
+          create: {
+            userId: user.id,
+            googleEmail: email,
+            refreshTokenEnc: encryptedToken,
+          },
+          update: {
+            googleEmail: email,
+            refreshTokenEnc: encryptedToken,
+          },
+        })
+      } catch (err) {
+        // Ne pas bloquer la connexion si le stockage du token échoue
+        logger.warn({ err }, '[GOOGLE OAUTH] Impossible de stocker le refresh token Google')
+      }
+    }
+
+    // ── Génère les tokens CRM ────────────────────────────────────────────────
+    const permissions: string[] = user.role === 'ADMIN'
+      ? ['*']
+      : (user.roleRef?.permissions.map(rp => rp.permission.key) ?? [])
+
+    const { accessToken, refreshToken } = generateTokens(user.id, user.role, permissions)
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+
+    await prisma.refreshToken.upsert({
+      where: { token: hashToken(refreshToken) },
+      create: { token: hashToken(refreshToken), userId: user.id, expiresAt },
+      update: { expiresAt },
+    })
+
+    res.cookie('refreshToken', refreshToken, REFRESH_COOKIE_OPTIONS)
+
+    const fakeReq2 = { userId: user.id } as AuthRequest
+    audit(fakeReq2, 'LOGIN_GOOGLE', 'User', user.id, { email, googleId })
+
+    // Redirige vers la page de finalisation — le client utilisera POST /auth/refresh pour récupérer l'accessToken
+    res.redirect(`${FRONTEND_URL}/auth/google/success`)
+  } catch (err) {
+    logger.error({ err }, '[GOOGLE OAUTH] Erreur dans le callback')
+    res.redirect(`${FRONTEND_URL}/login?error=google_unauthorized`)
+  }
 })
 
 export default router

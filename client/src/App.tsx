@@ -101,6 +101,9 @@ const CallsPage = lazy(() =>
 const CallDetailPage = lazy(() =>
   import('./pages/calls/CallsPage').then(m => ({ default: m.CallDetailPage }))
 )
+const GoogleCallbackPage = lazy(() =>
+  import('./pages/auth/GoogleCallbackPage').then(m => ({ default: m.GoogleCallbackPage }))
+)
 
 // ── Query client ─────────────────────────────────────────────────────────────
 const queryClient = new QueryClient({
@@ -133,6 +136,7 @@ export default function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/auth/google/success" element={<GoogleCallbackPage />} />
 
             {/* Protected routes — Layout handles auth check and redirect */}
             <Route element={<Layout />}>

@@ -22,6 +22,8 @@ const DEFAULTS: Record<string, { value: string; label: string }> = {
   companySiret:             { value: '',        label: 'SIRET' },
   companyVatNumber:         { value: '',        label: 'N° TVA' },
   callRecordingRetentionDays: { value: '180',  label: 'Rétention des enregistrements d\'appels (jours)' },
+  googleAllowedDomain:        { value: 'dcb-technologies.fr', label: 'Domaine email autorisé pour l\'auto-création via Google OAuth' },
+  googleAutoCreateRole:       { value: 'COMMERCIAL', label: 'Rôle attribué lors de l\'auto-création d\'un compte via Google OAuth' },
 }
 
 // GET /api/settings — all settings (settings:read)

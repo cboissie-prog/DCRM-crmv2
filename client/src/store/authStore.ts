@@ -21,6 +21,8 @@ interface AuthState {
   logout: () => Promise<void>
   setUser: (user: User) => void
   hasPermission: (permission: string) => boolean
+  /** Utilisé après OAuth Google : initialise la session depuis un accessToken frais + données user */
+  loginFromSession: (user: Omit<User, 'permissions'>, accessToken: string) => void
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -57,6 +59,13 @@ export const useAuthStore = create<AuthState>()(
       },
 
       setUser: (user: User) => set({ user: { ...user, permissions: user.permissions ?? [] } }),
+
+      loginFromSession: (userData: Omit<User, 'permissions'>, accessToken: string) => {
+        const payload = parseJwtPayload(accessToken)
+        const permissions: string[] = Array.isArray(payload.permissions) ? (payload.permissions as string[]) : []
+        localStorage.setItem('accessToken', accessToken)
+        set({ user: { ...userData, permissions }, isAuthenticated: true })
+      },
 
       hasPermission: (permission: string) => {
         const user = get().user

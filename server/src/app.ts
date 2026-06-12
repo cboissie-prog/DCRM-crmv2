@@ -88,6 +88,7 @@ export function createApp(opts: CreateAppOptions = {}): express.Express {
     const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: 'Trop de tentatives, réessayez dans 15 minutes.' })
     app.use('/api/auth/login', authLimiter)
     app.use('/api/auth/forgot-password', authLimiter)
+    app.use('/api/auth/google', authLimiter)
 
     const webhookLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 120, message: 'Trop de requêtes webhook, réessayez plus tard.' })
     app.use('/api/calls/webhook', webhookLimiter)

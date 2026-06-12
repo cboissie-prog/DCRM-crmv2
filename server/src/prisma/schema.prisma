@@ -22,6 +22,7 @@ model User {
   avatar        String?
   role          String   @default("COMMERCIAL")
   isActive      Boolean  @default(true)
+  googleId      String?  @unique
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -39,6 +40,7 @@ model User {
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   assignedCalls       Call[]
+  googleCredential    GoogleCredential?
 }
 
 model RefreshToken {
@@ -416,20 +418,23 @@ model Activity {
 // appointmentType: CLIENT_MEETING | INTERVENTION | CALL | TRAINING | DELIVERY | OTHER
 
 model Appointment {
-  id          String   @id @default(uuid())
-  title       String
-  description String?
-  type        String
-  startAt     DateTime
-  endAt       DateTime
-  location    String?
-  ticketId    String?
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(uuid())
+  title         String
+  description   String?
+  type          String
+  startAt       DateTime
+  endAt         DateTime
+  location      String?
+  ticketId      String?
+  notes         String?
+  sourceGoogle  Boolean  @default(false)
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  users    AppointmentUser[]
-  contacts AppointmentContact[]
+  users        AppointmentUser[]
+  contacts     AppointmentContact[]
+  googleEvents AppointmentGoogleEvent[]
 }
 
 model AppointmentUser {
@@ -643,4 +648,36 @@ model Call {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ─── INTÉGRATION GOOGLE ─────────────────────────────────
+model GoogleCredential {
+  id                  String    @id @default(uuid())
+  userId              String    @unique
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  googleEmail         String
+  refreshTokenEnc     String    // refresh token Google chiffré AES-256-GCM
+  calendarSyncEnabled Boolean   @default(false)
+  syncToken           String?   // token de synchro incrémentale Calendar
+  lastSyncAt          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model AppointmentGoogleEvent {
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  userId        String
+  googleEventId String
+  etag          String?
+  updatedAt     DateTime    @updatedAt
+  @@id([appointmentId, userId])
+  @@index([googleEventId])
+}
+
+model CalendarAccess {
+  viewerId  String   // celui qui peut voir
+  ownerId   String   // le propriétaire du calendrier vu
+  createdAt DateTime @default(now())
+  @@id([viewerId, ownerId])
 }
