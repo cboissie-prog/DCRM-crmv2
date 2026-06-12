@@ -69,7 +69,8 @@ interface AppointmentData {
   endAt: Date
 }
 
-function appointmentToEvent(appt: AppointmentData): calendar_v3.Schema$Event {
+/** @internal Exporté pour les tests unitaires */
+export function appointmentToEvent(appt: AppointmentData): calendar_v3.Schema$Event {
   return {
     summary: appt.title,
     description: appt.description ?? undefined,
@@ -306,7 +307,8 @@ export async function pullUserCalendar(credential: GoogleCredentialWithUser): Pr
 /**
  * Traite un événement Google entrant pour un utilisateur.
  */
-async function processIncomingEvent(
+/** @internal Exporté pour les tests unitaires */
+export async function processIncomingEvent(
   event: calendar_v3.Schema$Event,
   userId: string,
 ): Promise<void> {

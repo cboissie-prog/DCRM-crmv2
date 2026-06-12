@@ -13,3 +13,11 @@ process.env.NODE_ENV = 'test'
 process.env.ADMIN_INITIAL_PASSWORD = 'test-admin-pwd-123'
 // Désactive le VOIP_WEBHOOK_SECRET par défaut (chaque test webhook le posera)
 delete process.env.VOIP_WEBHOOK_SECRET
+
+// Variables Google OAuth — posées avec des valeurs de test génériques.
+// Les fichiers de test Google peuvent surcharger ou supprimer selon leur besoin.
+// Ces variables sont lues comme constantes au niveau module dans les services Google ;
+// elles doivent donc être présentes avant le premier import de ces modules.
+process.env.GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID     ?? 'test-google-client-id'
+process.env.GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? 'test-google-client-secret'
+process.env.TOKEN_ENC_KEY        = process.env.TOKEN_ENC_KEY        ?? 'a'.repeat(64)

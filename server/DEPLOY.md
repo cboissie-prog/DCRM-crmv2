@@ -25,7 +25,27 @@ ADMIN_INITIAL_PASSWORD=<mot_de_passe>
 
 # Logs
 LOG_LEVEL=info   # debug | info | warn | error
+
+# ─── Intégration Google (optionnelle — voir GOOGLE-SETUP.md) ─────────────────
+GOOGLE_CLIENT_ID=<client_id>.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=<client_secret>
+GOOGLE_REDIRECT_URI=https://votre-domaine.com/api/auth/google/callback
+GOOGLE_CALENDAR_REDIRECT_URI=https://votre-domaine.com/api/google/calendar/callback
+TOKEN_ENC_KEY=<64_hex_chars>   # openssl rand -hex 32
+FRONTEND_URL=https://votre-domaine.com
 ```
+
+> Les variables Google sont optionnelles. Si `GOOGLE_CLIENT_ID` ou `GOOGLE_CLIENT_SECRET`
+> sont absentes, les routes `/api/auth/google` et `/api/google/*` répondent `503 GOOGLE_DISABLED`
+> sans bloquer le reste de l'application.
+
+---
+
+## Intégration Google
+
+La configuration complète (Google Cloud Console, scopes, URIs, settings applicatifs,
+fonctionnement de la synchro Calendar) est documentée dans **[GOOGLE-SETUP.md](../GOOGLE-SETUP.md)**
+à la racine du dépôt.
 
 ## Workflows
 
