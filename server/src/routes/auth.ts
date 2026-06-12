@@ -72,8 +72,14 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       : (user.roleRef?.permissions.map(rp => rp.permission.key) ?? [])
     const { accessToken, refreshToken } = generateTokens(user.id, user.role, permissions)
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-    // Stocke le hash SHA-256 — le token en clair reste uniquement dans le cookie httpOnly
-    await prisma.refreshToken.create({ data: { token: hashToken(refreshToken), userId: user.id, expiresAt } })
+    // Stocke le hash SHA-256 — le token en clair reste uniquement dans le cookie httpOnly.
+    // Upsert : évite le P2002 si deux logins consécutifs génèrent le même token JWT
+    // (iat étant basé sur la seconde, deux logins dans la même seconde donnent le même hash).
+    await prisma.refreshToken.upsert({
+      where: { token: hashToken(refreshToken) },
+      create: { token: hashToken(refreshToken), userId: user.id, expiresAt },
+      update: { expiresAt },
+    })
     const { password: _, roleRef: __, ...userWithoutPassword } = user
     res.cookie('refreshToken', refreshToken, REFRESH_COOKIE_OPTIONS)
     // Audit fire-and-forget (après envoi de la réponse)

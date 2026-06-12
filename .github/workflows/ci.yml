@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  client:
+    name: Client (React + Vite)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: TypeScript check
+        working-directory: client
+        run: npx tsc -b
+
+      - name: ESLint
+        working-directory: client
+        run: npx eslint .
+
+      - name: Tests
+        working-directory: client
+        run: npm test
+
+      - name: Build
+        working-directory: client
+        run: npx vite build
+
+  server:
+    name: Server (Express + Prisma)
+    runs-on: ubuntu-latest
+
+    env:
+      JWT_SECRET: test
+      JWT_REFRESH_SECRET: test
+      DATABASE_URL: file:./test.db
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Prisma generate
+        working-directory: server
+        run: npx prisma generate
+
+      - name: TypeScript check
+        working-directory: server
+        run: npx tsc --noEmit
+
+      - name: Tests
+        working-directory: server
+        run: npm test --if-present

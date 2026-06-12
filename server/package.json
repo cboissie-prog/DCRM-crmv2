@@ -12,7 +12,8 @@
     "db:migrate:deploy": "prisma migrate deploy --schema=src/prisma/schema.postgres.prisma",
     "db:seed": "tsx src/prisma/seed.ts",
     "db:seed:demo": "tsx src/prisma/seed-demo.ts",
-    "db:studio": "prisma studio --schema=src/prisma/schema.prisma"
+    "db:studio": "prisma studio --schema=src/prisma/schema.prisma",
+    "test": "vitest run"
   },
   "prisma": {
     "schema": "src/prisma/schema.prisma"
@@ -45,9 +46,12 @@
     "@types/node": "^22.10.2",
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^6.4.17",
+    "@types/supertest": "^7.2.0",
     "pino-pretty": "^13.1.3",
     "prisma": "^5.22.0",
+    "supertest": "^7.2.2",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.8"
   }
 }
