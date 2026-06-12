@@ -3,8 +3,9 @@ import { z } from 'zod'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
+import crypto from 'crypto'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest } from '../middleware/auth'
+import { authenticate, requirePermission, AuthRequest } from '../middleware/auth'
 
 const router = Router()
 
@@ -12,16 +13,48 @@ const router = Router()
 const uploadsDir = path.join(process.cwd(), 'uploads', 'recordings')
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
 
+const ALLOWED_AUDIO_MIMES = new Set([
+  'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav',
+  'audio/ogg', 'audio/mp4', 'audio/x-m4a', 'audio/webm',
+])
+const ALLOWED_AUDIO_EXTS = new Set(['.mp3', '.wav', '.ogg', '.m4a', '.mp4', '.webm'])
+
 const storage = multer.diskStorage({
   destination: uploadsDir,
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname)
+    const ext = path.extname(file.originalname).toLowerCase()
     cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`)
   },
 })
-const upload = multer({ storage, limits: { fileSize: 200 * 1024 * 1024 } })
 
-// ─── Webhook VoIP (public) ───────────────────────────────
+const fileFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
+  const ext = path.extname(file.originalname).toLowerCase()
+  if (ALLOWED_AUDIO_MIMES.has(file.mimetype) && ALLOWED_AUDIO_EXTS.has(ext)) {
+    cb(null, true)
+  } else {
+    const err = new multer.MulterError('LIMIT_UNEXPECTED_FILE', 'recording')
+    ;(err as unknown as Record<string, string>)['customCode'] = 'INVALID_FILE_TYPE'
+    cb(err)
+  }
+}
+
+const upload = multer({ storage, fileFilter, limits: { fileSize: 50 * 1024 * 1024 } })
+
+// ─── Helper Content-Type audio selon extension ───────────
+function audioContentType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase()
+  const map: Record<string, string> = {
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.ogg': 'audio/ogg',
+    '.m4a': 'audio/mp4',
+    '.mp4': 'audio/mp4',
+    '.webm': 'audio/webm',
+  }
+  return map[ext] ?? 'audio/mpeg'
+}
+
+// ─── Webhook VoIP (public, protégé par secret) ──────────
 const webhookSchema = z.object({
   call_id:         z.string().optional(),
   direction:       z.enum(['INBOUND', 'OUTBOUND']).optional(),
@@ -33,12 +66,48 @@ const webhookSchema = z.object({
   answered_at:     z.string().optional(),
   ended_at:        z.string().optional(),
   duration:        z.number().optional(),
-  recording_url:   z.string().optional(),
+  recording_url:   z.string().url().optional(),
 })
 
 router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
+  // ── Vérification du secret webhook ──────────────────────
+  const webhookSecret = process.env.VOIP_WEBHOOK_SECRET
+  if (!webhookSecret) {
+    res.status(503).json({ success: false, error: { code: 'WEBHOOK_DISABLED', message: 'Webhook VoIP non configuré' } })
+    return
+  }
+  const provided = req.headers['x-webhook-secret'] as string | undefined
+  if (!provided) {
+    res.status(401).json({ success: false, error: { code: 'INVALID_WEBHOOK_SECRET', message: 'Secret webhook manquant' } })
+    return
+  }
+  // Comparaison en temps constant (longueurs normalisées pour éviter les timing leaks)
+  const secretBuf   = Buffer.from(webhookSecret)
+  const providedBuf = Buffer.alloc(secretBuf.length)
+  providedBuf.write(provided)
+  const match = secretBuf.length === Buffer.from(provided).length &&
+    crypto.timingSafeEqual(secretBuf, Buffer.from(provided))
+  if (!match) {
+    res.status(401).json({ success: false, error: { code: 'INVALID_WEBHOOK_SECRET', message: 'Secret webhook invalide' } })
+    return
+  }
+
   try {
     const body = webhookSchema.parse(req.body)
+
+    // Validation https sur recording_url
+    if (body.recording_url) {
+      try {
+        const url = new URL(body.recording_url)
+        if (url.protocol !== 'https:') {
+          res.status(400).json({ success: false, error: { code: 'INVALID_RECORDING_URL', message: 'recording_url doit utiliser le protocole https' } })
+          return
+        }
+      } catch {
+        res.status(400).json({ success: false, error: { code: 'INVALID_RECORDING_URL', message: 'recording_url invalide' } })
+        return
+      }
+    }
     const normalized = body.caller_number.replace(/[\s\-.()+]/g, '')
 
     // Auto-detect caller from contacts
@@ -94,7 +163,7 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
 router.use(authenticate)
 
 // ─── Liste ───────────────────────────────────────────────
-router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('calls:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { search, status, direction, category, assignedToId, companyId, contactId, dateFrom, dateTo, page, limit } = req.query as Record<string, string>
     const pageNum  = Math.max(1, parseInt(page)  || 1)
@@ -146,7 +215,7 @@ router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
 })
 
 // ─── Détail ───────────────────────────────────────────────
-router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:id', requirePermission('calls:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const call = await prisma.call.findUnique({
       where: { id: req.params.id },
@@ -188,7 +257,7 @@ const callSchema = z.object({
 })
 
 // ─── Création manuelle ───────────────────────────────────
-router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requirePermission('calls:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = callSchema.parse(req.body)
     const call = await prisma.call.create({
@@ -226,7 +295,7 @@ router.post('/', async (req: AuthRequest, res: Response): Promise<void> => {
 })
 
 // ─── Mise à jour ─────────────────────────────────────────
-router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id', requirePermission('calls:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = callSchema.partial().parse(req.body)
     const call = await prisma.call.update({
@@ -258,7 +327,7 @@ router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
 })
 
 // ─── Suppression ─────────────────────────────────────────
-router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id', requirePermission('calls:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const call = await prisma.call.findUnique({ where: { id: req.params.id } })
     if (!call) {
@@ -276,28 +345,45 @@ router.delete('/:id', async (req: AuthRequest, res: Response): Promise<void> => 
 })
 
 // ─── Upload enregistrement ───────────────────────────────
-router.post('/:id/recording', upload.single('recording'), async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    if (!req.file) {
-      res.status(400).json({ success: false, error: { code: 'NO_FILE', message: 'Aucun fichier envoyé' } })
+router.post('/:id/recording', requirePermission('calls:listen'), (req: AuthRequest, res: Response): void => {
+  upload.single('recording')(req, res, async (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError) {
+        const customCode = (err as unknown as Record<string, string>)['customCode']
+        if (customCode === 'INVALID_FILE_TYPE') {
+          res.status(400).json({ success: false, error: { code: 'INVALID_FILE_TYPE', message: 'Type de fichier non autorisé (audio uniquement)' } })
+          return
+        }
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          res.status(400).json({ success: false, error: { code: 'FILE_TOO_LARGE', message: 'Fichier trop volumineux (max 50 Mo)' } })
+          return
+        }
+      }
+      res.status(400).json({ success: false, error: { code: 'UPLOAD_ERROR', message: 'Erreur lors de l\'upload' } })
       return
     }
-    const existing = await prisma.call.findUnique({ where: { id: req.params.id } })
-    if (existing?.recordingPath && fs.existsSync(existing.recordingPath)) {
-      fs.unlinkSync(existing.recordingPath)
+    try {
+      if (!req.file) {
+        res.status(400).json({ success: false, error: { code: 'NO_FILE', message: 'Aucun fichier envoyé' } })
+        return
+      }
+      const existing = await prisma.call.findUnique({ where: { id: req.params.id } })
+      if (existing?.recordingPath && fs.existsSync(existing.recordingPath)) {
+        fs.unlinkSync(existing.recordingPath)
+      }
+      const call = await prisma.call.update({
+        where: { id: req.params.id },
+        data: { recordingPath: req.file.path },
+      })
+      res.json({ success: true, data: call })
+    } catch {
+      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
     }
-    const call = await prisma.call.update({
-      where: { id: req.params.id },
-      data: { recordingPath: req.file.path },
-    })
-    res.json({ success: true, data: call })
-  } catch {
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } })
-  }
+  })
 })
 
 // ─── Streaming enregistrement (authentifié) ──────────────
-router.get('/:id/recording/stream', async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/:id/recording/stream', requirePermission('calls:listen'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const call = await prisma.call.findUnique({ where: { id: req.params.id }, select: { recordingPath: true, recordingUrl: true } })
     if (!call) {
@@ -306,6 +392,7 @@ router.get('/:id/recording/stream', async (req: AuthRequest, res: Response): Pro
     }
     if (call.recordingPath && fs.existsSync(call.recordingPath)) {
       const stat = fs.statSync(call.recordingPath)
+      const contentType = audioContentType(call.recordingPath)
       const range = req.headers.range
       if (range) {
         const parts = range.replace(/bytes=/, '').split('-')
@@ -316,16 +403,27 @@ router.get('/:id/recording/stream', async (req: AuthRequest, res: Response): Pro
           'Content-Range':  `bytes ${start}-${end}/${stat.size}`,
           'Accept-Ranges':  'bytes',
           'Content-Length': chunkSize,
-          'Content-Type':   'audio/mpeg',
+          'Content-Type':   contentType,
         })
         fs.createReadStream(call.recordingPath, { start, end }).pipe(res)
       } else {
-        res.writeHead(200, { 'Content-Length': stat.size, 'Content-Type': 'audio/mpeg' })
+        res.writeHead(200, { 'Content-Length': stat.size, 'Content-Type': contentType })
         fs.createReadStream(call.recordingPath).pipe(res)
       }
       return
     }
     if (call.recordingUrl) {
+      // Vérification https avant redirection
+      try {
+        const url = new URL(call.recordingUrl)
+        if (url.protocol !== 'https:') {
+          res.status(404).json({ success: false, error: { code: 'NO_RECORDING', message: 'Aucun enregistrement disponible' } })
+          return
+        }
+      } catch {
+        res.status(404).json({ success: false, error: { code: 'NO_RECORDING', message: 'Aucun enregistrement disponible' } })
+        return
+      }
       res.redirect(call.recordingUrl)
       return
     }

@@ -125,6 +125,16 @@ export async function startScheduler() {
     } catch (err) {
       console.error('  ❌ Erreur scheduler contrats:', err)
     }
+
+    // Purge des tokens de sécurité expirés
+    try {
+      const now = new Date()
+      const { count: expiredRefresh } = await prisma.refreshToken.deleteMany({ where: { expiresAt: { lt: now } } })
+      const { count: expiredReset } = await prisma.passwordResetToken.deleteMany({ where: { expiresAt: { lt: now } } })
+      console.log(`  🧹 Purge tokens : ${expiredRefresh} refresh token(s) expiré(s), ${expiredReset} reset token(s) expiré(s) supprimé(s)`)
+    } catch (err) {
+      console.error('  ❌ Erreur scheduler purge tokens:', err)
+    }
   }, { timezone: 'Europe/Paris' })
 
   // Rappels agenda toutes les 5 minutes

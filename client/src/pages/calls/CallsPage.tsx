@@ -22,6 +22,7 @@ import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useAuthStore } from '../../store/authStore'
+import { CanDo } from '../../components/CanDo'
 import type { Call, PaginatedResponse } from '../../types'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -36,7 +37,6 @@ function DirectionIcon({ direction }: { direction: string }) {
 export function CallsPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const { user } = useAuthStore()
   const [search, setSearch]       = useState('')
   const [dirFilter, setDirFilter] = useState('')
   const [statusFilter, setStatus] = useState('')
@@ -72,7 +72,6 @@ export function CallsPage() {
     onError: () => toast.error('Erreur lors de la suppression'),
   })
 
-  const canManage  = user?.role === 'ADMIN' || user?.role === 'MANAGER'
   const hasFilters = !!(search || dirFilter || statusFilter || catFilter || dateFrom || dateTo)
 
   const resetFilters = () => {
@@ -88,9 +87,11 @@ export function CallsPage() {
           <h1 className="page-title">Appels téléphoniques</h1>
           <p className="page-subtitle">{data?.meta.total ?? 0} appels</p>
         </div>
-        <button className="btn-primary" onClick={() => setShowCreate(true)}>
-          <Plus className="w-4 h-4" /> Nouvel appel
-        </button>
+        <CanDo permission="calls:create">
+          <button className="btn-primary" onClick={() => setShowCreate(true)}>
+            <Plus className="w-4 h-4" /> Nouvel appel
+          </button>
+        </CanDo>
       </div>
 
       {/* Filtres */}
@@ -232,7 +233,7 @@ export function CallsPage() {
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
-                      {canManage && (
+                      <CanDo permission="calls:delete">
                         <button
                           className="btn-ghost p-1.5 rounded-lg text-red-400 hover:text-red-600"
                           onClick={() => { if (window.confirm('Supprimer cet appel ?')) deleteMutation.mutate(call.id) }}
@@ -240,7 +241,7 @@ export function CallsPage() {
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      )}
+                      </CanDo>
                     </div>
                   </td>
                 </tr>
@@ -276,7 +277,6 @@ export function CallDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const { user } = useAuthStore()
   const [showEdit, setShowEdit]           = useState(false)
   const [showTicketModal, setShowTicket]  = useState(false)
   const [showLeadModal, setShowLead]      = useState(false)
@@ -315,7 +315,6 @@ export function CallDetailPage() {
     onError: () => toast.error('Erreur lors de la mise à jour'),
   })
 
-  const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER'
   const call = callData
 
   if (isLoading) return <PageSpinner />
@@ -401,10 +400,12 @@ export function CallDetailPage() {
           >
             <TrendingUp className="w-4 h-4" /> Créer un lead
           </button>
-          <button className="btn-secondary" onClick={() => setShowEdit(true)}>
-            <Edit2 className="w-4 h-4" /> Modifier
-          </button>
-          {canManage && (
+          <CanDo permission="calls:update">
+            <button className="btn-secondary" onClick={() => setShowEdit(true)}>
+              <Edit2 className="w-4 h-4" /> Modifier
+            </button>
+          </CanDo>
+          <CanDo permission="calls:delete">
             <button
               className="btn-ghost text-red-400 hover:text-red-600 p-2 rounded-lg"
               onClick={() => { if (window.confirm('Supprimer cet appel ?')) deleteMutation.mutate() }}
@@ -412,7 +413,7 @@ export function CallDetailPage() {
             >
               <Trash2 className="w-4 h-4" />
             </button>
-          )}
+          </CanDo>
         </div>
       </div>
 
@@ -592,9 +593,11 @@ export function CallDetailPage() {
 
       {/* Onglet Enregistrement */}
       {activeTab === 'recording' && (
-        <div className="max-w-2xl">
-          <RecordingPanel call={call} onUploaded={() => qc.invalidateQueries({ queryKey: ['call', id] })} />
-        </div>
+        <CanDo permission="calls:listen" fallback={<div className="card card-body text-center py-10 text-slate-400 text-sm">Vous n'avez pas accès aux enregistrements.</div>}>
+          <div className="max-w-2xl">
+            <RecordingPanel call={call} onUploaded={() => qc.invalidateQueries({ queryKey: ['call', id] })} />
+          </div>
+        </CanDo>
       )}
 
       {/* Modals */}

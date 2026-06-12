@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { csvEscape } from '../lib/csv'
 
 const router = Router()
 router.use(authenticate)
@@ -165,16 +166,12 @@ router.get('/export/csv', requirePermission('contacts:read'), async (req: AuthRe
       orderBy: { createdAt: 'desc' },
       include: { company: { select: { name: true } } },
     })
-    const escape = (v: unknown) => {
-      const s = v == null ? '' : String(v)
-      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
-    }
     const header = ['Prénom', 'Nom', 'Email', 'Téléphone', 'Mobile', 'Poste', 'Entreprise', 'Statut', 'Source', 'Score', 'Créé le']
     const rows = contacts.map(c => [
-      escape(c.firstName), escape(c.lastName), escape(c.email), escape(c.phone),
-      escape(c.mobile), escape(c.position), escape(c.company?.name),
-      escape(c.status), escape(c.source), escape(c.leadScore),
-      escape(new Date(c.createdAt).toLocaleDateString('fr-FR')),
+      csvEscape(c.firstName), csvEscape(c.lastName), csvEscape(c.email), csvEscape(c.phone),
+      csvEscape(c.mobile), csvEscape(c.position), csvEscape(c.company?.name),
+      csvEscape(c.status), csvEscape(c.source), csvEscape(c.leadScore),
+      csvEscape(new Date(c.createdAt).toLocaleDateString('fr-FR')),
     ].join(','))
     const csv = [header.join(','), ...rows].join('\n')
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')

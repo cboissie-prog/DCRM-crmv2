@@ -1,11 +1,16 @@
 import { Router, Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
-import { randomBytes } from 'crypto'
+import { randomBytes, createHash } from 'crypto'
 import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { sendPasswordResetEmail } from '../services/mailer'
+
+/** Retourne le SHA-256 hex d'un token — le token en clair ne touche jamais la DB */
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
+}
 
 const router = Router()
 
@@ -64,7 +69,8 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       : (user.roleRef?.permissions.map(rp => rp.permission.key) ?? [])
     const { accessToken, refreshToken } = generateTokens(user.id, user.role, permissions)
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-    await prisma.refreshToken.create({ data: { token: refreshToken, userId: user.id, expiresAt } })
+    // Stocke le hash SHA-256 — le token en clair reste uniquement dans le cookie httpOnly
+    await prisma.refreshToken.create({ data: { token: hashToken(refreshToken), userId: user.id, expiresAt } })
     const { password: _, roleRef: __, ...userWithoutPassword } = user
     res.cookie('refreshToken', refreshToken, REFRESH_COOKIE_OPTIONS)
     res.json({ success: true, data: { user: { ...userWithoutPassword, permissions }, accessToken } })
@@ -85,13 +91,38 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
       res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Refresh token manquant' } })
       return
     }
-    const stored = await prisma.refreshToken.findUnique({ where: { token: refreshToken }, include: { user: true } })
-    if (!stored || stored.expiresAt < new Date()) {
+
+    // 1. Vérifie la signature JWT en premier pour pouvoir extraire userId en cas de réutilisation
+    let payload: { userId: string; role: string }
+    try {
+      payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as { userId: string; role: string }
+    } catch {
       res.clearCookie('refreshToken', { path: '/api/auth' })
-      res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Refresh token invalide' } })
+      res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Token invalide' } })
       return
     }
-    const payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as { userId: string; role: string }
+
+    // 2. Cherche le hash en base
+    const tokenHash = hashToken(refreshToken)
+    const stored = await prisma.refreshToken.findUnique({ where: { token: tokenHash } })
+
+    if (!stored) {
+      // Token JWT authentique mais absent de la DB → réutilisation probable (vol détecté)
+      console.warn('[SECURITY] Refresh token réutilisé, révocation des sessions user', payload.userId)
+      await prisma.refreshToken.deleteMany({ where: { userId: payload.userId } })
+      res.clearCookie('refreshToken', { path: '/api/auth' })
+      res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Session révoquée pour raison de sécurité' } })
+      return
+    }
+
+    if (stored.expiresAt < new Date()) {
+      await prisma.refreshToken.deleteMany({ where: { token: tokenHash } })
+      res.clearCookie('refreshToken', { path: '/api/auth' })
+      res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Refresh token expiré' } })
+      return
+    }
+
+    // 3. Charge l'utilisateur avec ses permissions
     const userWithPermissions = await prisma.user.findUnique({
       where: { id: payload.userId },
       include: {
@@ -102,19 +133,22 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
         }
       }
     })
-    if (!userWithPermissions) {
+    if (!userWithPermissions || !userWithPermissions.isActive) {
       res.clearCookie('refreshToken', { path: '/api/auth' })
       res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Utilisateur introuvable' } })
       return
     }
+
     // Bypass ADMIN : accès total symbolisé par ['*']
     const permissions: string[] = userWithPermissions.role === 'ADMIN'
       ? ['*']
       : (userWithPermissions.roleRef?.permissions.map(rp => rp.permission.key) ?? [])
+
+    // 4. Rotation : supprime l'ancien token, crée le nouveau (stocke le hash)
     const { accessToken, refreshToken: newRefreshToken } = generateTokens(userWithPermissions.id, userWithPermissions.role, permissions)
-    await prisma.refreshToken.deleteMany({ where: { token: refreshToken } })
+    await prisma.refreshToken.deleteMany({ where: { token: tokenHash } })
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-    await prisma.refreshToken.create({ data: { token: newRefreshToken, userId: userWithPermissions.id, expiresAt } })
+    await prisma.refreshToken.create({ data: { token: hashToken(newRefreshToken), userId: userWithPermissions.id, expiresAt } })
     res.cookie('refreshToken', newRefreshToken, REFRESH_COOKIE_OPTIONS)
     res.json({ success: true, data: { accessToken } })
   } catch {
@@ -127,7 +161,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
 router.post('/logout', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const refreshToken = req.cookies?.refreshToken
-    if (refreshToken) await prisma.refreshToken.deleteMany({ where: { token: refreshToken } })
+    if (refreshToken) await prisma.refreshToken.deleteMany({ where: { token: hashToken(refreshToken) } })
     res.clearCookie('refreshToken', { path: '/api/auth' })
     res.json({ success: true, data: { message: 'Déconnecté avec succès' } })
   } catch {

@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { fireAutomations } from '../automation-engine'
+import { csvEscape } from '../lib/csv'
 
 const router = Router()
 router.use(authenticate)
@@ -105,17 +106,13 @@ router.get('/export/csv', requirePermission('tickets:export'), async (req: AuthR
         assignedTo: { select: { firstName: true, lastName: true } },
       },
     })
-    const escape = (v: unknown) => {
-      const s = v == null ? '' : String(v)
-      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
-    }
     const header = ['Référence', 'Titre', 'Statut', 'Priorité', 'Catégorie', 'Contact', 'Entreprise', 'Assigné à', 'Créé le']
     const rows = tickets.map(t => [
-      escape(t.reference), escape(t.title), escape(t.status), escape(t.priority), escape(t.category),
-      t.contact ? escape(`${t.contact.firstName} ${t.contact.lastName}`) : '',
-      escape(t.company?.name),
-      t.assignedTo ? escape(`${t.assignedTo.firstName} ${t.assignedTo.lastName}`) : '',
-      escape(new Date(t.createdAt).toLocaleDateString('fr-FR')),
+      csvEscape(t.reference), csvEscape(t.title), csvEscape(t.status), csvEscape(t.priority), csvEscape(t.category),
+      t.contact ? csvEscape(`${t.contact.firstName} ${t.contact.lastName}`) : '',
+      csvEscape(t.company?.name),
+      t.assignedTo ? csvEscape(`${t.assignedTo.firstName} ${t.assignedTo.lastName}`) : '',
+      csvEscape(new Date(t.createdAt).toLocaleDateString('fr-FR')),
     ].join(','))
     const csv = [header.join(','), ...rows].join('\n')
     res.setHeader('Content-Type', 'text/csv; charset=utf-8')

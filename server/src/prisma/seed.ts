@@ -81,6 +81,13 @@ const PERMISSIONS = [
   { key: 'settings:read', label: 'Voir les paramètres', category: 'Paramètres' },
   { key: 'settings:write', label: 'Modifier les paramètres', category: 'Paramètres' },
   { key: 'settings:roles', label: 'Gérer les rôles et permissions', category: 'Paramètres' },
+  { key: 'apikeys:manage', label: 'Gérer ses clés API', category: 'Paramètres' },
+  // Appels téléphoniques
+  { key: 'calls:read', label: 'Voir les appels', category: 'Appels' },
+  { key: 'calls:create', label: 'Créer un appel', category: 'Appels' },
+  { key: 'calls:update', label: 'Modifier un appel', category: 'Appels' },
+  { key: 'calls:delete', label: 'Supprimer un appel', category: 'Appels' },
+  { key: 'calls:listen', label: 'Accéder aux enregistrements', category: 'Appels' },
 ]
 
 /**
@@ -102,7 +109,11 @@ export async function seedBase() {
 
   // ─── RÔLES ─────────────────────────────────────────────
   const allKeys = PERMISSIONS.map(p => p.key)
-  const managerKeys = allKeys.filter(k => k !== 'users:delete' && k !== 'settings:roles')
+  const managerKeys = allKeys.filter(k =>
+    k !== 'users:delete' &&
+    k !== 'settings:roles' &&
+    k !== 'apikeys:manage'
+  )
   const commercialKeys = [
     'dashboard:read',
     'companies:read', 'companies:create', 'companies:update', 'companies:delete', 'companies:import',
@@ -113,6 +124,7 @@ export async function seedBase() {
     'reports:read',
     'activities:read', 'activities:create', 'activities:update', 'activities:delete',
     'appointments:read', 'appointments:create', 'appointments:update', 'appointments:delete',
+    'calls:read', 'calls:create', 'calls:update',
   ]
   const technicienKeys = [
     'dashboard:read',
@@ -125,6 +137,7 @@ export async function seedBase() {
     'activities:read', 'activities:create', 'activities:update', 'activities:delete',
     'appointments:read', 'appointments:create', 'appointments:update', 'appointments:delete',
     'knowledge:read',
+    'calls:read', 'calls:create', 'calls:update',
   ]
 
   const rolesConfig = [

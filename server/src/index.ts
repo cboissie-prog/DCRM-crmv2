@@ -50,14 +50,26 @@ const app = express()
 app.set('trust proxy', 1)
 const PORT = Number(process.env.PORT) || 3001
 
-app.use(helmet())
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      'img-src': ["'self'", 'data:', 'blob:', 'https://*.tile.openstreetmap.org', 'https://unpkg.com'],
+      'connect-src': ["'self'"],
+      'media-src': ["'self'", 'blob:'],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}))
 app.use(cors({
   origin: (origin, callback) => {
-    const allowed = [
-      process.env.FRONTEND_URL || 'http://localhost:5173',
-      /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
-      /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,
-    ]
+    const allowed = process.env.NODE_ENV === 'production'
+      ? [process.env.FRONTEND_URL || 'http://localhost:5173']
+      : [
+          process.env.FRONTEND_URL || 'http://localhost:5173',
+          /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
+          /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,
+        ]
     if (!origin) return callback(null, true) // requêtes sans origin (mobile, curl)
     const ok = allowed.some(p => typeof p === 'string' ? p === origin : p.test(origin))
     callback(ok ? null : new Error('CORS'), ok)
@@ -75,6 +87,10 @@ app.use('/api', limiter)
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: 'Trop de tentatives, réessayez dans 15 minutes.' })
 app.use('/api/auth/login', authLimiter)
 app.use('/api/auth/forgot-password', authLimiter)
+
+// Rate limit sur le webhook VoIP (120 req/15min pour les systèmes VoIP)
+const webhookLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 120, message: 'Trop de requêtes webhook, réessayez plus tard.' })
+app.use('/api/calls/webhook', webhookLimiter)
 
 app.use('/api/auth', authRoutes)
 app.use('/api/users', usersRoutes)

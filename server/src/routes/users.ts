@@ -142,7 +142,12 @@ router.delete('/:id', requirePermission('users:delete'), async (req: AuthRequest
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })
 
-// PATCH /:id/password — changer son propre mot de passe
+const changePasswordSchema = z.object({
+  currentPassword: z.string().optional(),
+  newPassword: z.string().min(8, 'Le mot de passe doit contenir au moins 8 caractères'),
+})
+
+// PATCH /:id/password — changer son propre mot de passe (ou celui d'un tiers pour ADMIN)
 router.patch('/:id/password', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const isSelf = req.params.id === req.userId
@@ -151,20 +156,42 @@ router.patch('/:id/password', async (req: AuthRequest, res: Response): Promise<v
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Accès refusé' } })
       return
     }
-    const { currentPassword, newPassword } = req.body
-    if (!newPassword || newPassword.length < 8) {
-      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Le nouveau mot de passe doit faire au moins 8 caractères' } })
-      return
+
+    // Validation Zod — évite bcrypt.compare(undefined, ...) → 500
+    let body: { currentPassword?: string; newPassword: string }
+    try {
+      body = changePasswordSchema.parse(req.body)
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: err.errors[0].message } })
+        return
+      }
+      throw err
     }
-    // Si c'est soi-même (et pas admin), vérifier l'ancien mot de passe
+
+    // Si c'est soi-même (non admin), currentPassword est obligatoire
     if (isSelf && !isAdmin) {
+      if (!body.currentPassword) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Mot de passe actuel requis' } })
+        return
+      }
       const user = await prisma.user.findUnique({ where: { id: req.params.id } })
       if (!user) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Utilisateur introuvable' } }); return }
-      const valid = await bcrypt.compare(currentPassword, user.password)
+      const valid = await bcrypt.compare(body.currentPassword, user.password)
       if (!valid) { res.status(401).json({ success: false, error: { code: 'INVALID_PASSWORD', message: 'Mot de passe actuel incorrect' } }); return }
+
+      // Rejette si identique à l'ancien
+      const same = await bcrypt.compare(body.newPassword, user.password)
+      if (same) {
+        res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Le nouveau mot de passe doit être différent' } })
+        return
+      }
     }
-    const hashedPassword = await bcrypt.hash(newPassword, 12)
+
+    const hashedPassword = await bcrypt.hash(body.newPassword, 12)
     await prisma.user.update({ where: { id: req.params.id }, data: { password: hashedPassword } })
+    // Révoque toutes les sessions de l'utilisateur concerné (comme reset-password)
+    await prisma.refreshToken.deleteMany({ where: { userId: req.params.id } })
     res.json({ success: true, data: { message: 'Mot de passe mis à jour' } })
   } catch { res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur' } }) }
 })

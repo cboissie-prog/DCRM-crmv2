@@ -158,14 +158,30 @@ router.put('/:id/permissions', requirePermission('settings:roles'), async (req: 
       return
     }
 
-    await prisma.rolePermission.deleteMany({ where: { roleId } })
-    await prisma.rolePermission.createMany({
-      data: body.permissionIds.map((permissionId: string) => ({ roleId, permissionId }))
-    })
+    // Valide que tous les permissionIds existent avant toute modification
+    if (body.permissionIds.length > 0) {
+      const foundPermissions = await prisma.permission.findMany({
+        where: { id: { in: body.permissionIds } },
+        select: { id: true },
+      })
+      if (foundPermissions.length !== body.permissionIds.length) {
+        res.status(400).json({ success: false, error: { code: 'INVALID_PERMISSION_IDS', message: 'Une ou plusieurs permissions sont introuvables' } })
+        return
+      }
+    }
 
-    // Invalide les refresh tokens des users de ce rôle → force re-login avec nouvelles permissions
-    await prisma.refreshToken.deleteMany({
-      where: { user: { roleId } }
+    // Enveloppe deleteMany + createMany + révocation des tokens dans une transaction atomique
+    await prisma.$transaction(async (tx) => {
+      await tx.rolePermission.deleteMany({ where: { roleId } })
+      if (body.permissionIds.length > 0) {
+        await tx.rolePermission.createMany({
+          data: body.permissionIds.map((permissionId: string) => ({ roleId, permissionId }))
+        })
+      }
+      // Invalide les refresh tokens des users de ce rôle → force re-login avec nouvelles permissions
+      await tx.refreshToken.deleteMany({
+        where: { user: { roleId } }
+      })
     })
 
     const updated = await prisma.role.findUnique({

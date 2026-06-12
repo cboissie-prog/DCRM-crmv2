@@ -763,11 +763,16 @@ const TABS: TabConfig[] = [
 ]
 
 export function SettingsPage() {
-  const { user } = useAuthStore()
+  const { user, hasPermission } = useAuthStore()
   const isAdmin = user?.role === 'ADMIN'
+  const canManageApiKeys = hasPermission('apikeys:manage')
   const [activeTab, setActiveTab] = useState<Tab>('profile')
 
-  const visibleTabs = TABS.filter(t => !t.adminOnly || isAdmin)
+  const visibleTabs = TABS.filter(t => {
+    if (t.adminOnly && !isAdmin) return false
+    if (t.id === 'apikeys' && !canManageApiKeys) return false
+    return true
+  })
 
   // If current tab becomes invisible (role change), fallback to profile
   const currentTab = visibleTabs.find(t => t.id === activeTab) ? activeTab : 'profile'
@@ -819,7 +824,7 @@ export function SettingsPage() {
         <div className="flex-1 card p-4 sm:p-6">
           {currentTab === 'profile'  && <ProfileTab />}
           {currentTab === 'password' && <PasswordTab />}
-          {currentTab === 'apikeys'  && <ApiKeysTab />}
+          {currentTab === 'apikeys'  && (canManageApiKeys ? <ApiKeysTab /> : <AccessDenied />)}
           {currentTab === 'company'  && (isAdmin ? <CompanyTab /> : <AccessDenied />)}
           {currentTab === 'users'    && (isAdmin ? <UsersTab /> : <AccessDenied />)}
           {currentTab === 'system'   && (isAdmin ? <SystemTab /> : <AccessDenied />)}

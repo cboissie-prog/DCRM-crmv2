@@ -2,6 +2,7 @@ import { Router } from 'express'
 import crypto from 'crypto'
 import prisma from '../prisma/client'
 import type { AuthRequest } from '../middleware/auth'
+import { requirePermission } from '../middleware/auth'
 
 const router = Router()
 
@@ -18,7 +19,7 @@ function generateApiKey(): { key: string; prefix: string; hash: string } {
 }
 
 // GET /api/apikeys — liste les clés de l'utilisateur courant
-router.get('/', async (req: AuthRequest, res) => {
+router.get('/', requirePermission('apikeys:manage'), async (req: AuthRequest, res) => {
   try {
     const keys = await (prisma as any).apiKey.findMany({
       where: { userId: req.userId, isActive: true },
@@ -41,7 +42,7 @@ router.get('/', async (req: AuthRequest, res) => {
 })
 
 // POST /api/apikeys — génère une nouvelle clé
-router.post('/', async (req: AuthRequest, res) => {
+router.post('/', requirePermission('apikeys:manage'), async (req: AuthRequest, res) => {
   const { name, expiresAt } = req.body
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
     res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Le nom est requis' } })
@@ -76,7 +77,7 @@ router.post('/', async (req: AuthRequest, res) => {
 })
 
 // DELETE /api/apikeys/:id — révoque une clé
-router.delete('/:id', async (req: AuthRequest, res) => {
+router.delete('/:id', requirePermission('apikeys:manage'), async (req: AuthRequest, res) => {
   try {
     const existing = await (prisma as any).apiKey.findUnique({ where: { id: req.params.id as string } })
     if (!existing || existing.userId !== req.userId) {
