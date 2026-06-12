@@ -3,7 +3,7 @@ import fs from 'fs'
 import prisma from './prisma/client'
 import logger from './lib/logger'
 import { runOverdueTickets, runOpportunityInactive, runContractExpiring } from './automation-engine'
-import { runCalendarSync } from './services/google-calendar'
+import { runCalendarSync, renewExpiringChannels } from './services/google-calendar'
 
 // ─── Helper : lire un setting entier depuis la DB ─────────────────────────────
 
@@ -209,7 +209,7 @@ export async function startScheduler() {
     }
   }, { timezone: 'Europe/Paris' })
 
-  // Automatisations planifiées toutes les heures
+  // Automatisations planifiées toutes les heures + renouvellement des canaux watch Google
   automationTask = cron.schedule('0 * * * *', async () => {
     try {
       const [overdue, inactive, expiring] = await Promise.all([
@@ -221,6 +221,14 @@ export async function startScheduler() {
       if (total > 0) logger.info(`⚡ Automatisations : ${overdue} tickets en retard, ${inactive} opps inactives, ${expiring} contrats expirants`)
     } catch (err) {
       logger.error({ err }, '  ❌ Erreur scheduler automatisations')
+    }
+
+    // Renouvellement des canaux watch Google Calendar expirant dans < 24 h
+    try {
+      const renewed = await renewExpiringChannels()
+      if (renewed > 0) logger.info(`📡 Google Calendar watch : ${renewed} canal(aux) renouvelé(s)`)
+    } catch (err) {
+      logger.error({ err }, '  ❌ Erreur scheduler renouvellement canaux Google Calendar')
     }
   }, { timezone: 'Europe/Paris' })
 }

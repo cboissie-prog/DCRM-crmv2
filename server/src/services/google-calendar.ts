@@ -7,8 +7,15 @@
  * - Anti-boucle : extendedProperties.private.dcrmAppointmentId + etag
  * - Conflits : last-write-wins (event.updated vs appointment.updatedAt)
  * - Tolérance pannes : erreur d'un user → log + calendarSyncEnabled=false + notif, sans bloquer les autres
+ *
+ * Push notifications (Google Calendar watch) :
+ * - registerWatchForUser : ouvre un canal watch Google (7 j) si GOOGLE_WEBHOOK_URL configurée
+ * - stopWatchForUser     : ferme le canal + efface les champs
+ * - renewExpiringChannels: renouvelle les canaux expirant dans < 24 h (à appeler chaque heure)
+ * - Garde-fou anti-rafale : Set<credentialId> inFlight — une seule synchro simultanée par user
  */
 
+import crypto from 'crypto'
 import { google, calendar_v3 } from 'googleapis'
 import prisma from '../prisma/client'
 import logger from '../lib/logger'
@@ -37,6 +44,39 @@ interface SyncStats {
   pulled: number
   pushed: number
   errors: number
+}
+
+// Type complet de GoogleCredential avec les champs de canal
+type GoogleCredentialWithUser = {
+  id: string
+  userId: string
+  googleEmail: string
+  refreshTokenEnc: string
+  calendarSyncEnabled: boolean
+  syncToken: string | null
+  lastSyncAt: Date | null
+  channelId: string | null
+  channelResourceId: string | null
+  channelToken: string | null
+  channelExpiresAt: Date | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+// ─── Garde-fou anti-rafale ────────────────────────────────────────────────────
+
+/** Set des credentialId en cours de synchro — évite les rafales parallèles */
+export const inFlight: Set<string> = new Set()
+
+// ─── Configuration webhook ────────────────────────────────────────────────────
+
+/**
+ * Retourne l'URL webhook publique configurée, ou null si absente/vide.
+ * Quand null → mode polling pur (comportement inchangé).
+ */
+export function getWebhookUrl(): string | null {
+  const url = process.env.GOOGLE_WEBHOOK_URL
+  return url && url.trim().length > 0 ? url.trim() : null
 }
 
 // ─── OAuth client ─────────────────────────────────────────────────────────────
@@ -216,18 +256,6 @@ export function pushRemovedParticipants(appointmentId: string, removedUserIds: s
 }
 
 // ─── Pull Google → CRM ────────────────────────────────────────────────────────
-
-type GoogleCredentialWithUser = {
-  id: string
-  userId: string
-  googleEmail: string
-  refreshTokenEnc: string
-  calendarSyncEnabled: boolean
-  syncToken: string | null
-  lastSyncAt: Date | null
-  createdAt: Date
-  updatedAt: Date
-}
 
 /**
  * Synchronisation incrémentale pour un utilisateur.
@@ -419,26 +447,186 @@ export async function processIncomingEvent(
   }
 }
 
+// ─── Watch channels (push notifications) ─────────────────────────────────────
+
+/**
+ * Ouvre un canal watch Google Calendar pour un utilisateur.
+ * No-op si GOOGLE_WEBHOOK_URL n'est pas configurée.
+ * Ferme l'éventuel canal existant avant (best-effort).
+ */
+export async function registerWatchForUser(credential: GoogleCredentialWithUser): Promise<void> {
+  const webhookUrl = getWebhookUrl()
+  if (!webhookUrl) {
+    logger.debug({ userId: credential.userId }, '[GCAL] registerWatchForUser : GOOGLE_WEBHOOK_URL absent, mode polling pur')
+    return
+  }
+
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    logger.debug({ userId: credential.userId }, '[GCAL] registerWatchForUser : Google non configuré')
+    return
+  }
+
+  // Fermeture best-effort de l'éventuel canal existant
+  if (credential.channelId && credential.channelResourceId) {
+    await stopWatchForUser(credential).catch((err) => {
+      logger.warn({ err, userId: credential.userId }, '[GCAL] registerWatchForUser : fermeture ancien canal échouée (best-effort)')
+    })
+    // Recharger la credential après arrêt (channelId mis à null)
+    const fresh = await prisma.googleCredential.findUnique({ where: { userId: credential.userId } })
+    if (fresh) credential = fresh as GoogleCredentialWithUser
+  }
+
+  const auth = await getOAuthClientForUser(credential.userId)
+  const cal  = google.calendar({ version: 'v3', auth })
+
+  const channelId    = crypto.randomUUID()
+  const channelToken = crypto.randomBytes(32).toString('hex')
+  const ttlSeconds   = 604800 // 7 jours
+
+  try {
+    const res = await cal.events.watch({
+      calendarId: 'primary',
+      requestBody: {
+        id:      channelId,
+        type:    'web_hook',
+        address: webhookUrl,
+        token:   channelToken,
+        params:  { ttl: String(ttlSeconds) },
+      },
+    })
+
+    const resourceId  = res.data.resourceId ?? null
+    const expiration  = res.data.expiration  ? new Date(Number(res.data.expiration)) : new Date(Date.now() + ttlSeconds * 1000)
+
+    await prisma.googleCredential.update({
+      where: { userId: credential.userId },
+      data: {
+        channelId,
+        channelResourceId: resourceId,
+        channelToken,
+        channelExpiresAt: expiration,
+      },
+    })
+
+    logger.info({ userId: credential.userId, channelId, expiresAt: expiration.toISOString() }, '[GCAL] Canal watch ouvert')
+  } catch (err) {
+    logger.error({ err, userId: credential.userId }, "[GCAL] Impossible d'ouvrir un canal watch Google")
+    throw err
+  }
+}
+
+/**
+ * Ferme le canal watch Google Calendar d'un utilisateur (best-effort).
+ * Remet les 4 champs de canal à null.
+ */
+export async function stopWatchForUser(credential: GoogleCredentialWithUser): Promise<void> {
+  if (!credential.channelId || !credential.channelResourceId) return
+
+  if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
+    try {
+      const auth = await getOAuthClientForUser(credential.userId)
+      const cal  = google.calendar({ version: 'v3', auth })
+      await cal.channels.stop({
+        requestBody: {
+          id:         credential.channelId,
+          resourceId: credential.channelResourceId,
+        },
+      })
+      logger.info({ userId: credential.userId, channelId: credential.channelId }, '[GCAL] Canal watch fermé')
+    } catch (err) {
+      logger.warn({ err, userId: credential.userId, channelId: credential.channelId }, '[GCAL] Fermeture canal watch échouée (best-effort)')
+    }
+  }
+
+  // Effacer les champs de canal même si l'appel channels.stop a échoué
+  await prisma.googleCredential.update({
+    where: { userId: credential.userId },
+    data: {
+      channelId:         null,
+      channelResourceId: null,
+      channelToken:      null,
+      channelExpiresAt:  null,
+    },
+  })
+}
+
+/**
+ * Renouvelle les canaux watch qui expirent dans moins de 24 h.
+ * Rattrape aussi les credentials calendarSyncEnabled sans canal actif (si webhook configurée).
+ * Retourne le nombre de canaux renouvelés/ouverts.
+ */
+export async function renewExpiringChannels(): Promise<number> {
+  const webhookUrl = getWebhookUrl()
+  if (!webhookUrl) return 0
+
+  const now       = new Date()
+  const threshold = new Date(now.getTime() + 24 * 60 * 60 * 1000) // now + 24 h
+
+  // Credentials calendarSyncEnabled avec canal expirant sous 24 h OU sans canal
+  const credentials = await prisma.googleCredential.findMany({
+    where: {
+      calendarSyncEnabled: true,
+      OR: [
+        // Canal expirant bientôt
+        { channelExpiresAt: { lt: threshold } },
+        // Pas de canal du tout
+        { channelId: null },
+      ],
+    },
+  })
+
+  let renewed = 0
+  for (const cred of credentials) {
+    try {
+      await registerWatchForUser(cred as GoogleCredentialWithUser)
+      renewed++
+    } catch (err) {
+      logger.error({ err, userId: cred.userId }, '[GCAL] renewExpiringChannels : échec pour un utilisateur')
+    }
+  }
+
+  return renewed
+}
+
 // ─── Job de synchronisation principal ────────────────────────────────────────
 
 /**
  * Boucle sur toutes les credentials calendarSyncEnabled, synchro séquentielle.
+ * Si force=false (défaut) : saute les credentials ayant un canal actif (géré par push).
+ * Si force=true : synchronise tous les users (synchro manuelle).
  * Retourne les stats { pulled, pushed, errors }.
  */
-export async function runCalendarSync(): Promise<SyncStats> {
+export async function runCalendarSync(force = false): Promise<SyncStats> {
   const stats: SyncStats = { pulled: 0, pushed: 0, errors: 0 }
+
+  const now = new Date()
 
   const credentials = await prisma.googleCredential.findMany({
     where: { calendarSyncEnabled: true },
   })
 
   for (const cred of credentials) {
+    // Si force=false et que le canal est actif (channelExpiresAt > now) → skip
+    if (!force && cred.channelExpiresAt && cred.channelExpiresAt > now) {
+      logger.debug({ userId: cred.userId }, '[GCAL] runCalendarSync : canal actif, skip (push couvre)')
+      continue
+    }
+
+    // Garde-fou anti-rafale
+    if (inFlight.has(cred.id)) {
+      logger.debug({ userId: cred.userId, credId: cred.id }, '[GCAL] runCalendarSync : synchro déjà en cours, skip')
+      continue
+    }
+
+    inFlight.add(cred.id)
     try {
-      const pulled = await pullUserCalendar(cred)
+      const pulled = await pullUserCalendar(cred as GoogleCredentialWithUser)
       stats.pulled += pulled
     } catch (err) {
       stats.errors++
       await handleUserError(cred.userId, err, 'runCalendarSync')
+    } finally {
+      inFlight.delete(cred.id)
     }
   }
 

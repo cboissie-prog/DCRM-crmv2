@@ -1,11 +1,13 @@
 /**
  * Routes Google Calendar — montées sur /api/google
  *
+ * POST /api/google/notifications          → PUBLIC — réception des push notifications Google Calendar
  * GET  /api/google/status                 → statut de connexion Calendar de l'utilisateur
  * GET  /api/google/calendar/connect       → URL de consentement (scopes Calendar)
  * GET  /api/google/calendar/callback      → PUBLIC — échange le code, stocke le refresh token
  * POST /api/google/calendar/disconnect    → révoque + supprime la credential
- * POST /api/google/calendar/sync          → synchro manuelle (pull)
+ * POST /api/google/calendar/sync          → synchro manuelle (pull forcé)
+ * POST /api/google/calendar/sync/all      → synchro globale (admin)
  */
 
 import { Router, Request, Response } from 'express'
@@ -17,7 +19,13 @@ import { handleRouteError } from '../middleware/errorHandler'
 import { encrypt } from '../lib/crypto'
 import { audit } from '../lib/audit'
 import logger from '../lib/logger'
-import { pullUserCalendar, runCalendarSync } from '../services/google-calendar'
+import {
+  pullUserCalendar,
+  runCalendarSync,
+  registerWatchForUser,
+  stopWatchForUser,
+  inFlight,
+} from '../services/google-calendar'
 
 const router = Router()
 
@@ -62,8 +70,75 @@ const STATE_COOKIE_OPTIONS = {
   path:     '/',
 }
 
-// ─── Toutes les routes sauf /callback requièrent authenticate ─────────────────
-// /callback est public car l'identité vient du state JWT.
+// ─── POST /api/google/notifications — PUBLIC — push notifications Google ──────
+// Monté EN PREMIER, avant authenticate, car il n'y a pas de session utilisateur.
+// Google POST cette URL sans corps d'événement — seuls les headers portent l'info.
+// Réponse 200 immédiate requise ; la synchro est déclenchée en arrière-plan.
+
+router.post('/notifications', async (req: Request, res: Response): Promise<void> => {
+  const channelId   = req.headers['x-goog-channel-id']   as string | undefined
+  const resourceId  = req.headers['x-goog-resource-id']  as string | undefined
+  const resourceState = req.headers['x-goog-resource-state'] as string | undefined
+  const channelToken  = req.headers['x-goog-channel-token'] as string | undefined
+
+  // Notification initiale 'sync' à l'ouverture du canal — répondre 200 de suite
+  if (resourceState === 'sync') {
+    logger.debug({ channelId }, '[GCAL] Notification push : state=sync (canal ouvert)')
+    res.status(200).end()
+    return
+  }
+
+  // Notification de changement 'exists' (ou 'not_exists' — traiter pareil)
+  // 1. Trouver la credential par channelId
+  if (!channelId) {
+    logger.warn({ resourceId, resourceState }, '[GCAL] Notification push sans X-Goog-Channel-ID')
+    res.status(200).end()
+    return
+  }
+
+  const cred = await prisma.googleCredential.findUnique({
+    where: { channelId },
+  }).catch(() => null)
+
+  if (!cred) {
+    logger.warn({ channelId }, '[GCAL] Notification push : channelId inconnu')
+    res.status(200).end() // 200 pour ne pas faire retenter Google
+    return
+  }
+
+  // 2. Vérifier le token de sécurité par canal
+  if (!channelToken || channelToken !== cred.channelToken) {
+    logger.warn({ channelId, userId: cred.userId }, '[GCAL] Notification push : token invalide — possible usurpation')
+    res.status(403).json({ success: false, error: { code: 'INVALID_CHANNEL_TOKEN', message: 'Token de canal invalide' } })
+    return
+  }
+
+  // 3. Répondre 200 IMMÉDIATEMENT — Google n'attend pas la synchro
+  res.status(200).end()
+
+  // 4. Déclencher la synchro en arrière-plan (garde-fou anti-rafale)
+  setImmediate(async () => {
+    if (inFlight.has(cred.id)) {
+      logger.debug({ userId: cred.userId, credId: cred.id }, '[GCAL] Notification push : synchro déjà en cours, ignorée')
+      return
+    }
+    inFlight.add(cred.id)
+    try {
+      // Cast : les champs channelId etc. sont présents car on vient de les lire
+      const fullCred = await prisma.googleCredential.findUnique({ where: { userId: cred.userId } })
+      if (fullCred && fullCred.calendarSyncEnabled) {
+        const count = await pullUserCalendar(fullCred as Parameters<typeof pullUserCalendar>[0])
+        logger.debug({ userId: cred.userId, count }, '[GCAL] Notification push : synchro déclenchée')
+      }
+    } catch (err) {
+      logger.error({ err, userId: cred.userId }, '[GCAL] Notification push : erreur lors de la synchro')
+    } finally {
+      inFlight.delete(cred.id)
+    }
+  })
+})
+
+// ─── Routes authentifiées ─────────────────────────────────────────────────────
 
 // GET /api/google/status
 router.get('/status', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
@@ -72,10 +147,16 @@ router.get('/status', authenticate, async (req: AuthRequest, res: Response): Pro
     res.json({
       success: true,
       data: {
-        connected:          !!cred,
-        googleEmail:        cred?.googleEmail ?? null,
+        connected:           !!cred,
+        googleEmail:         cred?.googleEmail ?? null,
         calendarSyncEnabled: cred?.calendarSyncEnabled ?? false,
-        lastSyncAt:         cred?.lastSyncAt ?? null,
+        lastSyncAt:          cred?.lastSyncAt ?? null,
+        // Statut du canal watch
+        watchChannel: cred?.channelId ? {
+          channelId:       cred.channelId,
+          expiresAt:       cred.channelExpiresAt ?? null,
+          active:          cred.channelExpiresAt ? cred.channelExpiresAt > new Date() : false,
+        } : null,
       },
     })
   } catch (err) { handleRouteError(err, res) }
@@ -162,7 +243,7 @@ router.get('/calendar/callback', async (req: Request, res: Response): Promise<vo
 
     const encryptedToken = encrypt(tokens.refresh_token)
 
-    await prisma.googleCredential.upsert({
+    const savedCred = await prisma.googleCredential.upsert({
       where:  { userId },
       create: {
         userId,
@@ -177,23 +258,32 @@ router.get('/calendar/callback', async (req: Request, res: Response): Promise<vo
       },
     })
 
-    // Première synchro complète en arrière-plan (réinitialise d'abord le syncToken)
+    // Première synchro + ouverture du canal watch en arrière-plan
     setImmediate(async () => {
       try {
         const cred = await prisma.googleCredential.findUnique({ where: { userId } })
         if (cred) {
           // syncToken null → force la re-sync complète
           const credNoSync = { ...cred, syncToken: null }
-          await pullUserCalendar(credNoSync)
+          await pullUserCalendar(credNoSync as Parameters<typeof pullUserCalendar>[0])
           logger.info({ userId }, '[GCAL] Première synchro Calendar effectuée après connexion')
         }
       } catch (err) {
         logger.error({ err, userId }, '[GCAL] Échec de la première synchro Calendar')
       }
+      // Ouverture du canal watch (best-effort — ne casse pas la redirection)
+      try {
+        const cred = await prisma.googleCredential.findUnique({ where: { userId } })
+        if (cred) {
+          await registerWatchForUser(cred as Parameters<typeof registerWatchForUser>[0])
+        }
+      } catch (err) {
+        logger.warn({ err, userId }, "[GCAL] Impossible d'ouvrir le canal watch apres connexion (best-effort)")
+      }
     })
 
     const fakeReq = { userId } as AuthRequest
-    audit(fakeReq, 'GOOGLE_CALENDAR_CONNECTED', 'GoogleCredential', userId, { googleEmail })
+    audit(fakeReq, 'GOOGLE_CALENDAR_CONNECTED', 'GoogleCredential', savedCred.id, { googleEmail })
 
     res.redirect(`${FRONTEND_URL}/appointments?google=connected`)
   } catch (err) {
@@ -209,6 +299,13 @@ router.post('/calendar/disconnect', authenticate, async (req: AuthRequest, res: 
     if (!cred) {
       res.json({ success: true, data: { message: 'Aucune connexion Google Calendar active' } })
       return
+    }
+
+    // Fermeture du canal watch (best-effort)
+    try {
+      await stopWatchForUser(cred as Parameters<typeof stopWatchForUser>[0])
+    } catch (err) {
+      logger.warn({ err, userId: req.userId }, '[GCAL] stopWatchForUser échoué lors du disconnect (best-effort)')
     }
 
     // Révocation du token chez Google (best effort)
@@ -235,7 +332,7 @@ router.post('/calendar/disconnect', authenticate, async (req: AuthRequest, res: 
   } catch (err) { handleRouteError(err, res) }
 })
 
-// POST /api/google/calendar/sync  — synchro manuelle
+// POST /api/google/calendar/sync  — synchro manuelle (force=true)
 router.post('/calendar/sync', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const cred = await prisma.googleCredential.findUnique({ where: { userId: req.userId! } })
@@ -247,7 +344,8 @@ router.post('/calendar/sync', authenticate, async (req: AuthRequest, res: Respon
       return
     }
 
-    const pulled = await pullUserCalendar(cred)
+    // force=true : ignore le canal actif — synchro manuelle toujours possible
+    const pulled = await pullUserCalendar(cred as Parameters<typeof pullUserCalendar>[0])
     res.json({ success: true, data: { pulled, pushed: 0, errors: 0 } })
   } catch (err) { handleRouteError(err, res) }
 })
@@ -259,7 +357,8 @@ router.post('/calendar/sync/all', authenticate, async (req: AuthRequest, res: Re
     return
   }
   try {
-    const stats = await runCalendarSync()
+    // force=true pour synchroniser tous les users même ceux avec canal actif
+    const stats = await runCalendarSync(true)
     res.json({ success: true, data: stats })
   } catch (err) { handleRouteError(err, res) }
 })

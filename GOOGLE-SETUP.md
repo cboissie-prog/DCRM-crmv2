@@ -116,7 +116,56 @@ Ces paramètres s'ajoutent/modifient depuis la page **Paramètres** de l'interfa
 
 ---
 
-## 5. Vérification rapide en développement
+## 5. Notifications push (optionnel)
+
+La synchro peut fonctionner en deux modes :
+
+| Mode | Variable | Latence |
+|------|----------|---------|
+| Polling seul | `GOOGLE_WEBHOOK_URL=` (vide, défaut) | ~5 min |
+| Push + polling secours | `GOOGLE_WEBHOOK_URL=https://…` | quasi temps réel |
+
+### Activer les push
+
+Ajouter dans `.env` (production) :
+
+```env
+GOOGLE_WEBHOOK_URL=https://dcrm.dcb-technologies.fr/api/google/notifications
+```
+
+**Exigences Google :**
+- URL **HTTPS publique** avec certificat TLS valide (Let's Encrypt, etc.)
+- Domaine vérifié dans Google Cloud Console → [Search Console](https://search.google.com/search-console) (ou via enregistrement DNS TXT)
+- L'URL doit être joignable depuis Internet (pas de firewall bloquant les IP Google)
+
+### Cycle de vie d'un canal
+
+1. **Connexion** : après le callback OAuth Calendar, `registerWatchForUser()` appelle `calendar.events.watch()` — Google répond avec un `resourceId` et une date d'expiration (7 jours maximum)
+2. **Notification** : à chaque modification dans l'agenda, Google POST sur `/api/google/notifications` (headers uniquement, pas de corps)
+3. **Traitement** : le serveur vérifie le `channelToken`, répond **200 immédiatement**, puis déclenche `pullUserCalendar()` en arrière-plan
+4. **Renouvellement** : le cron horaire (`0 * * * *`) appelle `renewExpiringChannels()` — les canaux expirant dans < 24 h sont renouvelés automatiquement (close + reopen)
+
+### Polling de secours
+
+Même avec les push activés, le polling toutes les **5 minutes** reste actif pour :
+- Les utilisateurs sans canal actif (ex : canal expiré avant renouvellement)
+- Les nouveaux utilisateurs en attente d'un watch
+- Les environnements sans `GOOGLE_WEBHOOK_URL`
+
+Les utilisateurs **avec** un canal actif (`channelExpiresAt > now`) sont exclus du polling (sauf synchro manuelle `force=true`).
+
+### Développement local
+
+Laisser `GOOGLE_WEBHOOK_URL=` vide. Le polling seul est utilisé. Pour tester les push en local, utiliser [ngrok](https://ngrok.com/) :
+
+```bash
+ngrok http 3001
+# Puis : GOOGLE_WEBHOOK_URL=https://<tunnel>.ngrok.io/api/google/notifications
+```
+
+---
+
+## 6. Vérification rapide en développement
 
 ```bash
 # Après configuration du .env :

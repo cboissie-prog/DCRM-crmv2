@@ -94,6 +94,10 @@ export function createApp(opts: CreateAppOptions = {}): express.Express {
 
     const webhookLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 120, message: 'Trop de requêtes webhook, réessayez plus tard.' })
     app.use('/api/calls/webhook', webhookLimiter)
+
+    // Limiter dédié pour les notifications push Google Calendar (généreux — Google peut envoyer ~1/s)
+    const googleNotifLimiter = rateLimit({ windowMs: 60 * 1000, max: 300, message: 'Trop de notifications Google, réessayez plus tard.' })
+    app.use('/api/google/notifications', googleNotifLimiter)
   }
 
   app.use('/api/auth', authRoutes)

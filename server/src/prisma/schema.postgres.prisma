@@ -665,6 +665,11 @@ model GoogleCredential {
   calendarSyncEnabled Boolean   @default(false)
   syncToken           String?   // token de synchro incrémentale Calendar
   lastSyncAt          DateTime?
+  // Push notifications (Google Calendar watch channels)
+  channelId           String?   @unique  // UUID du canal watch Google
+  channelResourceId   String?            // resourceId renvoyé par Google
+  channelToken        String?            // secret HMAC par canal
+  channelExpiresAt    DateTime?          // expiration du canal (7 jours max)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 }
