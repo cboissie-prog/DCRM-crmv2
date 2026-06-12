@@ -3,6 +3,7 @@ import fs from 'fs'
 import prisma from './prisma/client'
 import logger from './lib/logger'
 import { runOverdueTickets, runOpportunityInactive, runContractExpiring } from './automation-engine'
+import { runCalendarSync } from './services/google-calendar'
 
 // ─── Helper : lire un setting entier depuis la DB ─────────────────────────────
 
@@ -95,6 +96,7 @@ export async function runAppointmentReminders(): Promise<number> {
 let currentTask: ScheduledTask | null = null
 let reminderTask: ScheduledTask | null = null
 let automationTask: ScheduledTask | null = null
+let calendarSyncTask: ScheduledTask | null = null
 
 function parseCronTime(hhmm: string): string {
   const [h, m] = hhmm.split(':').map(Number)
@@ -110,6 +112,7 @@ export async function startScheduler() {
   if (currentTask) { currentTask.stop(); currentTask = null }
   if (reminderTask) { reminderTask.stop(); reminderTask = null }
   if (automationTask) { automationTask.stop(); automationTask = null }
+  if (calendarSyncTask) { calendarSyncTask.stop(); calendarSyncTask = null }
 
   if (enabled !== 'true') {
     logger.info('  ⏸  Scheduler désactivé (paramètre schedulerEnabled=false)')
@@ -191,6 +194,18 @@ export async function startScheduler() {
       if (sent > 0) logger.info(`🔔 Rappels agenda : ${sent} notification(s) envoyée(s)`)
     } catch (err) {
       logger.error({ err }, '  ❌ Erreur scheduler rappels agenda')
+    }
+  }, { timezone: 'Europe/Paris' })
+
+  // Synchro Google Calendar toutes les 5 minutes
+  calendarSyncTask = cron.schedule('*/5 * * * *', async () => {
+    try {
+      const stats = await runCalendarSync()
+      if (stats.pulled > 0 || stats.pushed > 0 || stats.errors > 0) {
+        logger.info(`📅 Google Calendar sync : ${stats.pulled} importés, ${stats.pushed} poussés, ${stats.errors} erreur(s)`)
+      }
+    } catch (err) {
+      logger.error({ err }, '  ❌ Erreur scheduler Google Calendar sync')
     }
   }, { timezone: 'Europe/Paris' })
 

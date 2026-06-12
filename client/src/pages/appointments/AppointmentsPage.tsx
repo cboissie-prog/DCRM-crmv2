@@ -16,6 +16,9 @@ import {
   Pencil,
   Trash2,
   X,
+  RefreshCw,
+  Unlink,
+  Calendar,
 } from 'lucide-react'
 import api from '../../lib/api'
 import { cn, formatDateTime } from '../../lib/utils'
@@ -123,6 +126,134 @@ function dateToInputValue(d: Date): string {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
+// ── Types Google Calendar ─────────────────────────────────────────────────────
+
+interface GoogleCalendarStatus {
+  connected: boolean
+  googleEmail: string | null
+  calendarSyncEnabled: boolean
+  lastSyncAt: string | null
+}
+
+// ── Google Calendar encart ─────────────────────────────────────────────────────
+
+function GoogleCalendarPanel({ onConnected }: { onConnected?: () => void }) {
+  const qc = useQueryClient()
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false)
+
+  const { data, isLoading } = useQuery<{ data: GoogleCalendarStatus }>({
+    queryKey: ['google-calendar-status'],
+    queryFn: async () => { const { data } = await api.get('/google/status'); return data },
+    staleTime: 30_000,
+  })
+
+  const status = data?.data
+
+  const connectMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.get('/google/calendar/connect')
+      return data.data.url as string
+    },
+    onSuccess: (url) => { window.location.href = url },
+    onError: () => toast.error('Impossible de lancer la connexion Google Calendar'),
+  })
+
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post('/google/calendar/sync')
+      return data.data as { pulled: number; pushed: number; errors: number }
+    },
+    onSuccess: (stats) => {
+      qc.invalidateQueries({ queryKey: ['appointments'] })
+      qc.invalidateQueries({ queryKey: ['google-calendar-status'] })
+      toast.success(`Synchro terminée — ${stats.pulled} événement(s) importé(s)`)
+      onConnected?.()
+    },
+    onError: () => toast.error('Erreur lors de la synchronisation'),
+  })
+
+  const disconnectMutation = useMutation({
+    mutationFn: async () => {
+      await api.post('/google/calendar/disconnect')
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['google-calendar-status'] })
+      setShowDisconnectConfirm(false)
+      toast.success('Google Calendar déconnecté')
+    },
+    onError: () => toast.error('Erreur lors de la déconnexion'),
+  })
+
+  if (isLoading) return null
+
+  if (!status?.connected || !status.calendarSyncEnabled) {
+    return (
+      <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-sm">
+        <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+        <span className="text-slate-500 hidden sm:inline">Google Agenda</span>
+        <button
+          className="btn-secondary btn-sm text-xs px-3 py-1.5 flex items-center gap-1.5"
+          onClick={() => connectMutation.mutate()}
+          disabled={connectMutation.isPending}
+        >
+          <Calendar className="w-3.5 h-3.5" />
+          {connectMutation.isPending ? 'Redirection...' : 'Connecter mon agenda'}
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 border border-green-200 text-sm">
+        <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+        <span className="text-green-800 font-medium truncate max-w-[140px] hidden sm:inline" title={status.googleEmail ?? ''}>
+          {status.googleEmail}
+        </span>
+        {status.lastSyncAt && (
+          <span className="text-green-600 text-xs hidden md:inline">
+            · {new Date(status.lastSyncAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        )}
+        <button
+          className="btn-ghost btn-sm p-1.5 rounded-lg text-green-700 hover:bg-green-100"
+          title="Synchroniser maintenant"
+          onClick={() => syncMutation.mutate()}
+          disabled={syncMutation.isPending}
+        >
+          <RefreshCw className={cn('w-3.5 h-3.5', syncMutation.isPending && 'animate-spin')} />
+        </button>
+        <button
+          className="btn-ghost btn-sm p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50"
+          title="Déconnecter Google Agenda"
+          onClick={() => setShowDisconnectConfirm(true)}
+        >
+          <Unlink className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <Modal open={showDisconnectConfirm} onClose={() => setShowDisconnectConfirm(false)} title="Déconnecter Google Agenda" size="sm">
+        <div className="space-y-4">
+          <p className="text-slate-600">
+            Êtes-vous sûr de vouloir déconnecter votre Google Agenda ?
+            Les événements importés dans le CRM resteront, mais la synchronisation s'arrêtera.
+          </p>
+          <div className="flex justify-end gap-3">
+            <button className="btn-secondary" onClick={() => setShowDisconnectConfirm(false)}>Annuler</button>
+            <button
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+              onClick={() => disconnectMutation.mutate()}
+              disabled={disconnectMutation.isPending}
+            >
+              {disconnectMutation.isPending ? 'Déconnexion...' : 'Déconnecter'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    </>
+  )
+}
+
 export function AppointmentsPage() {
   const qc = useQueryClient()
   const user = useAuthStore(s => s.user)
@@ -137,6 +268,30 @@ export function AppointmentsPage() {
     const id = setInterval(() => setNow(new Date()), 60_000)
     return () => clearInterval(id)
   }, [])
+
+  // ── Gestion du query param ?google=connected ────────────────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const googleParam = params.get('google')
+    if (googleParam === 'connected') {
+      toast.success('Google Agenda connecté avec succès !')
+      qc.invalidateQueries({ queryKey: ['google-calendar-status'] })
+      // Nettoie l'URL
+      const url = new URL(window.location.href)
+      url.searchParams.delete('google')
+      window.history.replaceState({}, '', url.toString())
+    } else if (googleParam === 'error') {
+      toast.error('Erreur lors de la connexion Google Agenda')
+      const url = new URL(window.location.href)
+      url.searchParams.delete('google')
+      window.history.replaceState({}, '', url.toString())
+    } else if (googleParam === 'no_refresh_token') {
+      toast.error('Connexion incomplète — veuillez réessayer et accepter tous les accès demandés')
+      const url = new URL(window.location.href)
+      url.searchParams.delete('google')
+      window.history.replaceState({}, '', url.toString())
+    }
+  }, [qc])
 
   const gridScrollRef = useRef<HTMLDivElement>(null)
 
@@ -330,7 +485,9 @@ export function AppointmentsPage() {
           <h1 className="page-title">Agenda & Interventions</h1>
           <p className="page-subtitle">{appointments.length} événement{appointments.length !== 1 ? 's' : ''}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {/* Google Calendar */}
+          <GoogleCalendarPanel onConnected={() => qc.invalidateQueries({ queryKey: ['appointments'] })} />
           {/* View toggle */}
           <div className="flex bg-slate-100 rounded-lg p-0.5">
             <button
