@@ -4,6 +4,7 @@ import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
 import { pushAppointmentToAll, pushRemovedParticipants } from '../services/google-calendar'
+import { getVisibleOwnerIds, appointmentVisibilityWhere } from '../lib/calendar-visibility'
 
 const router = Router()
 router.use(authenticate)
@@ -23,14 +24,58 @@ const appointmentSchema = z.object({
 
 router.get('/', requirePermission('appointments:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { from, to, userId } = req.query as Record<string, string>
-    const where: Record<string, unknown> = {}
-    if (from || to) {
-      where.startAt = {}
-      if (from) (where.startAt as Record<string, unknown>).gte = new Date(from)
-      if (to) (where.startAt as Record<string, unknown>).lte = new Date(to)
+    const { from, to, userId, ownerId } = req.query as Record<string, string>
+
+    // ── Visibilité calendrier ───────────────────────────────────────────────────
+    const visible = await getVisibleOwnerIds(req)
+    const visibilityWhere = appointmentVisibilityWhere(visible, req.userId!)
+
+    // ── Filtre ownerId (calendrier d'un utilisateur spécifique) ─────────────────
+    if (ownerId) {
+      // Vérifier que l'appelant peut voir ce calendrier
+      const canSee =
+        visible === 'all' ||
+        visible.includes(ownerId)
+
+      if (!canSee) {
+        res.status(403).json({
+          success: false,
+          error: { code: 'CALENDAR_FORBIDDEN', message: 'Vous n\'avez pas accès au calendrier de cet utilisateur' },
+        })
+        return
+      }
     }
-    if (userId) where.users = { some: { userId } }
+
+    // ── Construction du where final ─────────────────────────────────────────────
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const baseWhere: Record<string, any> = { ...visibilityWhere }
+
+    if (from || to) {
+      baseWhere.startAt = {}
+      if (from) baseWhere.startAt.gte = new Date(from)
+      if (to) baseWhere.startAt.lte = new Date(to)
+    }
+
+    // Filtre userId existant (legacy — filtre par participant)
+    if (userId) baseWhere.users = { some: { userId } }
+
+    // Filtre ownerId — ne s'applique que si fourni et vérifié ci-dessus
+    // ownerId filtre les RDV où CET utilisateur est participant
+    let where = baseWhere
+    if (ownerId) {
+      // Combine la visibilité ET le filtre ownerId par AND
+      const ownerFilter = { users: { some: { userId: ownerId } } }
+      if (Object.keys(visibilityWhere).length > 0) {
+        where = { AND: [visibilityWhere, ownerFilter] }
+        if (from || to) {
+          where = { AND: [visibilityWhere, ownerFilter, { startAt: baseWhere.startAt }] }
+        }
+      } else {
+        where = ownerFilter
+        if (from || to) where = { ...ownerFilter, startAt: baseWhere.startAt }
+      }
+    }
+
     const appointments = await prisma.appointment.findMany({
       where, orderBy: { startAt: 'asc' },
       include: {
@@ -51,6 +96,7 @@ router.post('/', requirePermission('appointments:create'), async (req: AuthReque
         ...rest,
         startAt: new Date(rest.startAt),
         endAt: new Date(rest.endAt),
+        createdById: req.userId,
         users: { create: userIds.map(uid => ({ userId: uid })) },
         contacts: { create: contactIds.map(cid => ({ contactId: cid })) },
       },
@@ -85,8 +131,62 @@ router.post('/', requirePermission('appointments:create'), async (req: AuthReque
   } catch (err) { handleRouteError(err, res) }
 })
 
+// ── Vérification de visibilité pour GET/:id, PUT, DELETE ────────────────────────
+
+async function isVisibleByUser(appointmentId: string, userId: string, visible: string[] | 'all'): Promise<boolean> {
+  if (visible === 'all') return true
+
+  const appt = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: { users: { select: { userId: true } } },
+  })
+  if (!appt) return false
+
+  // Créé par l'utilisateur
+  if (appt.createdById === userId) return true
+
+  // Aucun participant (RDV orphelin)
+  if (appt.users.length === 0) return true
+
+  // Au moins un participant dont le calendrier est visible
+  return appt.users.some(u => visible.includes(u.userId))
+}
+
+router.get('/:id', requirePermission('appointments:read'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const visible = await getVisibleOwnerIds(req)
+    const canSee = await isVisibleByUser(req.params.id, req.userId!, visible)
+    if (!canSee) {
+      // 404 plutôt que 403 pour ne pas révéler l'existence
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ressource introuvable' } })
+      return
+    }
+
+    const appointment = await prisma.appointment.findUnique({
+      where: { id: req.params.id },
+      include: {
+        users: { include: { user: { select: { id: true, firstName: true, lastName: true, avatar: true } } } },
+        contacts: { include: { contact: { select: { id: true, firstName: true, lastName: true } } } },
+      },
+    })
+    if (!appointment) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ressource introuvable' } })
+      return
+    }
+
+    res.json({ success: true, data: appointment })
+  } catch (err) { handleRouteError(err, res) }
+})
+
 router.put('/:id', requirePermission('appointments:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const visible = await getVisibleOwnerIds(req)
+    const canSee = await isVisibleByUser(req.params.id, req.userId!, visible)
+    if (!canSee) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ressource introuvable' } })
+      return
+    }
+
     const { userIds, contactIds, ...rest } = req.body
     const appointmentId = req.params.id
 
@@ -138,6 +238,13 @@ router.put('/:id', requirePermission('appointments:update'), async (req: AuthReq
 
 router.delete('/:id', requirePermission('appointments:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const visible = await getVisibleOwnerIds(req)
+    const canSee = await isVisibleByUser(req.params.id, req.userId!, visible)
+    if (!canSee) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ressource introuvable' } })
+      return
+    }
+
     const appointmentId = req.params.id
 
     // Récupère les participants AVANT suppression pour pouvoir effacer leurs copies Google

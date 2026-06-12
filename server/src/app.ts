@@ -32,6 +32,7 @@ import rolesRoutes from './routes/roles'
 import apikeysRoutes from './routes/apikeys'
 import callsRoutes from './routes/calls'
 import googleRoutes from './routes/google'
+import calendarAccessRoutes from './routes/calendar-access'
 import prisma from './prisma/client'
 import { authenticate, requirePermission } from './middleware/auth'
 import { errorHandler, notFound } from './middleware/errorHandler'
@@ -121,6 +122,7 @@ export function createApp(opts: CreateAppOptions = {}): express.Express {
   app.use('/api/apikeys', authenticate, apikeysRoutes)
   app.use('/api/calls', callsRoutes)
   app.use('/api/google', googleRoutes)
+  app.use('/api/calendar-access', calendarAccessRoutes)
 
   // GET /api/permissions — liste toutes les permissions disponibles, groupées par catégorie
   app.get('/api/permissions', authenticate, requirePermission('settings:roles'), async (_req, res) => {

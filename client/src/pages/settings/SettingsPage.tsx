@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { User, Building2, Users, Lock, Save, Eye, EyeOff, ExternalLink, Settings2, Play, RefreshCw, Key, Plus, Trash2, Copy, CheckCheck, AlertTriangle } from 'lucide-react'
+import { User, Building2, Users, Lock, Save, Eye, EyeOff, ExternalLink, Settings2, Play, RefreshCw, Key, Plus, Trash2, Copy, CheckCheck, AlertTriangle, CalendarDays, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import api from '../../lib/api'
 import { cn } from '../../lib/utils'
+import { toast } from '../../components/ui/Toast'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -742,35 +743,211 @@ function ApiKeysTab() {
   )
 }
 
+// ─── Calendars Tab ────────────────────────────────────────────────────────────
+
+interface CalendarAccessEntry {
+  viewerId: string
+  ownerId: string
+  createdAt: string
+  viewer: { id: string; firstName: string; lastName: string; email: string } | null
+  owner: { id: string; firstName: string; lastName: string; email: string } | null
+}
+
+interface SimpleUser {
+  id: string
+  firstName: string
+  lastName: string
+  email: string
+}
+
+function CalendarsTab() {
+  const qc = useQueryClient()
+  const [newViewerId, setNewViewerId] = useState('')
+  const [newOwnerId, setNewOwnerId]   = useState('')
+
+  const { data: accessData, isLoading } = useQuery<{ data: CalendarAccessEntry[] }>({
+    queryKey: ['calendar-access-list'],
+    queryFn: async () => { const { data } = await api.get('/calendar-access'); return data },
+    staleTime: 30_000,
+  })
+
+  const { data: usersData } = useQuery<{ data: SimpleUser[] }>({
+    queryKey: ['users-list-settings'],
+    queryFn: async () => { const { data } = await api.get('/users', { params: { limit: 200 } }); return data },
+    staleTime: 60_000,
+  })
+
+  const accesses: CalendarAccessEntry[] = accessData?.data ?? []
+  const users: SimpleUser[] = usersData?.data ?? []
+
+  const createMutation = useMutation({
+    mutationFn: async ({ viewerId, ownerId }: { viewerId: string; ownerId: string }) => {
+      const { data } = await api.post('/calendar-access', { viewerId, ownerId })
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['calendar-access-list'] })
+      qc.invalidateQueries({ queryKey: ['calendar-access-mine'] })
+      toast.success('Partage de calendrier ajouté')
+      setNewViewerId('')
+      setNewOwnerId('')
+    },
+    onError: () => toast.error('Erreur lors de l\'ajout du partage'),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async ({ viewerId, ownerId }: { viewerId: string; ownerId: string }) => {
+      await api.delete(`/calendar-access/${viewerId}/${ownerId}`)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['calendar-access-list'] })
+      qc.invalidateQueries({ queryKey: ['calendar-access-mine'] })
+      toast.success('Partage supprimé')
+    },
+    onError: () => toast.error('Erreur lors de la suppression'),
+  })
+
+  const handleAdd = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newViewerId || !newOwnerId) {
+      toast.error('Veuillez sélectionner les deux utilisateurs')
+      return
+    }
+    if (newViewerId === newOwnerId) {
+      toast.error('Le viewer et le propriétaire ne peuvent pas être identiques')
+      return
+    }
+    createMutation.mutate({ viewerId: newViewerId, ownerId: newOwnerId })
+  }
+
+  const userLabel = (u: SimpleUser) => `${u.firstName} ${u.lastName} (${u.email})`
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-base font-semibold text-slate-900">Partages de calendriers</h2>
+        <p className="text-sm text-slate-500 mt-0.5">
+          Gérez les accès croisés aux calendriers personnels. Un utilisateur peut voir le calendrier d'un autre si un partage est configuré ici.
+        </p>
+      </div>
+
+      {/* Formulaire d'ajout */}
+      <form onSubmit={handleAdd} className="p-4 border border-slate-200 rounded-xl bg-slate-50 space-y-3">
+        <p className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+          <Plus className="w-4 h-4" /> Ajouter un partage
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="label">Peut voir (viewer)</label>
+            <select
+              className="input"
+              value={newViewerId}
+              onChange={e => setNewViewerId(e.target.value)}
+            >
+              <option value="">Sélectionner un utilisateur…</option>
+              {users.map(u => (
+                <option key={u.id} value={u.id}>{userLabel(u)}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Calendrier de (owner)</label>
+            <select
+              className="input"
+              value={newOwnerId}
+              onChange={e => setNewOwnerId(e.target.value)}
+            >
+              <option value="">Sélectionner un utilisateur…</option>
+              {users.map(u => (
+                <option key={u.id} value={u.id}>{userLabel(u)}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <button type="submit" className="btn-primary btn-sm" disabled={createMutation.isPending}>
+            {createMutation.isPending ? 'Ajout…' : 'Ajouter le partage'}
+          </button>
+        </div>
+      </form>
+
+      {/* Liste des partages existants */}
+      {isLoading ? (
+        <div className="py-6 text-center text-sm text-slate-400">Chargement…</div>
+      ) : accesses.length === 0 ? (
+        <div className="py-10 text-center text-slate-400 text-sm border border-dashed border-slate-200 rounded-xl">
+          <CalendarDays className="w-8 h-8 mx-auto mb-2 text-slate-200" />
+          Aucun partage configuré — les calendriers sont tous privés par défaut.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {accesses.map(a => (
+            <div
+              key={`${a.viewerId}-${a.ownerId}`}
+              className="card p-3 flex items-center gap-3"
+            >
+              <CalendarDays className="w-4 h-4 text-slate-400 shrink-0" />
+              <div className="flex-1 min-w-0 text-sm">
+                <span className="font-medium text-slate-900">
+                  {a.viewer ? `${a.viewer.firstName} ${a.viewer.lastName}` : a.viewerId}
+                </span>
+                <span className="text-slate-400 mx-2">peut voir</span>
+                <span className="font-medium text-slate-900">
+                  {a.owner ? `${a.owner.firstName} ${a.owner.lastName}` : a.ownerId}
+                </span>
+                {a.viewer?.email && (
+                  <span className="text-slate-400 text-xs ml-1">({a.viewer.email})</span>
+                )}
+              </div>
+              <button
+                className="btn-ghost p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0"
+                title="Supprimer ce partage"
+                onClick={() => deleteMutation.mutate({ viewerId: a.viewerId, ownerId: a.ownerId })}
+                disabled={deleteMutation.isPending}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = 'profile' | 'password' | 'apikeys' | 'company' | 'users' | 'system'
+type Tab = 'profile' | 'password' | 'apikeys' | 'company' | 'users' | 'system' | 'calendars'
 
 interface TabConfig {
   id: Tab
   label: string
   icon: React.ReactNode
   adminOnly: boolean
+  permission?: string
 }
 
 const TABS: TabConfig[] = [
-  { id: 'profile',  label: 'Profil',         icon: <User className="w-4 h-4" />,     adminOnly: false },
-  { id: 'password', label: 'Mot de passe',    icon: <Lock className="w-4 h-4" />,     adminOnly: false },
-  { id: 'apikeys',  label: 'Clés API',        icon: <Key className="w-4 h-4" />,      adminOnly: false },
-  { id: 'company',  label: 'Entreprise',      icon: <Building2 className="w-4 h-4" />, adminOnly: true },
-  { id: 'users',    label: 'Utilisateurs',    icon: <Users className="w-4 h-4" />,    adminOnly: true },
-  { id: 'system',   label: 'Système',         icon: <Settings2 className="w-4 h-4" />, adminOnly: true },
+  { id: 'profile',    label: 'Profil',              icon: <User className="w-4 h-4" />,        adminOnly: false },
+  { id: 'password',   label: 'Mot de passe',         icon: <Lock className="w-4 h-4" />,        adminOnly: false },
+  { id: 'apikeys',    label: 'Clés API',             icon: <Key className="w-4 h-4" />,         adminOnly: false, permission: 'apikeys:manage' },
+  { id: 'company',    label: 'Entreprise',           icon: <Building2 className="w-4 h-4" />,   adminOnly: true },
+  { id: 'users',      label: 'Utilisateurs',         icon: <Users className="w-4 h-4" />,       adminOnly: true },
+  { id: 'calendars',  label: 'Calendriers',          icon: <CalendarDays className="w-4 h-4" />, adminOnly: false, permission: 'calendars:manage_access' },
+  { id: 'system',     label: 'Système',              icon: <Settings2 className="w-4 h-4" />,   adminOnly: true },
 ]
 
 export function SettingsPage() {
   const { user, hasPermission } = useAuthStore()
   const isAdmin = user?.role === 'ADMIN'
   const canManageApiKeys = hasPermission('apikeys:manage')
+  const canManageCalendars = hasPermission('calendars:manage_access')
   const [activeTab, setActiveTab] = useState<Tab>('profile')
 
   const visibleTabs = TABS.filter(t => {
     if (t.adminOnly && !isAdmin) return false
-    if (t.id === 'apikeys' && !canManageApiKeys) return false
+    if (t.permission === 'apikeys:manage' && !canManageApiKeys) return false
+    if (t.permission === 'calendars:manage_access' && !canManageCalendars) return false
     return true
   })
 
@@ -822,12 +999,13 @@ export function SettingsPage() {
 
         {/* Content */}
         <div className="flex-1 card p-4 sm:p-6">
-          {currentTab === 'profile'  && <ProfileTab />}
-          {currentTab === 'password' && <PasswordTab />}
-          {currentTab === 'apikeys'  && (canManageApiKeys ? <ApiKeysTab /> : <AccessDenied />)}
-          {currentTab === 'company'  && (isAdmin ? <CompanyTab /> : <AccessDenied />)}
-          {currentTab === 'users'    && (isAdmin ? <UsersTab /> : <AccessDenied />)}
-          {currentTab === 'system'   && (isAdmin ? <SystemTab /> : <AccessDenied />)}
+          {currentTab === 'profile'    && <ProfileTab />}
+          {currentTab === 'password'   && <PasswordTab />}
+          {currentTab === 'apikeys'    && (canManageApiKeys ? <ApiKeysTab /> : <AccessDenied />)}
+          {currentTab === 'company'    && (isAdmin ? <CompanyTab /> : <AccessDenied />)}
+          {currentTab === 'users'      && (isAdmin ? <UsersTab /> : <AccessDenied />)}
+          {currentTab === 'calendars'  && (canManageCalendars ? <CalendarsTab /> : <AccessDenied />)}
+          {currentTab === 'system'     && (isAdmin ? <SystemTab /> : <AccessDenied />)}
         </div>
       </div>
     </div>

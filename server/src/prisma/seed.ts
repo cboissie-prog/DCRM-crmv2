@@ -86,6 +86,8 @@ const PERMISSIONS = [
   { key: 'calls:update', label: 'Modifier un appel', category: 'Appels' },
   { key: 'calls:delete', label: 'Supprimer un appel', category: 'Appels' },
   { key: 'calls:listen', label: 'Accéder aux enregistrements', category: 'Appels' },
+  // Agenda
+  { key: 'calendars:manage_access', label: 'Gérer les partages de calendriers', category: 'Agenda' },
 ]
 
 /**

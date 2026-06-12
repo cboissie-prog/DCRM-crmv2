@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Unlink,
   Calendar,
+  ChevronDown,
 } from 'lucide-react'
 import api from '../../lib/api'
 import { cn, formatDateTime } from '../../lib/utils'
@@ -28,6 +29,15 @@ import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
 import { useAuthStore } from '../../store/authStore'
 import type { Appointment, User, Contact, Ticket } from '../../types'
+
+// ── Types calendrier partagé ───────────────────────────────────────────────────
+
+interface CalendarUser {
+  id: string
+  firstName: string
+  lastName: string
+  avatar?: string
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -257,7 +267,7 @@ function GoogleCalendarPanel({ onConnected }: { onConnected?: () => void }) {
 export function AppointmentsPage() {
   const qc = useQueryClient()
   const user = useAuthStore(s => s.user)
-  const canSeeOthers = ['ADMIN', 'MANAGER'].includes(user?.role ?? '')
+  const isAdmin = user?.role === 'ADMIN'
 
   // ── View state ─────────────────────────────────────────────────────────────
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
@@ -268,6 +278,13 @@ export function AppointmentsPage() {
     const id = setInterval(() => setNow(new Date()), 60_000)
     return () => clearInterval(id)
   }, [])
+
+  // ── Sélecteur de calendrier ────────────────────────────────────────────────
+  // null = mon calendrier (pas de filtre ownerId)
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(null)
+
+  // Gestion du calendrier sélectionné et du nom affiché
+  const [calendarSelectorOpen, setCalendarSelectorOpen] = useState(false)
 
   // ── Gestion du query param ?google=connected ────────────────────────────────
   useEffect(() => {
@@ -313,9 +330,48 @@ export function AppointmentsPage() {
   const fromDate = weekStart.toISOString()
   const toDate   = weekEnd.toISOString()
 
+  // ── Calendriers accessibles ────────────────────────────────────────────────
+  // Pour les ADMIN : liste tous les utilisateurs actifs
+  // Pour les autres : GET /calendar-access/mine
+  const { data: calendarMineData } = useQuery<{ data: CalendarUser[]; isAll: boolean }>({
+    queryKey: ['calendar-access-mine'],
+    queryFn: async () => {
+      const { data } = await api.get('/calendar-access/mine')
+      return data
+    },
+    staleTime: 60_000,
+    enabled: !isAdmin,
+  })
+
+  const { data: allUsersForAdminData } = useQuery<{ data: User[] }>({
+    queryKey: ['users-list-active'],
+    queryFn: async () => {
+      const { data } = await api.get('/users', { params: { limit: 200 } })
+      return data
+    },
+    staleTime: 60_000,
+    enabled: isAdmin,
+  })
+
+  // Liste des calendriers accessibles (sans l'utilisateur courant si un seul = soi-même)
+  const accessibleCalendars: CalendarUser[] = isAdmin
+    ? (allUsersForAdminData?.data ?? []).map(u => ({ id: u.id, firstName: u.firstName, lastName: u.lastName, avatar: u.avatar }))
+    : (calendarMineData?.data ?? [])
+
+  // Nom du calendrier actuellement affiché
+  const selectedCalendarUser = selectedOwnerId
+    ? accessibleCalendars.find(c => c.id === selectedOwnerId)
+    : (accessibleCalendars.find(c => c.id === user?.id) ?? null)
+  const calendarTitle = selectedOwnerId && selectedCalendarUser && selectedCalendarUser.id !== user?.id
+    ? `Calendrier de ${selectedCalendarUser.firstName} ${selectedCalendarUser.lastName}`
+    : 'Mon calendrier'
+
+  // N'afficher le sélecteur que si plus d'un calendrier accessible
+  const showCalendarSelector = accessibleCalendars.length > 1
+
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: apptData, isLoading } = useQuery<{ data: Appointment[] }>({
-    queryKey: ['appointments', weekStart.toISOString(), typeFilter, userFilter],
+    queryKey: ['appointments', weekStart.toISOString(), typeFilter, userFilter, selectedOwnerId],
     queryFn: async () => {
       const { data } = await api.get('/appointments', {
         params: {
@@ -323,6 +379,7 @@ export function AppointmentsPage() {
           to:   viewMode === 'calendar' ? toDate   : undefined,
           type: typeFilter || undefined,
           userId: userFilter || undefined,
+          ownerId: selectedOwnerId || undefined,
         },
       })
       return data
@@ -483,9 +540,53 @@ export function AppointmentsPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Agenda & Interventions</h1>
-          <p className="page-subtitle">{appointments.length} événement{appointments.length !== 1 ? 's' : ''}</p>
+          <p className="page-subtitle">
+            {calendarTitle} &mdash; {appointments.length} événement{appointments.length !== 1 ? 's' : ''}
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
+          {/* Sélecteur de calendrier */}
+          {showCalendarSelector && (
+            <div className="relative">
+              <button
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"
+                onClick={() => setCalendarSelectorOpen(o => !o)}
+              >
+                <CalendarDays className="w-3.5 h-3.5 text-slate-400" />
+                <span className="max-w-[160px] truncate">{calendarTitle}</span>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              </button>
+              {calendarSelectorOpen && (
+                <div className="absolute right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg min-w-[200px] max-h-64 overflow-y-auto py-1">
+                  {/* Option "Mon calendrier" */}
+                  <button
+                    className={cn(
+                      'w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-50 transition-colors',
+                      (!selectedOwnerId || selectedOwnerId === user?.id) ? 'text-primary-700 font-medium' : 'text-slate-700',
+                    )}
+                    onClick={() => { setSelectedOwnerId(null); setCalendarSelectorOpen(false) }}
+                  >
+                    <Avatar firstName={user?.firstName ?? ''} lastName={user?.lastName ?? ''} size="xs" />
+                    Mon calendrier
+                  </button>
+                  {/* Autres calendriers accessibles */}
+                  {accessibleCalendars.filter(c => c.id !== user?.id).map(c => (
+                    <button
+                      key={c.id}
+                      className={cn(
+                        'w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-50 transition-colors',
+                        selectedOwnerId === c.id ? 'text-primary-700 font-medium' : 'text-slate-700',
+                      )}
+                      onClick={() => { setSelectedOwnerId(c.id); setCalendarSelectorOpen(false) }}
+                    >
+                      <Avatar firstName={c.firstName} lastName={c.lastName} size="xs" />
+                      {c.firstName} {c.lastName}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {/* Google Calendar */}
           <GoogleCalendarPanel onConnected={() => qc.invalidateQueries({ queryKey: ['appointments'] })} />
           {/* View toggle */}
@@ -519,9 +620,9 @@ export function AppointmentsPage() {
             <option key={k} value={k}>{v.label}</option>
           ))}
         </select>
-        {canSeeOthers && (
+        {isAdmin && (
           <select className="input w-auto" value={userFilter} onChange={e => setUserFilter(e.target.value)}>
-            <option value="">Tous les techniciens/commerciaux</option>
+            <option value="">Tous les participants</option>
             {users.map(u => (
               <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>
             ))}
