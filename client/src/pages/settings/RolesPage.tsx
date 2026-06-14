@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
-  Shield, Users, Plus, Trash2, Edit, Lock, AlertCircle,
+  Shield, Users, Plus, Trash2, Edit, Lock, AlertCircle, ArrowLeft,
 } from 'lucide-react'
 import api from '../../lib/api'
 import {
@@ -20,7 +20,6 @@ import { usePermission } from '../../hooks/usePermission'
 import { CanDo } from '../../components/CanDo'
 import { Badge } from '../../components/ui/Badge'
 import { Modal } from '../../components/ui/Modal'
-import { Drawer } from '../../components/ui/Drawer'
 import { PageSpinner, Spinner } from '../../components/ui/Spinner'
 import { toast } from '../../components/ui/Toast'
 
@@ -66,10 +65,10 @@ export function RolesPage() {
   const { data: roles, isLoading, isError } = useRoles()
   const deleteMutation = useDeleteRole()
 
-  const [permDrawerRoleId, setPermDrawerRoleId] = useState<string | null>(null)
-  const [showCreate, setShowCreate]             = useState(false)
+  const [editingRoleId, setEditingRoleId] = useState<string | null>(null)
+  const [showCreate, setShowCreate]       = useState(false)
 
-  const selectedRole = roles?.find(r => r.id === permDrawerRoleId) ?? null
+  const selectedRole = roles?.find(r => r.id === editingRoleId) ?? null
 
   const handleDelete = (role: RoleSummary) => {
     if (!window.confirm(`Supprimer le rôle "${role.label}" ? Cette action est irréversible.`)) return
@@ -91,6 +90,11 @@ export function RolesPage() {
         </div>
       </div>
     )
+  }
+
+  // Édition des permissions : vue de page classique (le menu reste à gauche)
+  if (selectedRole) {
+    return <PermissionsPanel role={selectedRole} onClose={() => setEditingRoleId(null)} />
   }
 
   return (
@@ -166,7 +170,7 @@ export function RolesPage() {
                       <button
                         className="btn-ghost btn-sm p-1.5 rounded-lg"
                         title="Modifier les permissions"
-                        onClick={() => setPermDrawerRoleId(role.id)}
+                        onClick={() => setEditingRoleId(role.id)}
                       >
                         <Edit className="w-3.5 h-3.5" />
                       </button>
@@ -193,15 +197,6 @@ export function RolesPage() {
         </div>
       )}
 
-      {/* Drawer permissions */}
-      {selectedRole && (
-        <PermissionsDrawer
-          role={selectedRole}
-          open={!!permDrawerRoleId}
-          onClose={() => setPermDrawerRoleId(null)}
-        />
-      )}
-
       {/* Modal création */}
       <CreateRoleModal
         open={showCreate}
@@ -212,23 +207,22 @@ export function RolesPage() {
   )
 }
 
-// ─── Drawer édition permissions ───────────────────────────────────────────────
+// ─── Vue édition permissions (page inline, menu conservé à gauche) ─────────────
 
-interface PermissionsDrawerProps {
+interface PermissionsPanelProps {
   role: RoleSummary
-  open: boolean
   onClose: () => void
 }
 
-function PermissionsDrawer({ role, open, onClose }: PermissionsDrawerProps) {
+function PermissionsPanel({ role, onClose }: PermissionsPanelProps) {
   const { data: allPermissions, isLoading: loadingPerms } = useAllPermissions()
-  const { data: roleDetail, isLoading: loadingDetail }    = useRoleDetail(role.id, open)
+  const { data: roleDetail, isLoading: loadingDetail }    = useRoleDetail(role.id, true)
   const updatePermsMutation = useUpdateRolePermissions()
 
   const [selected, setSelected]       = useState<Set<string>>(new Set())
   const [initialized, setInitialized] = useState(false)
 
-  // Initialise la sélection depuis le détail du rôle (une seule fois par ouverture)
+  // Initialise la sélection depuis le détail du rôle (une seule fois)
   useEffect(() => {
     if (roleDetail && !initialized) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -236,12 +230,6 @@ function PermissionsDrawer({ role, open, onClose }: PermissionsDrawerProps) {
       setInitialized(true)
     }
   }, [roleDetail, initialized])
-
-  // Reset lors de la fermeture
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!open) setInitialized(false)
-  }, [open])
 
   const togglePermission = (permId: string) => {
     setSelected(prev => {
@@ -278,110 +266,113 @@ function PermissionsDrawer({ role, open, onClose }: PermissionsDrawerProps) {
   const isLoading = loadingPerms || loadingDetail || !initialized
 
   return (
-    <Drawer
-      open={open}
-      onClose={onClose}
-      title={`Permissions — ${role.label}`}
-      width="w-[520px]"
-    >
-      <div className="flex flex-col h-full">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-64">
-            <Spinner className="w-8 h-8" />
+    <div className="space-y-5 fade-in">
+      {/* Header */}
+      <div className="page-header">
+        <div className="flex items-center gap-3">
+          <button onClick={onClose} className="btn-ghost btn-sm p-2 rounded-lg" title="Retour aux rôles">
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <div>
+            <h1 className="page-title">Permissions — {role.label}</h1>
+            <p className="page-subtitle">
+              {isLoading
+                ? 'Chargement…'
+                : `${selected.size} permission${selected.size !== 1 ? 's' : ''} sélectionnée${selected.size !== 1 ? 's' : ''}`}
+            </p>
           </div>
-        ) : (
-          <>
-            {/* Avertissement */}
-            <div className="mx-4 sm:mx-5 mt-4 mb-2 flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl p-3">
-              <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
-              <p className="text-xs text-amber-700">
-                Tous les utilisateurs de ce rôle devront se reconnecter après sauvegarde.
-              </p>
-            </div>
-
-            {/* Liste des catégories */}
-            <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-5">
-              {allPermissions && Object.entries(allPermissions).map(([category, perms]) => {
-                const allCatSelected  = perms.every(p => selected.has(p.id))
-                const someCatSelected = perms.some(p => selected.has(p.id))
-
-                return (
-                  <div key={category}>
-                    {/* En-tête catégorie */}
-                    <div className="flex items-center gap-2 mb-2">
-                      <input
-                        type="checkbox"
-                        id={`cat-${category}`}
-                        checked={allCatSelected}
-                        ref={(el) => {
-                          if (el) el.indeterminate = someCatSelected && !allCatSelected
-                        }}
-                        onChange={() => toggleCategory(perms)}
-                        className="w-4 h-4 rounded accent-primary-600 cursor-pointer"
-                      />
-                      <label
-                        htmlFor={`cat-${category}`}
-                        className="text-xs font-semibold text-slate-500 uppercase tracking-wide cursor-pointer hover:text-slate-700 select-none"
-                      >
-                        {category}
-                      </label>
-                      <span className="text-xs text-slate-400">
-                        ({perms.filter(p => selected.has(p.id)).length}/{perms.length})
-                      </span>
-                    </div>
-
-                    {/* Permissions */}
-                    <div className="grid grid-cols-1 gap-1 pl-2">
-                      {perms.map(perm => (
-                        <label
-                          key={perm.id}
-                          className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50 cursor-pointer group"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selected.has(perm.id)}
-                            onChange={() => togglePermission(perm.id)}
-                            className="w-4 h-4 rounded accent-primary-600 flex-shrink-0"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <span className="text-sm text-slate-700 group-hover:text-slate-900">
-                              {perm.label}
-                            </span>
-                            <span className="ml-2 text-xs text-slate-400 font-mono">
-                              {perm.key}
-                            </span>
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Footer */}
-            <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-4 border-t border-slate-100 flex-shrink-0">
-              <span className="text-sm text-slate-500">
-                {selected.size} permission{selected.size !== 1 ? 's' : ''}
-              </span>
-              <div className="flex gap-2">
-                <button className="btn-secondary" onClick={onClose}>
-                  Annuler
-                </button>
-                <button
-                  className="btn-primary"
-                  onClick={handleSave}
-                  disabled={updatePermsMutation.isPending}
-                >
-                  {updatePermsMutation.isPending ? <Spinner className="w-4 h-4" /> : null}
-                  Sauvegarder
-                </button>
-              </div>
-            </div>
-          </>
-        )}
+        </div>
+        <div className="flex gap-2">
+          <button className="btn-secondary" onClick={onClose}>
+            Annuler
+          </button>
+          <button
+            className="btn-primary"
+            onClick={handleSave}
+            disabled={updatePermsMutation.isPending || isLoading}
+          >
+            {updatePermsMutation.isPending ? <Spinner className="w-4 h-4" /> : null}
+            Sauvegarder
+          </button>
+        </div>
       </div>
-    </Drawer>
+
+      {/* Avertissement */}
+      <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl p-3">
+        <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+        <p className="text-xs text-amber-700">
+          Tous les utilisateurs de ce rôle devront se reconnecter après sauvegarde.
+        </p>
+      </div>
+
+      {/* Contenu */}
+      {isLoading ? (
+        <div className="flex items-center justify-center h-64">
+          <Spinner className="w-8 h-8" />
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {allPermissions && Object.entries(allPermissions).map(([category, perms]) => {
+            const allCatSelected  = perms.every(p => selected.has(p.id))
+            const someCatSelected = perms.some(p => selected.has(p.id))
+
+            return (
+              <div key={category} className="card">
+                <div className="card-body">
+                  {/* En-tête catégorie */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <input
+                      type="checkbox"
+                      id={`cat-${category}`}
+                      checked={allCatSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someCatSelected && !allCatSelected
+                      }}
+                      onChange={() => toggleCategory(perms)}
+                      className="w-4 h-4 rounded accent-primary-600 cursor-pointer"
+                    />
+                    <label
+                      htmlFor={`cat-${category}`}
+                      className="text-xs font-semibold text-slate-500 uppercase tracking-wide cursor-pointer hover:text-slate-700 select-none"
+                    >
+                      {category}
+                    </label>
+                    <span className="text-xs text-slate-400">
+                      ({perms.filter(p => selected.has(p.id)).length}/{perms.length})
+                    </span>
+                  </div>
+
+                  {/* Permissions — grille responsive qui occupe la largeur disponible */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-1">
+                    {perms.map(perm => (
+                      <label
+                        key={perm.id}
+                        className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50 cursor-pointer group"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected.has(perm.id)}
+                          onChange={() => togglePermission(perm.id)}
+                          className="w-4 h-4 rounded accent-primary-600 flex-shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm text-slate-700 group-hover:text-slate-900">
+                            {perm.label}
+                          </span>
+                          <span className="ml-2 text-xs text-slate-400 font-mono">
+                            {perm.key}
+                          </span>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 

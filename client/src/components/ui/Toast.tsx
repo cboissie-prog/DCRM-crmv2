@@ -51,7 +51,7 @@ const styles = {
 export function ToastContainer() {
   const { toasts, remove } = useToast()
   return (
-    <div className="fixed bottom-4 right-4 z-[1200] flex flex-col gap-2 max-w-sm w-full">
+    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full">
       {toasts.map((t) => (
         <div key={t.id} className={cn('fade-in flex items-start gap-3 p-4 rounded-xl border shadow-lg', styles[t.type])}>
           <div className="mt-0.5 flex-shrink-0">{icons[t.type]}</div>

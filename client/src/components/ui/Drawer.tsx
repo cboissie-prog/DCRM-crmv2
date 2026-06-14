@@ -32,14 +32,14 @@ export function Drawer({ open, onClose, title, actions, children, width = 'w-[48
     <>
       {/* Backdrop */}
       <div
-        className={`fixed inset-0 bg-black/30 z-[1100] transition-opacity duration-200 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-200 ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={onClose}
       />
 
       {/* Panel */}
       <div
         ref={drawerRef}
-        className={`fixed top-0 right-0 h-full w-full ${width} max-w-full bg-white shadow-2xl z-[1101] flex flex-col
+        className={`fixed top-0 right-0 h-full w-full ${width} max-w-full bg-white shadow-2xl z-50 flex flex-col
           transition-transform duration-300 ease-in-out
           ${open ? 'translate-x-0' : 'translate-x-full'}`}
       >
