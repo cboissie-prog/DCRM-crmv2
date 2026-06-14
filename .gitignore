@@ -30,6 +30,21 @@ server/uploads/
 # Claude Code local config
 .claude/
 
+# Documentation interne & rapports — gardés en local, hors dépôt public
+/API.md
+/AUDIT-MODIFICATIONS.md
+/BUGS.md
+/CLAUDE.md
+/DESIGN.md
+/FEATURES.md
+/GOOGLE-SETUP.md
+/GUIDE-PRODUCTION.html
+/JOURNAL.md
+/PLAN.md
+/PROGRESS.md
+/RAPPORT-AUDIT.html
+/server/DEPLOY.md
+
 # OS
 .DS_Store
 Thumbs.db
