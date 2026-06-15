@@ -190,13 +190,15 @@ router.post('/forgot-password', async (req: Request, res: Response): Promise<voi
     const user = await prisma.user.findUnique({ where: { email } })
     if (user && user.isActive) {
       await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } })
-      const token = randomBytes(32).toString('hex')
+      // Le token en clair part uniquement dans l'email ; seul son hash SHA-256 est stocké en base
+      // (même principe que les refresh tokens — une fuite de la base ne donne aucun token réutilisable).
+      const rawToken = randomBytes(32).toString('hex')
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000) // 1h
-      await prisma.passwordResetToken.create({ data: { token, userId: user.id, expiresAt } })
+      await prisma.passwordResetToken.create({ data: { token: hashToken(rawToken), userId: user.id, expiresAt } })
       // Envoi détaché : sort du cycle requête pour éviter la fuite de timing (énumération d'emails)
       const emailTo = user.email
       setImmediate(() => {
-        sendPasswordResetEmail(emailTo, token).catch(err => logger.error({ err }, '[MAILER] Échec d\'envoi de l\'email de réinitialisation'))
+        sendPasswordResetEmail(emailTo, rawToken).catch(err => logger.error({ err }, '[MAILER] Échec d\'envoi de l\'email de réinitialisation'))
       })
     }
     await minDelay
@@ -215,7 +217,7 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
       password: z.string().min(8, 'Le mot de passe doit contenir au moins 8 caractères'),
     }).parse(req.body)
     const resetToken = await prisma.passwordResetToken.findUnique({
-      where: { token },
+      where: { token: hashToken(token) },
       include: { user: true },
     })
     if (!resetToken || resetToken.expiresAt < new Date()) {
@@ -224,7 +226,7 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
     }
     const hashedPassword = await bcrypt.hash(password, 12)
     await prisma.user.update({ where: { id: resetToken.userId }, data: { password: hashedPassword } })
-    await prisma.passwordResetToken.delete({ where: { token } })
+    await prisma.passwordResetToken.delete({ where: { id: resetToken.id } })
     await prisma.refreshToken.deleteMany({ where: { userId: resetToken.userId } })
     const fakeReq = { userId: resetToken.userId } as AuthRequest
     audit(fakeReq, 'PASSWORD_RESET', 'User', resetToken.userId)
@@ -381,7 +383,10 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
 
         // Lire le setting googleAutoCreateRole (fallback : COMMERCIAL)
         const roleSetting = await prisma.setting.findUnique({ where: { key: 'googleAutoCreateRole' } })
-        const autoRole = roleSetting?.value ?? 'COMMERCIAL'
+        const rawAutoRole = roleSetting?.value ?? 'COMMERCIAL'
+        // Défense en profondeur : ne jamais auto-créer un ADMIN via OAuth (ADMIN = bypass total des
+        // permissions), même si le setting a été forcé directement en base. Fallback sécurisé : COMMERCIAL.
+        const autoRole = rawAutoRole.toUpperCase() === 'ADMIN' ? 'COMMERCIAL' : rawAutoRole
 
         if (emailDomain !== allowedDomain) {
           res.redirect(`${FRONTEND_URL}/login?error=google_unauthorized`)

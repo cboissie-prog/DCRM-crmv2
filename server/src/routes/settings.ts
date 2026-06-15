@@ -57,10 +57,28 @@ router.put('/:key', requirePermission('settings:write'), async (req: AuthRequest
     const { key } = req.params
     const { value } = z.object({ value: z.string() }).parse(req.body)
     if (!DEFAULTS[key]) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Paramètre inconnu' } }); return }
+
+    let finalValue = value
+    // Le rôle d'auto-création Google ne doit jamais être ADMIN (ADMIN = bypass total des permissions).
+    // On vérifie aussi que le rôle existe, et on normalise en majuscules (les noms de rôles le sont).
+    if (key === 'googleAutoCreateRole') {
+      const roleName = value.trim().toUpperCase()
+      if (roleName === 'ADMIN') {
+        res.status(400).json({ success: false, error: { code: 'INVALID_ROLE', message: 'Le rôle d\'auto-création ne peut pas être ADMIN' } })
+        return
+      }
+      const roleExists = await prisma.role.findUnique({ where: { name: roleName } })
+      if (!roleExists) {
+        res.status(400).json({ success: false, error: { code: 'INVALID_ROLE', message: 'Rôle inconnu' } })
+        return
+      }
+      finalValue = roleName
+    }
+
     const setting = await prisma.setting.upsert({
       where: { key },
-      update: { value, label: DEFAULTS[key].label },
-      create: { key, value, label: DEFAULTS[key].label },
+      update: { value: finalValue, label: DEFAULTS[key].label },
+      create: { key, value: finalValue, label: DEFAULTS[key].label },
     })
     // Relancer le scheduler si un paramètre lié est modifié
     if (['schedulerEnabled', 'schedulerTime'].includes(key)) {
