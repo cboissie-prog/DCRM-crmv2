@@ -276,4 +276,14 @@ router.patch('/opportunities/:id/stage', requirePermission('pipeline:update'), a
   } catch (err) { handleRouteError(err, res) }
 })
 
+// DELETE /pipeline/opportunities/:id — supprime une opportunité.
+// Les produits liés sont supprimés en cascade (onDelete: Cascade) et les activités
+// voient leur opportunityId remis à null (onDelete: SetNull) côté schéma Prisma.
+router.delete('/opportunities/:id', requirePermission('pipeline:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    await prisma.opportunity.delete({ where: { id: req.params.id } })
+    res.json({ success: true, data: null })
+  } catch (err) { handleRouteError(err, res) }
+})
+
 export default router
