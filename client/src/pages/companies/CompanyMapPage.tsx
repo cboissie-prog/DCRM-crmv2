@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import api from '../../lib/api'
-import { Building2, Users, Ticket, MapPin, AlertCircle } from 'lucide-react'
+import { Building2, Users, Ticket, MapPin, AlertCircle, Locate } from 'lucide-react'
 import { PageSpinner } from '../../components/ui/Spinner'
+import { toast } from '../../components/ui/Toast'
+import { useAuthStore } from '../../store/authStore'
 
 // Fix Leaflet default icon paths (broken by bundlers)
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl
@@ -57,16 +59,45 @@ function makeIcon(color: string, hasTickets: boolean): L.DivIcon {
 
 export function CompanyMapPage() {
   const navigate = useNavigate()
+  const qc = useQueryClient()
+  const user = useAuthStore(s => s.user)
+  const canEdit = ['ADMIN', 'MANAGER'].includes(user?.role ?? '')
   const mapRef    = useRef<HTMLDivElement>(null)
   const leafletRef = useRef<L.Map | null>(null)
   const [selected, setSelected] = useState<MapCompany | null>(null)
   const [showPanel, setShowPanel] = useState(false)
+  const [geocoding, setGeocoding] = useState(false)
 
   const { data, isLoading, isError } = useQuery<MapCompany[]>({
     queryKey: ['companies-map'],
     queryFn: async () => { const { data } = await api.get('/companies/data/map'); return data.data ?? [] },
     staleTime: 60_000,
   })
+
+  // Lance le géocodage en arrière-plan des entreprises ayant une adresse mais pas de coordonnées,
+  // puis rafraîchit la carte au fil de l'eau (le backfill traite ~1 entreprise/seconde côté serveur).
+  const runGeocode = async () => {
+    setGeocoding(true)
+    try {
+      const { data } = await api.post('/companies/data/geocode-missing')
+      const result = data.data ?? {}
+      if (result.started) {
+        toast.success('Géolocalisation lancée', `${result.pending} entreprise(s) en cours de localisation. La carte se met à jour automatiquement.`)
+        // Rafraîchissements échelonnés le temps que le backfill avance
+        ;[5000, 15000, 30000, 60000].forEach(delay =>
+          setTimeout(() => qc.invalidateQueries({ queryKey: ['companies-map'] }), delay)
+        )
+      } else if (result.alreadyRunning) {
+        toast.info('Géolocalisation déjà en cours', 'Patientez quelques instants puis actualisez.')
+      } else {
+        toast.info('Rien à géolocaliser', 'Toutes les entreprises avec une adresse sont déjà placées sur la carte.')
+      }
+    } catch {
+      toast.error('Impossible de lancer la géolocalisation')
+    } finally {
+      setGeocoding(false)
+    }
+  }
 
   useEffect(() => {
     if (!mapRef.current || !data || leafletRef.current) return
@@ -231,6 +262,18 @@ export function CompanyMapPage() {
               <strong className="text-slate-900">{sectors.length}</strong>
               <span className="hidden sm:inline">secteur{sectors.length > 1 ? 's' : ''}</span>
             </span>
+            {/* Géolocaliser les entreprises sans coordonnées (ADMIN / MANAGER) */}
+            {canEdit && (
+              <button
+                onClick={runGeocode}
+                disabled={geocoding}
+                className="btn-secondary btn-sm flex items-center gap-1.5"
+                title="Calculer les coordonnées des entreprises à partir de leur adresse"
+              >
+                <Locate className={`w-3.5 h-3.5 ${geocoding ? 'animate-spin' : ''}`} />
+                {geocoding ? 'Géolocalisation…' : 'Géolocaliser'}
+              </button>
+            )}
             {/* Bouton liste — mobile uniquement */}
             <button
               onClick={() => setShowPanel(v => !v)}
@@ -258,10 +301,18 @@ export function CompanyMapPage() {
             </div>
           )}
           {data?.length === 0 && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-50 z-10">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-50 z-10 px-6 text-center">
               <MapPin className="w-10 h-10 text-slate-300" />
               <p className="text-sm text-slate-500">Aucune entreprise géolocalisée</p>
-              <p className="text-xs text-slate-400">Ajoutez des coordonnées lat/lng aux entreprises</p>
+              <p className="text-xs text-slate-400 max-w-xs">
+                Renseignez l'adresse (rue, code postal, ville) de vos entreprises : les coordonnées sont calculées automatiquement.
+              </p>
+              {canEdit && (
+                <button onClick={runGeocode} disabled={geocoding} className="btn-primary btn-sm flex items-center gap-1.5 mt-1">
+                  <Locate className={`w-3.5 h-3.5 ${geocoding ? 'animate-spin' : ''}`} />
+                  {geocoding ? 'Géolocalisation…' : 'Géolocaliser les entreprises existantes'}
+                </button>
+              )}
             </div>
           )}
           <div ref={mapRef} className="w-full h-full" />

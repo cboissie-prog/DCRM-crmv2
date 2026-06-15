@@ -5,6 +5,8 @@ import { authenticate, AuthRequest, requirePermission } from '../middleware/auth
 import { handleRouteError } from '../middleware/errorHandler'
 import { ciContains } from '../lib/query'
 import { csvEscape } from '../lib/csv'
+import { geocodeAddress, buildAddressQuery, sleep } from '../lib/geocode'
+import logger from '../lib/logger'
 
 const router = Router()
 router.use(authenticate)
@@ -62,6 +64,12 @@ router.get('/', requirePermission('companies:read'), async (req: AuthRequest, re
 router.post('/', requirePermission('companies:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = companySchema.parse(req.body)
+    // Géocodage auto : si aucune coordonnée n'est fournie mais qu'une adresse l'est,
+    // on déduit lat/lng depuis l'adresse (sans bloquer la création en cas d'échec).
+    if (body.lat === undefined && body.lng === undefined && buildAddressQuery(body)) {
+      const geo = await geocodeAddress(body)
+      if (geo) { body.lat = geo.lat; body.lng = geo.lng }
+    }
     const company = await prisma.company.create({ data: body })
     res.status(201).json({ success: true, data: company })
   } catch (err) { handleRouteError(err, res) }
@@ -164,9 +172,33 @@ router.get('/:id', requirePermission('companies:read'), async (req: AuthRequest,
   } catch (err) { handleRouteError(err, res) }
 })
 
+const ADDRESS_FIELDS = ['billingAddress', 'city', 'postalCode', 'country'] as const
+
 router.put('/:id', requirePermission('companies:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = companySchema.partial().parse(req.body)
+    // Re-géocodage si un champ d'adresse est modifié et que des coordonnées ne sont pas fournies
+    // explicitement — uniquement quand l'adresse a réellement changé ou que les coords manquent encore.
+    const addressInPayload = ADDRESS_FIELDS.some(f => f in body)
+    if (addressInPayload && body.lat === undefined && body.lng === undefined) {
+      const existing = await prisma.company.findUnique({
+        where: { id: req.params.id },
+        select: { billingAddress: true, city: true, postalCode: true, country: true, lat: true, lng: true },
+      })
+      if (existing) {
+        const merged = {
+          billingAddress: body.billingAddress ?? existing.billingAddress,
+          city:           body.city           ?? existing.city,
+          postalCode:     body.postalCode     ?? existing.postalCode,
+          country:        body.country        ?? existing.country,
+        }
+        const newQuery = buildAddressQuery(merged)
+        if (newQuery && (newQuery !== buildAddressQuery(existing) || existing.lat == null || existing.lng == null)) {
+          const geo = await geocodeAddress(merged)
+          if (geo) { body.lat = geo.lat; body.lng = geo.lng }
+        }
+      }
+    }
     const company = await prisma.company.update({ where: { id: req.params.id }, data: body })
     res.json({ success: true, data: company })
   } catch (err) { handleRouteError(err, res) }
@@ -188,6 +220,54 @@ router.get('/data/map', requirePermission('companies:read'), async (req: AuthReq
         _count: { select: { contacts: true, tickets: true } } },
     })
     res.json({ success: true, data: companies })
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// Garde anti-concurrence : un seul backfill de géocodage à la fois (limite Nominatim 1 req/s)
+let geocodeBackfillRunning = false
+
+// POST /companies/data/geocode-missing — géocode en arrière-plan les entreprises ayant une
+// adresse mais pas (ou plus) de coordonnées. Répond immédiatement ; le travail se poursuit en fond.
+router.post('/data/geocode-missing', requirePermission('companies:update'), async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const targets = await prisma.company.findMany({
+      where: { isActive: true, OR: [{ lat: null }, { lng: null }] },
+      select: { id: true, billingAddress: true, city: true, postalCode: true, country: true },
+    })
+    // Ne garder que les entreprises ayant une adresse exploitable
+    const geocodable = targets.filter(c => buildAddressQuery(c))
+
+    if (geocodeBackfillRunning) {
+      res.json({ success: true, data: { started: false, alreadyRunning: true, pending: geocodable.length } })
+      return
+    }
+    if (geocodable.length === 0) {
+      res.json({ success: true, data: { started: false, pending: 0 } })
+      return
+    }
+
+    geocodeBackfillRunning = true
+    res.json({ success: true, data: { started: true, pending: geocodable.length } })
+
+    // Traitement séquentiel en arrière-plan, ~1,1 s entre chaque appel (politique Nominatim : max 1 req/s)
+    setImmediate(async () => {
+      let done = 0
+      try {
+        for (const c of geocodable) {
+          const geo = await geocodeAddress(c)
+          if (geo) {
+            await prisma.company.update({ where: { id: c.id }, data: { lat: geo.lat, lng: geo.lng } }).catch(() => {})
+            done++
+          }
+          await sleep(1100)
+        }
+        logger.info({ done, total: geocodable.length }, '[GEOCODE] Backfill terminé')
+      } catch (err) {
+        logger.error({ err }, '[GEOCODE] Erreur pendant le backfill')
+      } finally {
+        geocodeBackfillRunning = false
+      }
+    })
   } catch (err) { handleRouteError(err, res) }
 })
 
