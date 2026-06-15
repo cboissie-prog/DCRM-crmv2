@@ -92,8 +92,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             <span className="text-white font-bold text-sm">C</span>
           </div>
           <div>
-            <p className="text-sm font-bold text-slate-900">MonCRM</p>
-            <p className="text-xs text-slate-400">Informatique</p>
+            <p className="text-sm font-bold text-slate-900">DCB Technologies</p>
           </div>
         </div>
         {/* Bouton fermeture mobile */}
