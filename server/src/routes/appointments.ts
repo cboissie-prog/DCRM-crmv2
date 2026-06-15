@@ -3,7 +3,7 @@ import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
-import { pushAppointmentToAll, pushRemovedParticipants } from '../services/google-calendar'
+import { pushAppointmentToAll, pushRemovedParticipants, pushAppointmentForUser } from '../services/google-calendar'
 import { getVisibleOwnerIds, appointmentVisibilityWhere } from '../lib/calendar-visibility'
 
 const router = Router()
@@ -253,13 +253,15 @@ router.delete('/:id', requirePermission('appointments:delete'), async (req: Auth
       select: { userId: true },
     })
 
-    // Push delete vers Google AVANT la suppression DB (on a encore les données)
-    // Exécuté de manière synchrone intentionnellement ici (best effort, ordre important)
-    for (const { userId } of participants) {
-      // On importe et appelle directement pour garantir l'ordre avant la suppression DB
-      const { pushAppointmentForUser } = await import('../services/google-calendar')
-      pushAppointmentForUser(appointmentId, userId, 'delete').catch(() => {})
-    }
+    // Supprime les copies Google AVANT la suppression DB : la suppression du RDV
+    // efface en cascade les liens AppointmentGoogleEvent, donc on doit effacer
+    // les événements Google tant que ces liens existent encore.
+    // On ATTEND la fin (best effort : une erreur Google ne bloque pas la suppression).
+    await Promise.all(
+      participants.map(({ userId }) =>
+        pushAppointmentForUser(appointmentId, userId, 'delete').catch(() => {})
+      )
+    )
 
     await prisma.appointment.delete({ where: { id: appointmentId } })
     res.json({ success: true, data: { message: 'RDV supprimé' } })
