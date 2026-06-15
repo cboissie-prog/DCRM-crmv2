@@ -169,12 +169,62 @@ router.post('/opportunities', requirePermission('pipeline:create'), async (req: 
     const body = opportunitySchema.parse(req.body)
     const data: Record<string, unknown> = { ...body }
     if (body.expectedCloseDate) data.expectedCloseDate = new Date(body.expectedCloseDate)
+    // Rattacher au pipeline par défaut si non précisé : évite les opportunités « orphelines »
+    // (pipelineId null) qui n'apparaissent dans aucune colonne du Kanban.
+    if (!body.pipelineId) {
+      const defaultPipeline =
+        (await prisma.pipeline.findFirst({
+          where: { isDefault: true, isActive: true },
+          include: { stages: { orderBy: { order: 'asc' } } },
+        })) ??
+        (await prisma.pipeline.findFirst({
+          where: { isActive: true },
+          orderBy: { order: 'asc' },
+          include: { stages: { orderBy: { order: 'asc' } } },
+        }))
+      if (defaultPipeline) {
+        data.pipelineId = defaultPipeline.id
+        // Si le stage fourni n'existe pas dans ce pipeline, prendre sa première étape réelle
+        const stageExists = defaultPipeline.stages.some(s => s.key === body.stage)
+        if (!body.stage || !stageExists) {
+          const firstStage = defaultPipeline.stages.find(s => !s.isWon && !s.isLost) ?? defaultPipeline.stages[0]
+          if (firstStage) data.stage = firstStage.key
+        }
+      }
+    }
     const opp = await prisma.opportunity.create({ data: data as Parameters<typeof prisma.opportunity.create>[0]['data'] })
     fireAutomations('OPPORTUNITY_CREATED', {
       triggeredBy: req.userId,
       opportunity: { id: opp.id, title: opp.title, stage: opp.stage, value: opp.value, companyId: opp.companyId, assignedToId: opp.assignedToId },
     }).catch(console.error)
     res.status(201).json({ success: true, data: opp })
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// POST /pipeline/opportunities/reattach-orphans — rattache au pipeline par défaut les
+// opportunités sans pipeline (pipelineId null), qui n'apparaissent dans aucune colonne du Kanban.
+router.post('/opportunities/reattach-orphans', requirePermission('pipeline:update'), async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const def =
+      (await prisma.pipeline.findFirst({ where: { isDefault: true, isActive: true }, include: { stages: { orderBy: { order: 'asc' } } } })) ??
+      (await prisma.pipeline.findFirst({ where: { isActive: true }, orderBy: { order: 'asc' }, include: { stages: { orderBy: { order: 'asc' } } } }))
+    if (!def) {
+      res.status(400).json({ success: false, error: { code: 'NO_PIPELINE', message: 'Aucun pipeline actif disponible' } })
+      return
+    }
+    const firstStage = def.stages.find(s => !s.isWon && !s.isLost) ?? def.stages[0]
+    const orphans = await prisma.opportunity.findMany({ where: { pipelineId: null }, select: { id: true, stage: true } })
+    let reattached = 0
+    for (const o of orphans) {
+      // Si le stage de l'orpheline n'existe pas dans le pipeline par défaut, la placer sur la 1re étape
+      const stageOk = def.stages.some(s => s.key === o.stage)
+      await prisma.opportunity.update({
+        where: { id: o.id },
+        data: { pipelineId: def.id, ...(stageOk ? {} : firstStage ? { stage: firstStage.key } : {}) },
+      })
+      reattached++
+    }
+    res.json({ success: true, data: { reattached, pipeline: def.name } })
   } catch (err) { handleRouteError(err, res) }
 })
 

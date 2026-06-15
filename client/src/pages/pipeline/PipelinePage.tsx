@@ -14,7 +14,7 @@ import {
   Plus, Search, Euro, TrendingUp, Trophy,
   MoreHorizontal, Edit2, Trash2, ChevronRight,
   Building2, User, Calendar, X, Settings, GripVertical,
-  Pencil, Bell, BellOff, FileText, CalendarCheck, Phone, Zap,
+  Pencil, Bell, BellOff, FileText, CalendarCheck, Phone, Zap, Link2,
 } from 'lucide-react'
 import api from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
@@ -729,6 +729,18 @@ export function PipelinePage() {
     onError: () => toast.error('Erreur lors du changement de stage'),
   })
 
+  // Rattache au pipeline par défaut les opportunités orphelines (créées sans pipeline)
+  const reattachMutation = useMutation({
+    mutationFn: async () => { const { data } = await api.post('/pipeline/opportunities/reattach-orphans'); return data.data as { reattached: number; pipeline: string } },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['pipeline-opportunities'] })
+      qc.invalidateQueries({ queryKey: ['pipelines'] })
+      if (data?.reattached > 0) toast.success(`${data.reattached} opportunité(s) rattachée(s)`, `Au pipeline « ${data.pipeline} ».`)
+      else toast.info('Aucune opportunité orpheline', 'Toutes les opportunités sont déjà rattachées à un pipeline.')
+    },
+    onError: () => toast.error('Erreur lors du rattachement'),
+  })
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/pipeline/opportunities/${id}`),
     onSuccess: () => {
@@ -874,6 +886,16 @@ export function PipelinePage() {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {canAssign && (
+            <button
+              className="btn-secondary"
+              onClick={() => reattachMutation.mutate()}
+              disabled={reattachMutation.isPending}
+              title="Rattacher au pipeline par défaut les opportunités qui n'apparaissent dans aucune colonne"
+            >
+              <Link2 className="w-4 h-4" /> {reattachMutation.isPending ? 'Rattachement…' : 'Rattacher les orphelines'}
+            </button>
+          )}
           {canAssign && (
             <button className="btn-secondary" onClick={() => setShowPipelineManager(true)}>
               <Settings className="w-4 h-4" /> Gérer les pipelines
@@ -1035,7 +1057,7 @@ export function PipelinePage() {
         onClose={() => { setShowCreate(false); setEditingOpp(null) }}
         editing={editingOpp}
         defaultStage={defaultStage}
-        pipelineId={selectedPipelineId ?? undefined}
+        pipelineId={effectivePipelineId || undefined}
         stages={stages}
         contacts={contacts}
         companies={companies}
