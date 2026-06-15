@@ -10,6 +10,7 @@ router.use(authenticate)
 const equipmentSchema = z.object({
   companyId: z.string(),
   contractId: z.string().optional(),
+  productId: z.string().optional(),
   type: z.string(),
   brand: z.string().optional(),
   model: z.string().optional(),
@@ -43,6 +44,7 @@ router.get('/', requirePermission('equipment:read'), async (req: AuthRequest, re
         include: {
           company: { select: { id: true, name: true } },
           contract: { select: { id: true, reference: true, title: true } },
+          product: { select: { id: true, name: true, reference: true } },
           _count: { select: { tickets: true, licenses: true } },
         },
       }),
@@ -57,9 +59,15 @@ router.post('/', requirePermission('equipment:create'), async (req: AuthRequest,
     const data: Record<string, unknown> = { ...body }
     if (body.purchaseDate) data.purchaseDate = new Date(body.purchaseDate)
     if (body.warrantyExpiry) data.warrantyExpiry = new Date(body.warrantyExpiry)
+    // FK optionnelles : une chaîne vide doit devenir NULL (sinon violation de contrainte)
+    if (body.productId === '') data.productId = null
+    if (body.contractId === '') data.contractId = null
     const equipment = await prisma.equipment.create({
       data: data as Parameters<typeof prisma.equipment.create>[0]['data'],
-      include: { company: { select: { id: true, name: true } } },
+      include: {
+        company: { select: { id: true, name: true } },
+        product: { select: { id: true, name: true, reference: true } },
+      },
     })
     res.status(201).json({ success: true, data: equipment })
   } catch (err) { handleRouteError(err, res) }
@@ -87,7 +95,17 @@ router.put('/:id', requirePermission('equipment:update'), async (req: AuthReques
     const data: Record<string, unknown> = { ...body }
     if (body.purchaseDate) data.purchaseDate = new Date(body.purchaseDate)
     if (body.warrantyExpiry) data.warrantyExpiry = new Date(body.warrantyExpiry)
-    const equipment = await prisma.equipment.update({ where: { id: req.params.id }, data: data as Parameters<typeof prisma.equipment.update>[0]['data'] })
+    // FK optionnelles : une chaîne vide signifie « retirer le lien » → NULL
+    if (body.productId === '') data.productId = null
+    if (body.contractId === '') data.contractId = null
+    const equipment = await prisma.equipment.update({
+      where: { id: req.params.id },
+      data: data as Parameters<typeof prisma.equipment.update>[0]['data'],
+      include: {
+        company: { select: { id: true, name: true } },
+        product: { select: { id: true, name: true, reference: true } },
+      },
+    })
     res.json({ success: true, data: equipment })
   } catch (err) { handleRouteError(err, res) }
 })

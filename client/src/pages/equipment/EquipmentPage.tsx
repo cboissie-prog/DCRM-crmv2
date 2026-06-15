@@ -16,7 +16,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import type { Resolver } from 'react-hook-form'
-import type { Equipment, Company, Contract, PaginatedResponse } from '../../types'
+import type { Equipment, Company, Contract, Product, PaginatedResponse } from '../../types'
 import { useAuthStore } from '../../store/authStore'
 
 const EQUIPMENT_STATUSES: Record<string, { label: string; color: string }> = {
@@ -29,6 +29,29 @@ const EQUIPMENT_STATUSES: Record<string, { label: string; color: string }> = {
 const EQUIPMENT_TYPE_OPTIONS = Object.entries(EQUIPMENT_TYPES).map(([value, label]) => ({ value, label }))
 
 const EQUIPMENT_STATUS_OPTIONS = Object.entries(EQUIPMENT_STATUSES).map(([value, { label }]) => ({ value, label }))
+
+// Catégories du catalogue correspondant à du matériel physique inventoriable
+// (on exclut les logiciels, modèles de contrat, maintenance, sites web, formations).
+const EQUIPMENT_PRODUCT_CATEGORIES = ['HARDWARE', 'NETWORK', 'CASH_REGISTER', 'OTHER']
+
+// Devine le type d'équipement depuis un produit du catalogue (best-effort, modifiable ensuite).
+function inferEquipmentType(p: { name: string; category: string }): string {
+  if (p.category === 'CASH_REGISTER') return 'CASH_REGISTER'
+  const n = p.name.toLowerCase()
+  const has = (...kw: string[]) => kw.some(k => n.includes(k))
+  if (has('caisse')) return 'CASH_REGISTER'
+  if (has('portable', 'laptop')) return 'LAPTOP'
+  if (has('serveur', 'server')) return 'SERVER'
+  if (has('imprimante', 'printer')) return 'PRINTER'
+  if (has('switch', 'commutateur')) return 'SWITCH'
+  if (has('routeur', 'router', 'box')) return 'ROUTER'
+  if (has('nas')) return 'NAS'
+  if (has('écran', 'ecran', 'moniteur', 'screen', 'monitor')) return 'SCREEN'
+  if (has('tablette', 'tablet', 'ipad')) return 'TABLET'
+  if (has('téléphone', 'telephone', 'smartphone', 'mobile')) return 'PHONE'
+  if (has('pc', 'ordinateur', 'desktop', 'bureau', 'unité centrale', 'tour')) return 'DESKTOP'
+  return ''
+}
 
 function EquipmentTypeIcon({ type }: { type: string }) {
   const cls = 'w-4 h-4 text-slate-400'
@@ -51,6 +74,7 @@ function EquipmentTypeIcon({ type }: { type: string }) {
 const equipmentSchema = z.object({
   companyId: z.string().min(1, 'Entreprise requise'),
   contractId: z.string().optional(),
+  productId: z.string().optional(),
   type: z.string().min(1, 'Type requis'),
   brand: z.string().optional(),
   model: z.string().optional(),
@@ -111,10 +135,37 @@ export function EquipmentPage() {
   })
   const contracts = contractsData?.data ?? []
 
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<EquipmentForm>({
+  const { data: productsData } = useQuery<{ data: Product[] }>({
+    queryKey: ['products-equipment-picker'],
+    queryFn: async () => {
+      const { data } = await api.get('/products', { params: { limit: 200 } })
+      return data
+    },
+    staleTime: 60_000,
+  })
+  // On ne propose dans le sélecteur que le matériel physique (produits réels, pas services/abonnements)
+  const catalogProducts = (productsData?.data ?? []).filter(
+    p => p.isActive && p.type === 'PRODUCT' && EQUIPMENT_PRODUCT_CATEGORIES.includes(p.category),
+  )
+
+  const { register, handleSubmit, reset, setValue, getValues, formState: { errors, isSubmitting } } = useForm<EquipmentForm>({
     resolver: zodResolver(equipmentSchema) as Resolver<EquipmentForm>,
     defaultValues: { status: 'ACTIVE' },
   })
+
+  const productReg = register('productId')
+
+  // Pré-remplit marque/modèle/type/notes à partir du produit choisi (tout reste modifiable).
+  const handlePickProduct = (productId: string) => {
+    if (!productId) return
+    const p = catalogProducts.find(x => x.id === productId)
+    if (!p) return
+    setValue('model', p.name)
+    if (p.supplier) setValue('brand', p.supplier)
+    const inferred = inferEquipmentType(p)
+    if (inferred) setValue('type', inferred)
+    if (p.reference && !getValues('notes')) setValue('notes', `Réf. catalogue : ${p.reference}`)
+  }
 
   const createMutation = useMutation({
     mutationFn: (values: EquipmentForm) => api.post('/equipment', values),
@@ -149,7 +200,7 @@ export function EquipmentPage() {
 
   const openCreate = () => {
     setEditingEquipment(null)
-    reset({ status: 'ACTIVE' })
+    reset({ status: 'ACTIVE', productId: '' })
     setShowModal(true)
   }
 
@@ -158,6 +209,7 @@ export function EquipmentPage() {
     reset({
       companyId: eq.companyId,
       contractId: eq.contractId ?? '',
+      productId: eq.productId ?? '',
       type: eq.type,
       brand: eq.brand ?? '',
       model: eq.model ?? '',
@@ -172,11 +224,12 @@ export function EquipmentPage() {
   }
 
   const onSubmit = (values: EquipmentForm) => {
-    const payload = { ...values, contractId: values.contractId || undefined }
+    // Les FK optionnelles vides ('') sont normalisées en NULL côté serveur, ce qui permet
+    // aussi de retirer un lien existant lors d'une modification.
     if (editingEquipment) {
-      updateMutation.mutate({ id: editingEquipment.id, values: payload })
+      updateMutation.mutate({ id: editingEquipment.id, values })
     } else {
-      createMutation.mutate(payload)
+      createMutation.mutate(values)
     }
   }
 
@@ -310,6 +363,26 @@ export function EquipmentPage() {
       >
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {catalogProducts.length > 0 && (
+              <div className="form-group sm:col-span-2">
+                <label className="label">Pré-remplir depuis le catalogue (optionnel)</label>
+                <select
+                  {...productReg}
+                  onChange={e => { productReg.onChange(e); handlePickProduct(e.target.value) }}
+                  className="input"
+                >
+                  <option value="">— Aucun produit —</option>
+                  {catalogProducts.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}{p.reference ? ` (${p.reference})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-400 mt-1">
+                  Remplit automatiquement la marque, le modèle et le type. Vous pouvez tout ajuster ensuite.
+                </p>
+              </div>
+            )}
             <div className="form-group sm:col-span-2">
               <label className="label">Entreprise *</label>
               <select {...register('companyId')} className={`input ${errors.companyId ? 'input-error' : ''}`}>

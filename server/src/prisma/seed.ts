@@ -132,6 +132,7 @@ export async function seedBase() {
     'contacts:read',
     'tickets:read', 'tickets:create', 'tickets:update',
     'equipment:read', 'equipment:create', 'equipment:update', 'equipment:delete',
+    'products:read', // pré-remplir un équipement depuis le catalogue produits
     'contracts:read',
     'appointments:read', 'appointments:create', 'appointments:update', 'appointments:delete',
     'knowledge:read',

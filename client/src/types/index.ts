@@ -175,6 +175,8 @@ export interface Equipment {
   company?: { id: string; name: string }
   contractId?: string
   contract?: { id: string; reference: string; title: string }
+  productId?: string
+  product?: { id: string; name: string; reference?: string }
   type: string
   brand?: string
   model?: string

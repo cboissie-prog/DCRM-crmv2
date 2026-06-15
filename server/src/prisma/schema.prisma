@@ -245,6 +245,7 @@ model Product {
 
   opportunityProducts OpportunityProduct[]
   contractLines       ContractLine[]
+  equipments          Equipment[]
 }
 
 // ─── CONTRATS ───────────────────────────────────────────
@@ -357,6 +358,8 @@ model Equipment {
   company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   contractId     String?
   contract       Contract? @relation("ContractEquipment", fields: [contractId], references: [id], onDelete: SetNull)
+  productId      String?
+  product        Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
   type           String
   brand          String?
   model          String?
