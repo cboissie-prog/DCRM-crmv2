@@ -25,21 +25,23 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Handle 401 → refresh (cookie envoyé automatiquement) ou logout
-api.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true
-      try {
-        // Le cookie refreshToken est envoyé automatiquement grâce à withCredentials
-        const { data } = await axios.post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true })
+// ── Refresh « single-flight » ────────────────────────────────────────────────
+// Toutes les requêtes tombant en 401 en même temps partagent UN SEUL appel à
+// /auth/refresh. Sinon plusieurs refresh concurrents présentent le même refresh
+// token : le 1er le fait tourner (rotation), les suivants présentent un token déjà
+// consommé → le serveur détecte une « réutilisation » et révoque TOUTES les sessions
+// → déconnexion intempestive. Ce verrou évite cette course.
+let refreshPromise: Promise<string> | null = null
+
+async function refreshAccessToken(): Promise<string> {
+  if (!refreshPromise) {
+    // Le cookie refreshToken est envoyé automatiquement grâce à withCredentials
+    refreshPromise = axios
+      .post(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true })
+      .then(async ({ data }) => {
         const newAccessToken: string = data.data.accessToken
         localStorage.setItem('accessToken', newAccessToken)
-        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`
-
-        // Mettre à jour les permissions dans le store depuis le nouveau token
+        // Met à jour les permissions dans le store depuis le nouveau token
         const payload = parseJwtPayload(newAccessToken)
         if (Array.isArray(payload.permissions)) {
           // Import dynamique pour éviter une dépendance circulaire
@@ -49,7 +51,23 @@ api.interceptors.response.use(
             useAuthStore.getState().setUser({ ...user, permissions: payload.permissions as string[] })
           }
         }
+        return newAccessToken
+      })
+      .finally(() => { refreshPromise = null })
+  }
+  return refreshPromise
+}
 
+// Handle 401 → refresh (cookie envoyé automatiquement) ou logout
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+      originalRequest._retry = true
+      try {
+        const newAccessToken = await refreshAccessToken()
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`
         return api(originalRequest)
       } catch {
         localStorage.removeItem('accessToken')
