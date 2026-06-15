@@ -251,6 +251,7 @@ model Product {
   opportunityProducts OpportunityProduct[]
   contractLines       ContractLine[]
   equipments          Equipment[]
+  licenses            License[]
 }
 
 // ─── CONTRATS ───────────────────────────────────────────
@@ -390,6 +391,8 @@ model License {
   company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   equipmentId  String?
   equipment    Equipment? @relation("EquipmentLicense", fields: [equipmentId], references: [id], onDelete: SetNull)
+  productId    String?
+  product      Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
   software     String
   vendor       String?
   licenseKey   String?

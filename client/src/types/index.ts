@@ -196,6 +196,8 @@ export interface License {
   company?: { id: string; name: string }
   equipmentId?: string
   equipment?: { id: string; type: string; brand?: string; model?: string }
+  productId?: string
+  product?: { id: string; name: string; reference?: string }
   software: string
   vendor?: string
   licenseKey?: string

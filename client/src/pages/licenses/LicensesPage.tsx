@@ -28,6 +28,7 @@ const LICENSE_TYPE_OPTIONS = Object.entries(LICENSE_TYPES).map(([value, label]) 
 const licenseSchema = z.object({
   companyId: z.string().min(1, 'Entreprise requise'),
   equipmentId: z.string().optional(),
+  productId: z.string().optional(),
   software: z.string().min(1, 'Logiciel requis'),
   vendor: z.string().optional(),
   licenseKey: z.string().optional(),
@@ -100,6 +101,8 @@ export function LicensesPage() {
     defaultValues: { seats: 1, type: 'ANNUAL' },
   })
 
+  const productReg = register('productId')
+
   const { data: softwareCatalog } = useQuery<{ data: { id: string; name: string; supplier?: string; price: number; type: string }[] }>({
     queryKey: ['products-software'],
     queryFn: async () => { const { data } = await api.get('/products', { params: { category: 'SOFTWARE', limit: 200 } }); return data },
@@ -139,7 +142,7 @@ export function LicensesPage() {
 
   const openCreate = () => {
     setEditingLicense(null)
-    reset({ seats: 1, type: 'ANNUAL' })
+    reset({ seats: 1, type: 'ANNUAL', productId: '' })
     setShowModal(true)
   }
 
@@ -148,6 +151,7 @@ export function LicensesPage() {
     reset({
       companyId: lic.companyId,
       equipmentId: lic.equipmentId ?? '',
+      productId: lic.productId ?? '',
       software: lic.software,
       vendor: lic.vendor ?? '',
       licenseKey: lic.licenseKey ?? '',
@@ -162,11 +166,12 @@ export function LicensesPage() {
   }
 
   const onSubmit = (values: LicenseForm) => {
-    const payload = { ...values, equipmentId: values.equipmentId || undefined }
+    // Les FK optionnelles vides ('') sont normalisées en NULL côté serveur, ce qui permet
+    // aussi de retirer un lien existant lors d'une modification.
     if (editingLicense) {
-      updateMutation.mutate({ id: editingLicense.id, values: payload })
+      updateMutation.mutate({ id: editingLicense.id, values })
     } else {
-      createMutation.mutate(payload)
+      createMutation.mutate(values)
     }
   }
 
@@ -283,13 +288,13 @@ export function LicensesPage() {
         size="lg"
       >
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {!editingLicense && softwareCatalog && softwareCatalog.data.length > 0 && (
+          {softwareCatalog && softwareCatalog.data.length > 0 && (
             <div className="bg-violet-50 border border-violet-100 rounded-lg p-3">
-              <label className="label text-violet-700">Choisir depuis le catalogue</label>
+              <label className="label text-violet-700">Choisir depuis le catalogue (optionnel)</label>
               <select
-                className="input border-violet-200 bg-white"
-                defaultValue=""
+                {...productReg}
                 onChange={e => {
+                  productReg.onChange(e)
                   const p = softwareCatalog.data.find(x => x.id === e.target.value)
                   if (!p) return
                   setValue('software', p.name)
@@ -297,12 +302,16 @@ export function LicensesPage() {
                   setValue('cost', p.price)
                   setValue('type', p.type === 'SUBSCRIPTION' ? 'ANNUAL' : 'PERPETUAL')
                 }}
+                className="input border-violet-200 bg-white"
               >
-                <option value="">— Sélectionner un logiciel —</option>
+                <option value="">— Aucun logiciel du catalogue —</option>
                 {softwareCatalog.data.map(p => (
                   <option key={p.id} value={p.id}>{p.name}{p.supplier ? ` (${p.supplier})` : ''}</option>
                 ))}
               </select>
+              <p className="text-xs text-violet-400 mt-1">
+                Remplit le logiciel, le fournisseur, le coût et le type, et garde le lien vers le catalogue. Vous pouvez tout ajuster ensuite.
+              </p>
             </div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
