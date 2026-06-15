@@ -9,7 +9,7 @@ const transporter = nodemailer.createTransport({
     : undefined,
 })
 
-const FROM = process.env.SMTP_FROM || 'MonCRM <noreply@crm.local>'
+const FROM = process.env.SMTP_FROM || 'DCB Technologies <noreply@dcb-technologies.fr>'
 const APP_URL = process.env.APP_URL || 'http://localhost:5173'
 
 export async function sendPasswordResetEmail(email: string, token: string): Promise<void> {
@@ -17,12 +17,12 @@ export async function sendPasswordResetEmail(email: string, token: string): Prom
   await transporter.sendMail({
     from: FROM,
     to: email,
-    subject: 'Réinitialisation de votre mot de passe — MonCRM',
+    subject: 'Réinitialisation de votre mot de passe — DCB Technologies',
     html: `
       <div style="font-family: sans-serif; max-width: 480px; margin: auto; padding: 32px;">
         <h2 style="color: #1e293b; margin-bottom: 8px;">Réinitialisation du mot de passe</h2>
         <p style="color: #475569; margin-bottom: 24px;">
-          Vous avez demandé la réinitialisation de votre mot de passe MonCRM.<br>
+          Vous avez demandé la réinitialisation de votre mot de passe DCB Technologies.<br>
           Ce lien est valable <strong>1 heure</strong>.
         </p>
         <a href="${resetUrl}"
@@ -36,6 +36,6 @@ export async function sendPasswordResetEmail(email: string, token: string): Prom
         </p>
       </div>
     `,
-    text: `Réinitialisation mot de passe MonCRM\n\nLien (valable 1h) :\n${resetUrl}\n\nSi vous n'avez pas demandé cette action, ignorez cet email.`,
+    text: `Réinitialisation mot de passe DCB Technologies\n\nLien (valable 1h) :\n${resetUrl}\n\nSi vous n'avez pas demandé cette action, ignorez cet email.`,
   })
 }

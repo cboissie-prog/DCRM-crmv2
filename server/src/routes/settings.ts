@@ -14,7 +14,7 @@ const DEFAULTS: Record<string, { value: string; label: string }> = {
   licenseExpiringSoonDays:  { value: '30',      label: 'Alerte licences expirant dans (jours)' },
   schedulerEnabled:         { value: 'true',    label: 'Mise à jour automatique des statuts activée' },
   schedulerTime:            { value: '02:00',   label: 'Heure d\'exécution du job (HH:MM, heure serveur)' },
-  companyName:              { value: 'MonCRM',  label: 'Nom de l\'entreprise' },
+  companyName:              { value: 'DCB Technologies',  label: 'Nom de l\'entreprise' },
   companyLogoUrl:           { value: '',        label: 'URL du logo' },
   companyAddress:           { value: '',        label: 'Adresse' },
   companyContactEmail:      { value: '',        label: 'Email de contact' },

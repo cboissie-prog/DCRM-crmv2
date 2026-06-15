@@ -31,8 +31,12 @@ const router = Router()
 
 const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET
+// URL de retour du flux calendrier. Déduite de GOOGLE_REDIRECT_URI (même origine)
+// si GOOGLE_CALENDAR_REDIRECT_URI n'est pas explicitement défini.
 const CALENDAR_REDIRECT_URI = process.env.GOOGLE_CALENDAR_REDIRECT_URI
-  ?? 'http://localhost:3001/api/google/calendar/callback'
+  ?? (process.env.GOOGLE_REDIRECT_URI
+      ? new URL(process.env.GOOGLE_REDIRECT_URI).origin + '/api/google/calendar/callback'
+      : 'http://localhost:3001/api/google/calendar/callback')
 const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:5173'
 
 const CALENDAR_SCOPES = [

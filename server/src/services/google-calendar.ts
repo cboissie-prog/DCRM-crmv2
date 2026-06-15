@@ -28,8 +28,9 @@ type OAuth2Client = InstanceType<typeof google.auth.OAuth2>
 const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET
 const CALENDAR_REDIRECT_URI = process.env.GOOGLE_CALENDAR_REDIRECT_URI
-  ?? process.env.GOOGLE_REDIRECT_URI?.replace('/callback', '/calendar/callback')
-  ?? 'http://localhost:3001/api/google/calendar/callback'
+  ?? (process.env.GOOGLE_REDIRECT_URI
+      ? new URL(process.env.GOOGLE_REDIRECT_URI).origin + '/api/google/calendar/callback'
+      : 'http://localhost:3001/api/google/calendar/callback')
 
 const TZ = 'Europe/Paris'
 const DCRM_PROP_KEY = 'dcrmAppointmentId'
