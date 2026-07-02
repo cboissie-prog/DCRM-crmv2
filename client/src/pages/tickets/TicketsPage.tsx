@@ -16,7 +16,7 @@ import {
   ChevronDown, Send, Lock, Unlock, Trash2, Edit2, Timer, Download, X, CalendarPlus,
 } from 'lucide-react'
 import { downloadCsv } from '../../lib/exportCsv'
-import { useForm, type Resolver } from 'react-hook-form'
+import { useForm, useWatch, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useAuthStore } from '../../store/authStore'
@@ -60,6 +60,8 @@ function formatTime(minutes: number): string {
 
 /** Indicateur SLA selon l'âge du ticket */
 function SlaIndicator({ createdAt, slaDeadline }: { createdAt: string; slaDeadline?: string | null }) {
+  // Heure courante lue au render pour un indicateur d'affichage (impureté bénigne, non réactive)
+  // eslint-disable-next-line react-hooks/purity
   const now = Date.now()
 
   // Si un SLA deadline est défini, l'utiliser
@@ -469,6 +471,8 @@ export function TicketDetailPage() {
     const saved = localStorage.getItem(`ticket-timer-${id}`)
     if (saved) {
       const elapsed = Math.floor((Date.now() - parseInt(saved)) / 1000)
+      // Restauration ponctuelle de l'état timer depuis localStorage au montage
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTimerSeconds(elapsed)
       setTimerRunning(true)
     }
@@ -517,10 +521,11 @@ export function TicketDetailPage() {
     setTimerSeconds(0)
   }
 
-  const { register: regComment, handleSubmit: handleComment, reset: resetComment, watch: watchComment, formState: { isSubmitting: submittingComment } } = useForm<CommentForm>({
+  const { register: regComment, handleSubmit: handleComment, reset: resetComment, control: controlComment, formState: { isSubmitting: submittingComment } } = useForm<CommentForm>({
     resolver: zodResolver(commentSchema) as Resolver<CommentForm>,
     defaultValues: { isInternal: false },
   })
+  const isInternalComment = useWatch({ control: controlComment, name: 'isInternal' })
 
   const addCommentMutation = useMutation({
     mutationFn: (values: CommentForm) => api.post(`/tickets/${id}/comments`, values),
@@ -752,7 +757,7 @@ export function TicketDetailPage() {
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" {...regComment('isInternal')} className="rounded" />
                     <span className="text-sm text-slate-600 flex items-center gap-1">
-                      {watchComment('isInternal') ? <Lock className="w-3.5 h-3.5 text-amber-500" /> : <Unlock className="w-3.5 h-3.5 text-slate-400" />}
+                      {isInternalComment ? <Lock className="w-3.5 h-3.5 text-amber-500" /> : <Unlock className="w-3.5 h-3.5 text-slate-400" />}
                       Commentaire interne
                     </span>
                   </label>

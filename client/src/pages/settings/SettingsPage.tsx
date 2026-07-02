@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { User, Building2, Users, Lock, Save, Eye, EyeOff, ExternalLink, Settings2, Play, RefreshCw, Key, Plus, Trash2, Copy, CheckCheck, AlertTriangle, CalendarDays, X } from 'lucide-react'
+import { User, Building2, Users, Lock, Save, Eye, EyeOff, ExternalLink, Settings2, Play, RefreshCw, Key, Plus, Trash2, Copy, CheckCheck, AlertTriangle, CalendarDays, X, GitBranch, Star, Pencil, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import api from '../../lib/api'
@@ -915,9 +915,361 @@ function CalendarsTab() {
   )
 }
 
+// ─── Pipeline Templates Tab ────────────────────────────────────────────────────
+
+interface PipelineTemplate {
+  id: string
+  name: string
+  description?: string
+  color: string
+  isDefault: boolean
+  isActive: boolean
+  stages: { id: string; key: string; name: string; color: string; order: number; isWon: boolean; isLost: boolean }[]
+}
+
+function PipelineTemplatesTab() {
+  const qc = useQueryClient()
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [showPipelineForm, setShowPipelineForm] = useState(false)
+  const [editingPipeline, setEditingPipeline] = useState<PipelineTemplate | null>(null)
+  const [showStageForm, setShowStageForm] = useState(false)
+  const [editingStage, setEditingStage] = useState<PipelineTemplate['stages'][0] | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'pipeline' | 'stage'; id: string } | null>(null)
+
+  const [pipelineForm, setPipelineForm] = useState({ name: '', description: '', color: '#6366f1' })
+  const [stageForm, setStageForm] = useState({ key: '', name: '', color: '#94a3b8', isWon: false, isLost: false })
+  const [formError, setFormError] = useState('')
+
+  const errMsg = (err: unknown) => (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ?? 'Erreur'
+
+  const { data: templates = [], isLoading } = useQuery<PipelineTemplate[]>({
+    queryKey: ['pipeline-templates'],
+    queryFn: async () => { const { data } = await api.get('/pipelines/templates'); return data.data ?? [] },
+  })
+
+  const selected = templates.find(t => t.id === selectedId) ?? templates[0] ?? null
+
+  const createPipeline = useMutation({
+    mutationFn: (v: typeof pipelineForm) => api.post('/pipelines/templates', v),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['pipeline-templates'] })
+      setSelectedId(res.data.data.id)
+      setShowPipelineForm(false)
+      setEditingPipeline(null)
+    },
+    onError: (err: unknown) => setFormError(errMsg(err)),
+  })
+
+  const updatePipeline = useMutation({
+    mutationFn: ({ id, ...v }: typeof pipelineForm & { id: string }) => api.put(`/pipelines/templates/${id}`, v),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pipeline-templates'] }); setShowPipelineForm(false); setEditingPipeline(null) },
+    onError: (err: unknown) => setFormError(errMsg(err)),
+  })
+
+  const setDefault = useMutation({
+    mutationFn: (id: string) => api.patch(`/pipelines/templates/${id}/default`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pipeline-templates'] }),
+  })
+
+  const deletePipeline = useMutation({
+    mutationFn: (id: string) => api.delete(`/pipelines/templates/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pipeline-templates'] })
+      setDeleteConfirm(null)
+      setSelectedId(null)
+    },
+    onError: (err: unknown) => setFormError(errMsg(err)),
+  })
+
+  const createStage = useMutation({
+    mutationFn: (v: typeof stageForm) => api.post(`/pipelines/templates/${selected!.id}/stages`, v),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pipeline-templates'] }); setShowStageForm(false); setEditingStage(null); setStageForm({ key: '', name: '', color: '#94a3b8', isWon: false, isLost: false }) },
+    onError: (err: unknown) => setFormError(errMsg(err)),
+  })
+
+  const updateStage = useMutation({
+    mutationFn: ({ id, ...v }: typeof stageForm & { id: string }) => api.put(`/pipelines/templates/${selected!.id}/stages/${id}`, v),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pipeline-templates'] }); setShowStageForm(false); setEditingStage(null) },
+    onError: (err: unknown) => setFormError(errMsg(err)),
+  })
+
+  const deleteStage = useMutation({
+    mutationFn: ({ pipelineId, stageId }: { pipelineId: string; stageId: string }) => api.delete(`/pipelines/templates/${pipelineId}/stages/${stageId}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pipeline-templates'] }); setDeleteConfirm(null) },
+    onError: (err: unknown) => setFormError(errMsg(err)),
+  })
+
+  const openEditPipeline = (p: PipelineTemplate) => {
+    setEditingPipeline(p)
+    setPipelineForm({ name: p.name, description: p.description ?? '', color: p.color })
+    setShowPipelineForm(true)
+    setFormError('')
+  }
+
+  const openNewPipeline = () => {
+    setEditingPipeline(null)
+    setPipelineForm({ name: '', description: '', color: '#6366f1' })
+    setShowPipelineForm(true)
+    setFormError('')
+  }
+
+  const openEditStage = (s: PipelineTemplate['stages'][0]) => {
+    setEditingStage(s)
+    setStageForm({ key: s.key, name: s.name, color: s.color, isWon: s.isWon, isLost: s.isLost })
+    setShowStageForm(true)
+    setFormError('')
+  }
+
+  const openNewStage = () => {
+    setEditingStage(null)
+    setStageForm({ key: '', name: '', color: '#94a3b8', isWon: false, isLost: false })
+    setShowStageForm(true)
+    setFormError('')
+  }
+
+  const submitPipeline = () => {
+    setFormError('')
+    if (!pipelineForm.name.trim()) { setFormError('Le nom est requis'); return }
+    if (editingPipeline) updatePipeline.mutate({ id: editingPipeline.id, ...pipelineForm })
+    else createPipeline.mutate(pipelineForm)
+  }
+
+  const submitStage = () => {
+    setFormError('')
+    if (!stageForm.key.trim() || !stageForm.name.trim()) { setFormError('Clé et nom requis'); return }
+    if (!/^[A-Z0-9_]+$/.test(stageForm.key)) { setFormError('Clé : majuscules, chiffres et _ uniquement'); return }
+    if (editingStage) updateStage.mutate({ id: editingStage.id, ...stageForm })
+    else createStage.mutate(stageForm)
+  }
+
+  if (isLoading) return <div className="text-sm text-slate-500">Chargement…</div>
+
+  return (
+    <div>
+      <div className="mb-5">
+        <h2 className="text-base font-semibold text-slate-900">Pipelines par défaut</h2>
+        <p className="text-sm text-slate-500 mt-0.5">
+          Ces pipelines templates sont copiés automatiquement lors de la création d'un nouveau compte utilisateur.
+        </p>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-6">
+        {/* ── Liste templates ── */}
+        <div className="w-full sm:w-52 flex-shrink-0 sm:border-r border-slate-100 sm:pr-4 flex flex-col gap-1">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Templates ({templates.length})</p>
+          {templates.map(t => (
+            <button
+              key={t.id}
+              onClick={() => { setSelectedId(t.id); setShowPipelineForm(false); setShowStageForm(false) }}
+              className={cn(
+                'flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg text-sm transition-colors',
+                (selected?.id === t.id)
+                  ? 'bg-primary-50 text-primary-700 font-medium'
+                  : 'text-slate-600 hover:bg-slate-50',
+              )}
+            >
+              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: t.color }} />
+              <span className="flex-1 truncate">{t.name}</span>
+              {t.isDefault && <Star className="w-3 h-3 text-amber-400 fill-amber-400 flex-shrink-0" />}
+            </button>
+          ))}
+          <button
+            onClick={openNewPipeline}
+            className="flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg text-sm text-slate-400 hover:bg-slate-50 hover:text-slate-600 mt-2 border border-dashed border-slate-200"
+          >
+            <Plus className="w-3.5 h-3.5" /> Nouveau template
+          </button>
+        </div>
+
+        {/* ── Détail ── */}
+        <div className="flex-1 min-w-0">
+
+          {/* Formulaire pipeline */}
+          {showPipelineForm && (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 space-y-3">
+              <h3 className="text-sm font-semibold text-slate-800">{editingPipeline ? 'Modifier le template' : 'Nouveau template'}</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Nom *</label>
+                  <input className="input" value={pipelineForm.name} onChange={e => setPipelineForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Commercial" />
+                </div>
+                <div>
+                  <label className="label">Couleur</label>
+                  <div className="flex items-center gap-2">
+                    <input type="color" value={pipelineForm.color} onChange={e => setPipelineForm(f => ({ ...f, color: e.target.value }))} className="w-9 h-9 rounded border border-slate-200 cursor-pointer p-0.5" />
+                    <input className="input flex-1" value={pipelineForm.color} onChange={e => setPipelineForm(f => ({ ...f, color: e.target.value }))} placeholder="#6366f1" />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label className="label">Description</label>
+                <input className="input" value={pipelineForm.description} onChange={e => setPipelineForm(f => ({ ...f, description: e.target.value }))} placeholder="Description optionnelle" />
+              </div>
+              {formError && <p className="text-xs text-red-600">{formError}</p>}
+              <div className="flex gap-2">
+                <button className="btn-primary text-sm py-1.5" onClick={submitPipeline} disabled={createPipeline.isPending || updatePipeline.isPending}>
+                  <Save className="w-3.5 h-3.5" /> {editingPipeline ? 'Mettre à jour' : 'Créer'}
+                </button>
+                <button className="btn-secondary text-sm py-1.5" onClick={() => { setShowPipelineForm(false); setEditingPipeline(null); setFormError('') }}>Annuler</button>
+              </div>
+            </div>
+          )}
+
+          {/* Détail pipeline sélectionné */}
+          {selected && !showPipelineForm && (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <span className="w-4 h-4 rounded-full" style={{ background: selected.color }} />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-slate-900">{selected.name}</h3>
+                      {selected.isDefault && <span className="text-[10px] font-semibold text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full">Défaut</span>}
+                    </div>
+                    {selected.description && <p className="text-xs text-slate-500">{selected.description}</p>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  {!selected.isDefault && (
+                    <button onClick={() => setDefault.mutate(selected.id)} className="text-xs text-slate-500 hover:text-amber-600 border border-slate-200 hover:border-amber-300 rounded-lg px-2.5 py-1.5 transition-colors" title="Définir par défaut">
+                      <Star className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button onClick={() => openEditPipeline(selected)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500" title="Modifier">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  {!selected.isDefault && (
+                    <button onClick={() => { setDeleteConfirm({ type: 'pipeline', id: selected.id }); setFormError('') }} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600" title="Supprimer">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Confirmation suppression pipeline */}
+              {deleteConfirm?.type === 'pipeline' && deleteConfirm.id === selected.id && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-sm">
+                  <p className="text-red-700 font-medium mb-2">Supprimer ce template ?</p>
+                  <p className="text-red-600 text-xs mb-3">Cette action est irréversible. Les pipelines déjà copiés chez les utilisateurs ne sont pas affectés.</p>
+                  {formError && <p className="text-xs text-red-700 mb-2">{formError}</p>}
+                  <div className="flex gap-2">
+                    <button className="btn-primary bg-red-600 hover:bg-red-700 focus:ring-red-500 text-sm py-1.5" onClick={() => deletePipeline.mutate(selected.id)} disabled={deletePipeline.isPending}>Supprimer</button>
+                    <button className="btn-secondary text-sm py-1.5" onClick={() => setDeleteConfirm(null)}>Annuler</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Étapes */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Étapes ({selected.stages.length})</p>
+                  {!showStageForm && (
+                    <button onClick={openNewStage} className="flex items-center gap-1 text-xs text-primary-600 hover:underline">
+                      <Plus className="w-3 h-3" /> Ajouter
+                    </button>
+                  )}
+                </div>
+
+                {/* Formulaire étape */}
+                {showStageForm && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3 space-y-3">
+                    <h4 className="text-xs font-semibold text-slate-700">{editingStage ? 'Modifier l\'étape' : 'Nouvelle étape'}</h4>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="label text-xs">Clé *</label>
+                        <input className="input text-xs" value={stageForm.key} onChange={e => setStageForm(f => ({ ...f, key: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '') }))} placeholder="EX_ETAPE" disabled={!!editingStage} />
+                      </div>
+                      <div>
+                        <label className="label text-xs">Nom *</label>
+                        <input className="input text-xs" value={stageForm.name} onChange={e => setStageForm(f => ({ ...f, name: e.target.value }))} placeholder="Ex: Qualification" />
+                      </div>
+                      <div>
+                        <label className="label text-xs">Couleur</label>
+                        <div className="flex items-center gap-1.5">
+                          <input type="color" value={stageForm.color} onChange={e => setStageForm(f => ({ ...f, color: e.target.value }))} className="w-8 h-8 rounded border border-slate-200 cursor-pointer p-0.5" />
+                          <input className="input text-xs flex-1" value={stageForm.color} onChange={e => setStageForm(f => ({ ...f, color: e.target.value }))} />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                        <input type="checkbox" checked={stageForm.isWon} onChange={e => setStageForm(f => ({ ...f, isWon: e.target.checked, isLost: false }))} className="rounded" />
+                        Étape "Gagné"
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                        <input type="checkbox" checked={stageForm.isLost} onChange={e => setStageForm(f => ({ ...f, isLost: e.target.checked, isWon: false }))} className="rounded" />
+                        Étape "Perdu"
+                      </label>
+                    </div>
+                    {formError && <p className="text-xs text-red-600">{formError}</p>}
+                    <div className="flex gap-2">
+                      <button className="btn-primary text-xs py-1" onClick={submitStage} disabled={createStage.isPending || updateStage.isPending}>
+                        {editingStage ? 'Mettre à jour' : 'Ajouter'}
+                      </button>
+                      <button className="btn-secondary text-xs py-1" onClick={() => { setShowStageForm(false); setEditingStage(null); setFormError('') }}>Annuler</button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  {selected.stages.map(stage => (
+                    <div key={stage.id} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-slate-100 bg-white hover:border-slate-200 group">
+                      <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: stage.color }} />
+                      <span className="text-sm font-medium text-slate-800 flex-1">{stage.name}</span>
+                      <span className="text-xs text-slate-400 font-mono">{stage.key}</span>
+                      {stage.isWon && <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">Gagné</span>}
+                      {stage.isLost && <span className="text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full">Perdu</span>}
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => openEditStage(stage)} className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600">
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        {!stage.isWon && !stage.isLost && (
+                          <button
+                            onClick={() => { setDeleteConfirm({ type: 'stage', id: stage.id }); setFormError('') }}
+                            className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-500"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Confirmation suppression étape inline */}
+                  {deleteConfirm?.type === 'stage' && (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+                      <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span className="flex-1">Supprimer cette étape ?</span>
+                      {formError && <span className="text-red-700">{formError}</span>}
+                      <button className="font-semibold hover:underline" onClick={() => deleteStage.mutate({ pipelineId: selected.id, stageId: deleteConfirm.id })} disabled={deleteStage.isPending}>Oui</button>
+                      <button className="text-slate-500 hover:underline" onClick={() => setDeleteConfirm(null)}>Non</button>
+                    </div>
+                  )}
+
+                  {selected.stages.length === 0 && !showStageForm && (
+                    <p className="text-xs text-slate-400 text-center py-4">Aucune étape — cliquez sur "Ajouter" pour commencer</p>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {!selected && !showPipelineForm && (
+            <div className="text-center py-12 text-slate-400">
+              <GitBranch className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">Aucun template pour l'instant.</p>
+              <button onClick={openNewPipeline} className="mt-3 text-xs text-primary-600 hover:underline">Créer le premier template</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = 'profile' | 'password' | 'apikeys' | 'company' | 'users' | 'system' | 'calendars'
+type Tab = 'profile' | 'password' | 'apikeys' | 'company' | 'users' | 'system' | 'calendars' | 'pipelines'
 
 interface TabConfig {
   id: Tab
@@ -933,6 +1285,7 @@ const TABS: TabConfig[] = [
   { id: 'apikeys',    label: 'Clés API',             icon: <Key className="w-4 h-4" />,         adminOnly: false, permission: 'apikeys:manage' },
   { id: 'company',    label: 'Entreprise',           icon: <Building2 className="w-4 h-4" />,   adminOnly: true },
   { id: 'users',      label: 'Utilisateurs',         icon: <Users className="w-4 h-4" />,       adminOnly: true },
+  { id: 'pipelines',  label: 'Pipelines défaut',     icon: <GitBranch className="w-4 h-4" />,   adminOnly: true },
   { id: 'calendars',  label: 'Calendriers',          icon: <CalendarDays className="w-4 h-4" />, adminOnly: false, permission: 'calendars:manage_access' },
   { id: 'system',     label: 'Système',              icon: <Settings2 className="w-4 h-4" />,   adminOnly: true },
 ]
@@ -1004,6 +1357,7 @@ export function SettingsPage() {
           {currentTab === 'apikeys'    && (canManageApiKeys ? <ApiKeysTab /> : <AccessDenied />)}
           {currentTab === 'company'    && (isAdmin ? <CompanyTab /> : <AccessDenied />)}
           {currentTab === 'users'      && (isAdmin ? <UsersTab /> : <AccessDenied />)}
+          {currentTab === 'pipelines'  && (isAdmin ? <PipelineTemplatesTab /> : <AccessDenied />)}
           {currentTab === 'calendars'  && (canManageCalendars ? <CalendarsTab /> : <AccessDenied />)}
           {currentTab === 'system'     && (isAdmin ? <SystemTab /> : <AccessDenied />)}
         </div>

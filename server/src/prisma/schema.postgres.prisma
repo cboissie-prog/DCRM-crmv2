@@ -45,6 +45,7 @@ model User {
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   assignedCalls       Call[]
+  pipelines           Pipeline[]
   googleCredential    GoogleCredential?
 }
 
@@ -142,7 +143,10 @@ model Pipeline {
   color         String          @default("#6366f1")
   isDefault     Boolean         @default(false)
   isActive      Boolean         @default(true)
+  isTemplate    Boolean         @default(false) // template admin copié à la création d'un compte
   order         Int             @default(0)
+  ownerId       String?         // null = pipeline partagé (legacy) ou template ; défini = pipeline personnel
+  owner         User?           @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
   stages        PipelineStage[]

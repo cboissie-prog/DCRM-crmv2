@@ -5,6 +5,8 @@ import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
 import { audit } from '../lib/audit'
+import { copyTemplatesToUser } from '../services/pipelineService'
+import logger from '../lib/logger'
 
 const router = Router()
 router.use(authenticate)
@@ -67,6 +69,11 @@ router.post('/', requirePermission('users:create'), async (req: AuthRequest, res
       select: { id: true, email: true, firstName: true, lastName: true, phone: true, role: true, isActive: true, createdAt: true },
     })
     audit(req, 'USER_CREATED', 'User', user.id, { email: user.email, role: user.role })
+    // Copie best-effort des pipelines templates vers le nouvel utilisateur.
+    // Ne doit jamais faire échouer la création du compte.
+    copyTemplatesToUser(user.id).catch(err =>
+      logger.error({ err, userId: user.id }, 'Échec de la copie des pipelines templates au nouvel utilisateur')
+    )
     res.status(201).json({ success: true, data: user })
   } catch (err) { handleRouteError(err, res) }
 })
