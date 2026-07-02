@@ -60,11 +60,6 @@ const PERMISSIONS = [
   { key: 'automation:create', label: 'Créer une automatisation', category: 'Automatisations' },
   { key: 'automation:update', label: 'Modifier une automatisation', category: 'Automatisations' },
   { key: 'automation:delete', label: 'Supprimer une automatisation', category: 'Automatisations' },
-  // Activités
-  { key: 'activities:read', label: 'Voir les activités', category: 'Activités' },
-  { key: 'activities:create', label: 'Créer une activité', category: 'Activités' },
-  { key: 'activities:update', label: 'Modifier une activité', category: 'Activités' },
-  { key: 'activities:delete', label: 'Supprimer une activité', category: 'Activités' },
   // Rendez-vous
   { key: 'appointments:read', label: 'Voir les rendez-vous', category: 'Rendez-vous' },
   { key: 'appointments:create', label: 'Créer un rendez-vous', category: 'Rendez-vous' },
@@ -99,6 +94,8 @@ export async function seedBase() {
 
   // ─── NETTOYAGE des permissions obsolètes ───────────────
   await prisma.permission.deleteMany({ where: { key: { startsWith: 'interventions:' } } })
+  // Module Activités retiré : suppression des permissions associées
+  await prisma.permission.deleteMany({ where: { key: { startsWith: 'activities:' } } })
 
   // ─── PERMISSIONS ───────────────────────────────────────
   for (const perm of PERMISSIONS) {
@@ -126,7 +123,6 @@ export async function seedBase() {
     'products:read',
     'reports:read',
     'targets:read',
-    'activities:read', 'activities:create', 'activities:update', 'activities:delete',
     'appointments:read', 'appointments:create', 'appointments:update', 'appointments:delete',
     'calls:read', 'calls:create', 'calls:update',
   ]
@@ -137,7 +133,6 @@ export async function seedBase() {
     'tickets:read', 'tickets:create', 'tickets:update',
     'equipment:read', 'equipment:create', 'equipment:update', 'equipment:delete',
     'contracts:read',
-    'activities:read', 'activities:create', 'activities:update', 'activities:delete',
     'appointments:read', 'appointments:create', 'appointments:update', 'appointments:delete',
     'knowledge:read',
     'calls:read', 'calls:create', 'calls:update',

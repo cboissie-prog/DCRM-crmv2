@@ -13,7 +13,7 @@ import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
 import {
   Plus, Search, ArrowLeft, Clock, MessageSquare,
-  ChevronDown, Send, Lock, Unlock, Trash2, Edit2, Timer, Download, X,
+  ChevronDown, Send, Lock, Unlock, Trash2, Edit2, Timer, Download, X, CalendarPlus,
 } from 'lucide-react'
 import { downloadCsv } from '../../lib/exportCsv'
 import { useForm, type Resolver } from 'react-hook-form'
@@ -43,6 +43,12 @@ const commentSchema = z.object({
 })
 type CommentForm = z.infer<typeof commentSchema>
 
+const interventionSchema = z.object({
+  startAt: z.string().min(1, 'Date requise'),
+  durationMinutes: z.number().min(1),
+})
+type InterventionForm = z.infer<typeof interventionSchema>
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function formatTime(minutes: number): string {
@@ -50,6 +56,35 @@ function formatTime(minutes: number): string {
   const h = Math.floor(minutes / 60)
   const m = minutes % 60
   return m > 0 ? `${h}h ${m}min` : `${h}h`
+}
+
+/** Indicateur SLA selon l'âge du ticket */
+function SlaIndicator({ createdAt, slaDeadline }: { createdAt: string; slaDeadline?: string | null }) {
+  const now = Date.now()
+
+  // Si un SLA deadline est défini, l'utiliser
+  if (slaDeadline) {
+    const deadline = new Date(slaDeadline).getTime()
+    const remaining = deadline - now
+    if (remaining > 24 * 60 * 60 * 1000) {
+      return <span title="SLA respecté" className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+    }
+    if (remaining > 0) {
+      return <span title="SLA bientôt dépassé" className="inline-block w-2.5 h-2.5 rounded-full bg-orange-400 shrink-0" />
+    }
+    return <span title="SLA dépassé" className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
+  }
+
+  // Sinon, basé sur l'âge depuis la création
+  const age = now - new Date(createdAt).getTime()
+  const h24 = 24 * 60 * 60 * 1000
+  if (age < h24) {
+    return <span title="Moins de 24h" className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+  }
+  if (age < 2 * h24) {
+    return <span title="24h – 48h" className="inline-block w-2.5 h-2.5 rounded-full bg-orange-400 shrink-0" />
+  }
+  return <span title="Plus de 48h" className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
 }
 
 // ─── Page liste ─────────────────────────────────────────────────────────────
@@ -72,25 +107,83 @@ export function TicketsListView() {
   const [searchParams] = useSearchParams()
 
   const [search, setSearch] = useState(searchParams.get('search') ?? '')
-  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '')
+  // Multi-statut : tableau de clés
+  const initialStatuses = searchParams.getAll('status')
+  const [statusFilters, setStatusFilters] = useState<string[]>(initialStatuses)
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false)
+  const statusDropdownRef = useRef<HTMLDivElement>(null)
+
   const [priorityFilter, setPriorityFilter] = useState(searchParams.get('priority') ?? '')
   const [categoryFilter, setCategoryFilter] = useState(searchParams.get('category') ?? '')
   const [assignedFilter, setAssignedFilter] = useState(searchParams.get('assignedToId') ?? '')
   const [page, setPage] = useState(1)
   const [showCreate, setShowCreate] = useState(false)
 
+  // IDs des tickets avec un timer actif dans localStorage
+  const readActiveTimers = () => {
+    const ids = new Set<string>()
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key?.startsWith('ticket-timer-')) ids.add(key.replace('ticket-timer-', ''))
+    }
+    return ids
+  }
+  const [activeTimerIds, setActiveTimerIds] = useState<Set<string>>(readActiveTimers)
+
+  // Rafraîchir les timers actifs au retour sur la liste
+  useEffect(() => {
+    const handler = () => setActiveTimerIds(readActiveTimers())
+    window.addEventListener('focus', handler)
+    return () => window.removeEventListener('focus', handler)
+  }, [])
+
+  // Fermer le dropdown statut en cliquant hors
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
+        setShowStatusDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const toggleStatus = (key: string) => {
+    setStatusFilters(prev =>
+      prev.includes(key) ? prev.filter(s => s !== key) : [...prev, key]
+    )
+    setPage(1)
+  }
+
   const { data, isLoading } = useQuery<PaginatedResponse<Ticket>>({
-    queryKey: ['tickets', { search, statusFilter, priorityFilter, categoryFilter, assignedFilter, page }],
+    queryKey: ['tickets', { search, statusFilters, priorityFilter, categoryFilter, assignedFilter, page }],
     queryFn: async () => {
+      const params: Record<string, unknown> = {
+        search: search || undefined,
+        priority: priorityFilter || undefined,
+        category: categoryFilter || undefined,
+        assignedToId: assignedFilter || undefined,
+        page,
+        limit: 25,
+      }
+      // Envoyer status comme paramètres répétés si multi-sélection
+      if (statusFilters.length > 0) {
+        params.status = statusFilters
+      }
       const { data } = await api.get('/tickets', {
-        params: {
-          search: search || undefined,
-          status: statusFilter || undefined,
-          priority: priorityFilter || undefined,
-          category: categoryFilter || undefined,
-          assignedToId: assignedFilter || undefined,
-          page,
-          limit: 25,
+        params,
+        // Serializer pour gérer les tableaux : status[]=... → status=...&status=...
+        paramsSerializer: (p) => {
+          const sp = new URLSearchParams()
+          for (const [k, v] of Object.entries(p)) {
+            if (v === undefined || v === null) continue
+            if (Array.isArray(v)) {
+              v.forEach(item => sp.append(k, item))
+            } else {
+              sp.append(k, String(v))
+            }
+          }
+          return sp.toString()
         },
       })
       return data
@@ -117,6 +210,14 @@ export function TicketsListView() {
 
   const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER'
 
+  const hasFilters = search || statusFilters.length > 0 || priorityFilter || categoryFilter || assignedFilter
+
+  const statusLabel = statusFilters.length === 0
+    ? 'Tous les statuts'
+    : statusFilters.length === 1
+      ? TICKET_STATUSES[statusFilters[0]]?.label ?? statusFilters[0]
+      : `${statusFilters.length} statuts`
+
   return (
     <div className="space-y-5 fade-in">
       <div className="page-header">
@@ -127,7 +228,7 @@ export function TicketsListView() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             className="btn-secondary flex items-center gap-1.5"
-            onClick={() => downloadCsv('/tickets/export/csv', { status: statusFilter || undefined, priority: priorityFilter || undefined, category: categoryFilter || undefined }, `tickets-${new Date().toISOString().slice(0,10)}.csv`)}
+            onClick={() => downloadCsv('/tickets/export/csv', { status: statusFilters[0] || undefined, priority: priorityFilter || undefined, category: categoryFilter || undefined }, `tickets-${new Date().toISOString().slice(0,10)}.csv`)}
             title="Exporter en CSV"
           >
             <Download className="w-4 h-4" /> CSV
@@ -149,28 +250,62 @@ export function TicketsListView() {
             onChange={e => { setSearch(e.target.value); setPage(1) }}
           />
         </div>
-        <select className="input flex-1 min-w-[140px]" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}>
-          <option value="">Tous les statuts</option>
-          {Object.entries(TICKET_STATUSES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-        </select>
-        <select className="input flex-1 min-w-[140px]" value={priorityFilter} onChange={e => { setPriorityFilter(e.target.value); setPage(1) }}>
+
+        {/* Multi-sélection statut */}
+        <div className="relative" ref={statusDropdownRef}>
+          <button
+            type="button"
+            className={`input w-auto flex items-center gap-2 cursor-pointer ${statusFilters.length > 0 ? 'border-indigo-400 ring-1 ring-indigo-200' : ''}`}
+            onClick={() => setShowStatusDropdown(s => !s)}
+          >
+            <span className="flex-1 text-left">{statusLabel}</span>
+            <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+          </button>
+          {showStatusDropdown && (
+            <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-lg border border-slate-100 py-1 z-20 min-w-52">
+              {Object.entries(TICKET_STATUSES).map(([k, v]) => (
+                <label key={k} className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={statusFilters.includes(k)}
+                    onChange={() => toggleStatus(k)}
+                    className="rounded border-slate-300 text-indigo-600"
+                  />
+                  <Badge variant={v.color}>{v.label}</Badge>
+                </label>
+              ))}
+              {statusFilters.length > 0 && (
+                <div className="border-t border-slate-100 mt-1 pt-1">
+                  <button
+                    className="w-full text-left px-3 py-1.5 text-xs text-slate-400 hover:text-slate-600"
+                    onClick={() => { setStatusFilters([]); setPage(1) }}
+                  >
+                    Désélectionner tout
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <select className="input w-auto" value={priorityFilter} onChange={e => { setPriorityFilter(e.target.value); setPage(1) }}>
           <option value="">Toutes priorités</option>
           {Object.entries(TICKET_PRIORITIES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
-        <select className="input flex-1 min-w-[140px]" value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }}>
+        <select className="input w-auto" value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }}>
           <option value="">Toutes catégories</option>
           {Object.entries(TICKET_CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
         {canManage && usersData && (
-          <select className="input flex-1 min-w-[140px]" value={assignedFilter} onChange={e => { setAssignedFilter(e.target.value); setPage(1) }}>
+          <select className="input w-auto" value={assignedFilter} onChange={e => { setAssignedFilter(e.target.value); setPage(1) }}>
             <option value="">Tous les techniciens</option>
             {usersData.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
           </select>
         )}
-        {(search || statusFilter || priorityFilter || categoryFilter || assignedFilter) && (
+        {hasFilters && (
           <button
             className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white hover:bg-slate-50 transition-colors"
-            onClick={() => { setSearch(''); setStatusFilter(''); setPriorityFilter(''); setCategoryFilter(''); setAssignedFilter(''); setPage(1) }}
+            onClick={() => { setSearch(''); setStatusFilters([]); setPriorityFilter(''); setCategoryFilter(''); setAssignedFilter(''); setPage(1) }}
           >
             <X className="w-3 h-3" /> Réinitialiser
           </button>
@@ -183,11 +318,14 @@ export function TicketsListView() {
           <table>
             <thead>
               <tr>
+                {/* Statut en première position */}
+                <th>Statut</th>
                 <th>Référence</th>
                 <th>Titre</th>
                 <th>Entreprise / Contact</th>
                 <th>Priorité</th>
-                <th>Statut</th>
+                <th>SLA</th>
+                <th>Temps</th>
                 <th>Technicien</th>
                 <th>Créé le</th>
                 <th></th>
@@ -195,9 +333,15 @@ export function TicketsListView() {
             </thead>
             <tbody>
               {data?.data.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-slate-400">Aucun ticket trouvé</td></tr>
+                <tr><td colSpan={10} className="text-center py-12 text-slate-400">Aucun ticket trouvé</td></tr>
               ) : data?.data.map(t => (
                 <tr key={t.id} className="cursor-pointer" onClick={() => navigate(`/tickets/${t.id}`)}>
+                  {/* Statut — première colonne */}
+                  <td>
+                    <Badge variant={TICKET_STATUSES[t.status]?.color || 'badge-gray'}>
+                      {TICKET_STATUSES[t.status]?.label || t.status}
+                    </Badge>
+                  </td>
                   <td>
                     <span className="font-mono text-xs text-slate-500">{t.reference}</span>
                   </td>
@@ -217,10 +361,29 @@ export function TicketsListView() {
                       {TICKET_PRIORITIES[t.priority]?.label || t.priority}
                     </Badge>
                   </td>
+                  {/* Indicateur SLA */}
                   <td>
-                    <Badge variant={TICKET_STATUSES[t.status]?.color || 'badge-gray'}>
-                      {TICKET_STATUSES[t.status]?.label || t.status}
-                    </Badge>
+                    {t.status !== 'RESOLVED' && t.status !== 'CLOSED' ? (
+                      <SlaIndicator createdAt={t.createdAt} slaDeadline={t.slaDeadline} />
+                    ) : (
+                      <span className="inline-block w-2.5 h-2.5 rounded-full bg-slate-200 shrink-0" title="Clôturé" />
+                    )}
+                  </td>
+                  {/* Colonne Temps */}
+                  <td>
+                    {activeTimerIds.has(t.id) ? (
+                      <div className="flex items-center gap-1.5 text-xs text-amber-600">
+                        <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" title="Timer en cours" />
+                        <span>{t.timeSpent > 0 ? formatTime(t.timeSpent) : 'En cours'}</span>
+                      </div>
+                    ) : t.timeSpent > 0 ? (
+                      <div className="flex items-center gap-1 text-xs text-slate-500">
+                        <Clock className="w-3 h-3 shrink-0" />
+                        <span>{formatTime(t.timeSpent)}</span>
+                      </div>
+                    ) : (
+                      <span className="text-slate-200">—</span>
+                    )}
                   </td>
                   <td>
                     {t.assignedTo ? (
@@ -292,12 +455,24 @@ export function TicketDetailPage() {
   const [timerRunning, setTimerRunning] = useState(false)
   const [timerSeconds, setTimerSeconds] = useState(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [showIntervention, setShowIntervention] = useState(false)
 
   const { data: ticket, isLoading } = useQuery({
     queryKey: ['ticket', id],
     queryFn: async () => { const { data } = await api.get(`/tickets/${id}`); return data.data as Ticket & { comments: TicketComment[] } },
     enabled: !!id,
   })
+
+  // Restaurer le timer depuis localStorage au chargement
+  useEffect(() => {
+    if (!id) return
+    const saved = localStorage.getItem(`ticket-timer-${id}`)
+    if (saved) {
+      const elapsed = Math.floor((Date.now() - parseInt(saved)) / 1000)
+      setTimerSeconds(elapsed)
+      setTimerRunning(true)
+    }
+  }, [id])
 
   // Chronomètre
   useEffect(() => {
@@ -327,8 +502,14 @@ export function TicketDetailPage() {
     onError: () => toast.error('Erreur lors de la suppression'),
   })
 
+  const handleStartTimer = () => {
+    localStorage.setItem(`ticket-timer-${id}`, String(Date.now()))
+    setTimerRunning(true)
+  }
+
   const handleStopTimer = () => {
     setTimerRunning(false)
+    localStorage.removeItem(`ticket-timer-${id}`)
     const minutes = Math.round(timerSeconds / 60)
     if (minutes > 0) {
       timeMutation.mutate(minutes)
@@ -370,7 +551,7 @@ export function TicketDetailPage() {
           </div>
           <h1 className="page-title">{ticket.title}</h1>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           {/* Chronomètre */}
           <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
             <Timer className="w-4 h-4 text-slate-400" />
@@ -378,7 +559,7 @@ export function TicketDetailPage() {
             {!timerRunning ? (
               <button
                 className="btn-primary btn-sm text-xs px-2 py-1"
-                onClick={() => setTimerRunning(true)}
+                onClick={handleStartTimer}
               >
                 Démarrer
               </button>
@@ -391,6 +572,13 @@ export function TicketDetailPage() {
               </button>
             )}
           </div>
+          {/* Planifier intervention */}
+          <button
+            className="btn-secondary flex items-center gap-2"
+            onClick={() => setShowIntervention(true)}
+          >
+            <CalendarPlus className="w-4 h-4" /> Planifier intervention
+          </button>
           {/* Changer statut */}
           <div className="relative">
             <button
@@ -568,8 +756,8 @@ export function TicketDetailPage() {
                       Commentaire interne
                     </span>
                   </label>
-                  <button type="submit" className="btn-primary btn-sm" disabled={submittingComment}>
-                    {submittingComment ? <Spinner className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
+                  <button type="submit" className="btn-primary btn-sm" disabled={submittingComment || addCommentMutation.isPending}>
+                    {(submittingComment || addCommentMutation.isPending) ? <Spinner className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
                     Envoyer
                   </button>
                 </div>
@@ -585,6 +773,14 @@ export function TicketDetailPage() {
         onClose={() => setShowEdit(false)}
         ticket={ticket}
         onSuccess={() => { qc.invalidateQueries({ queryKey: ['ticket', id] }); qc.invalidateQueries({ queryKey: ['tickets'] }); setShowEdit(false) }}
+      />
+
+      {/* Modal intervention */}
+      <InterventionModal
+        open={showIntervention}
+        onClose={() => setShowIntervention(false)}
+        ticket={ticket}
+        currentUserId={user?.id}
       />
     </div>
   )
@@ -734,9 +930,120 @@ function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalPr
 
         <div className="flex justify-end gap-3 pt-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Annuler</button>
-          <button type="submit" className="btn-primary" disabled={isSubmitting}>
-            {isSubmitting ? <Spinner className="w-4 h-4" /> : null}
+          <button type="submit" className="btn-primary" disabled={isSubmitting || mutation.isPending}>
+            {(isSubmitting || mutation.isPending) ? <Spinner className="w-4 h-4" /> : null}
             {ticket ? 'Enregistrer' : 'Créer le ticket'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+// ─── Modal Intervention ──────────────────────────────────────────────────────
+
+interface InterventionModalProps {
+  open: boolean
+  onClose: () => void
+  ticket: Ticket & { comments: TicketComment[] }
+  currentUserId?: string
+}
+
+const DURATION_OPTIONS = [
+  { value: 30, label: '30 min' },
+  { value: 60, label: '1h' },
+  { value: 120, label: '2h' },
+  { value: 240, label: '4h' },
+]
+
+function InterventionModal({ open, onClose, ticket, currentUserId }: InterventionModalProps) {
+  const { register, handleSubmit, reset, formState: { isSubmitting, errors } } = useForm<InterventionForm>({
+    resolver: zodResolver(interventionSchema),
+    defaultValues: { durationMinutes: 60 },
+  })
+
+  useEffect(() => {
+    if (open) reset({ durationMinutes: 60 })
+  }, [open, reset])
+
+  const mutation = useMutation({
+    mutationFn: async (values: InterventionForm) => {
+      const startAt = new Date(values.startAt)
+      const endAt = new Date(startAt.getTime() + values.durationMinutes * 60 * 1000)
+      const contactName = ticket.contact
+        ? `${ticket.contact.firstName} ${ticket.contact.lastName}`
+        : null
+      const companyName = ticket.company?.name ?? null
+      const titleParts = ['Intervention']
+      if (companyName) titleParts.push(companyName)
+      if (contactName) titleParts.push(`— ${contactName}`)
+      titleParts.push(`[${ticket.reference}]`)
+
+      const payload: Record<string, unknown> = {
+        title: titleParts.join(' '),
+        description: ticket.title,
+        type: 'INTERVENTION',
+        startAt: startAt.toISOString(),
+        endAt: endAt.toISOString(),
+        ticketId: ticket.id,
+        userIds: currentUserId ? [currentUserId] : [],
+        contactIds: ticket.contactId ? [ticket.contactId] : [],
+      }
+      const { data } = await api.post('/appointments', payload)
+      return data
+    },
+    onSuccess: () => {
+      toast.success('Intervention planifiée')
+      onClose()
+    },
+    onError: () => toast.error('Erreur lors de la création du rendez-vous'),
+  })
+
+  return (
+    <Modal open={open} onClose={onClose} title="Planifier une intervention" size="sm">
+      <form onSubmit={handleSubmit(v => mutation.mutate(v))} className="space-y-4">
+        {/* Infos pré-remplies (lecture seule) */}
+        {(ticket.contact || ticket.company) && (
+          <div className="bg-slate-50 rounded-lg px-3 py-2.5 text-sm space-y-1">
+            {ticket.company && (
+              <div className="flex justify-between">
+                <span className="text-slate-500">Entreprise</span>
+                <span className="font-medium text-slate-800">{ticket.company.name}</span>
+              </div>
+            )}
+            {ticket.contact && (
+              <div className="flex justify-between">
+                <span className="text-slate-500">Contact</span>
+                <span className="font-medium text-slate-800">{ticket.contact.firstName} {ticket.contact.lastName}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="form-group">
+          <label className="label">Date et heure *</label>
+          <input
+            type="datetime-local"
+            {...register('startAt')}
+            className={`input ${errors.startAt ? 'input-error' : ''}`}
+          />
+          {errors.startAt && <p className="form-error">{errors.startAt.message}</p>}
+        </div>
+
+        <div className="form-group">
+          <label className="label">Durée estimée</label>
+          <select {...register('durationMinutes', { valueAsNumber: true })} className="input">
+            {DURATION_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-2">
+          <button type="button" className="btn-secondary" onClick={onClose}>Annuler</button>
+          <button type="submit" className="btn-primary" disabled={isSubmitting || mutation.isPending}>
+            {(isSubmitting || mutation.isPending) ? <Spinner className="w-4 h-4" /> : <CalendarPlus className="w-4 h-4" />}
+            Planifier
           </button>
         </div>
       </form>

@@ -5,8 +5,8 @@ import { formatCurrency, formatRelative, PIPELINE_STAGES, ACTIVITY_TYPES } from 
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Badge } from '../../components/ui/Badge'
 import { Avatar } from '../../components/ui/Avatar'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Cell } from 'recharts'
-import { Users, Building2, Wrench, FileText, TrendingUp, AlertTriangle, Euro, ArrowUp, ArrowDown, Minus, Clock, Key, Shield, ChevronRight, CalendarDays, CheckCircle2, MapPin } from 'lucide-react'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Cell, PieChart, Pie, Legend } from 'recharts'
+import { Users, Building2, Wrench, FileText, TrendingUp, AlertTriangle, Euro, ArrowUp, ArrowDown, Minus, Clock, Key, Shield, ChevronRight, CalendarDays, CheckCircle2, MapPin, ArrowRight, RefreshCw } from 'lucide-react'
 import type { DashboardStats } from '../../types'
 
 function KpiCard({ icon, label, value, sub, trend }: {
@@ -33,6 +33,80 @@ function KpiCard({ icon, label, value, sub, trend }: {
         <p className="text-2xl font-bold text-slate-900">{value}</p>
         <p className="text-sm font-medium text-slate-600 mt-0.5">{label}</p>
         {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+      </div>
+    </div>
+  )
+}
+
+// ── Types additionnels (KPIs / charts / alerts) ───────────────────────────────
+
+interface KpisData {
+  contactsCount: number
+  openTickets: number
+  pipelineWeightedValue: number
+  wonThisMonth: { count: number; value: number }
+}
+
+interface ChartsData {
+  pipelineByStage: { stage: string; stageName: string; count: number; value: number }[]
+  ticketsByStatus: { status: string; label: string; count: number }[]
+}
+
+interface AlertsData {
+  expiringContracts: {
+    id: string; reference: string; title: string; endDate: string
+    company: { id: string; name: string }
+  }[]
+  staleOpportunities: {
+    id: string; title: string; stage: string; value: number; updatedAt: string
+    company?: { id: string; name: string }
+  }[]
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const TICKET_STATUS_COLORS: Record<string, string> = {
+  NEW:            '#6366f1',
+  IN_PROGRESS:    '#f59e0b',
+  WAITING_CLIENT: '#94a3b8',
+  RESOLVED:       '#10b981',
+  CLOSED:         '#64748b',
+}
+
+function daysUntil(dateStr: string) {
+  const diff = new Date(dateStr).getTime() - Date.now()
+  return Math.ceil(diff / (1000 * 60 * 60 * 24))
+}
+
+function daysSince(dateStr: string) {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  return Math.floor(diff / (1000 * 60 * 60 * 24))
+}
+
+// ── Skeletons de chargement ───────────────────────────────────────────────────
+
+function KpiSkeleton() {
+  return (
+    <div className="kpi-card animate-pulse">
+      <div className="w-10 h-10 rounded-xl bg-slate-200" />
+      <div className="mt-3 space-y-2">
+        <div className="h-7 w-24 bg-slate-200 rounded" />
+        <div className="h-4 w-32 bg-slate-100 rounded" />
+      </div>
+    </div>
+  )
+}
+
+function CardSkeleton({ height = 'h-48' }: { height?: string }) {
+  return (
+    <div className={`card ${height} animate-pulse`}>
+      <div className="card-header">
+        <div className="h-5 w-40 bg-slate-200 rounded" />
+      </div>
+      <div className="p-4 space-y-3">
+        <div className="h-4 bg-slate-100 rounded w-full" />
+        <div className="h-4 bg-slate-100 rounded w-3/4" />
+        <div className="h-4 bg-slate-100 rounded w-5/6" />
       </div>
     </div>
   )
@@ -196,6 +270,149 @@ const STAGE_COLORS: Record<string, string> = {
   NEW: '#94a3b8', QUALIFICATION: '#60a5fa', PROPOSAL: '#a78bfa', NEGOTIATION: '#fb923c', WON: '#34d399', LOST: '#f87171'
 }
 
+// ── Donut Tickets par statut ──────────────────────────────────────────────────
+
+function TicketsPieChart({ data, isLoading }: { data?: ChartsData['ticketsByStatus']; isLoading: boolean }) {
+  if (isLoading) return <CardSkeleton height="h-80" />
+  const chartData = (data ?? []).map(d => ({
+    name: d.label,
+    value: d.count,
+    fill: TICKET_STATUS_COLORS[d.status] ?? '#94a3b8',
+  }))
+  const total = chartData.reduce((s, d) => s + d.value, 0)
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <h3 className="font-semibold text-slate-900">Tickets par statut</h3>
+        <span className="text-xs text-slate-400">{total} au total</span>
+      </div>
+      <div className="p-4">
+        {chartData.length === 0 ? (
+          <div className="h-48 flex items-center justify-center text-sm text-slate-400">Aucun ticket</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={240}>
+            <PieChart>
+              <Pie data={chartData} cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3} dataKey="value">
+                {chartData.map((entry, i) => (
+                  <Cell key={i} fill={entry.fill} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(val, name) => [val, name]} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+            </PieChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Alertes détaillées (contrats expirants + opportunités inactives) ──────────
+
+function AlertsSection({ alerts, isLoading }: { alerts?: AlertsData; isLoading: boolean }) {
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <CardSkeleton height="h-56" />
+        <CardSkeleton height="h-56" />
+      </div>
+    )
+  }
+
+  const contracts = alerts?.expiringContracts ?? []
+  const opps      = alerts?.staleOpportunities ?? []
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Contrats expirant */}
+      <div className="card">
+        <div className="card-header">
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4 text-amber-500" />
+            <h3 className="font-semibold text-slate-900">Contrats expirant bientôt</h3>
+          </div>
+          <Link to="/contracts" className="text-xs text-primary-600 hover:underline flex items-center gap-0.5">
+            Voir tout <ArrowRight className="w-3 h-3" />
+          </Link>
+        </div>
+        {contracts.length === 0 ? (
+          <div className="py-8 text-center text-sm text-slate-400">
+            <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-emerald-400" />
+            Aucun contrat n'expire dans les 60 prochains jours
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {contracts.map(c => {
+              const days = daysUntil(c.endDate)
+              const urgent = days <= 14
+              return (
+                <Link key={c.id} to="/contracts" className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors group">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                    urgent ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'
+                  }`}>
+                    {days}j
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-900 truncate">{c.title}</p>
+                    <p className="text-xs text-slate-400">
+                      {c.company.name} · expire le {new Date(c.endDate).toLocaleDateString('fr-FR')}
+                    </p>
+                  </div>
+                  <Badge variant={urgent ? 'badge-red' : 'badge-yellow'}>
+                    {urgent ? 'Urgent' : 'Bientôt'}
+                  </Badge>
+                </Link>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Opportunités sans activité */}
+      <div className="card">
+        <div className="card-header">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 text-slate-400" />
+            <h3 className="font-semibold text-slate-900">Opportunités sans activité (+14j)</h3>
+          </div>
+          <Link to="/pipeline" className="text-xs text-primary-600 hover:underline flex items-center gap-0.5">
+            Voir pipeline <ArrowRight className="w-3 h-3" />
+          </Link>
+        </div>
+        {opps.length === 0 ? (
+          <div className="py-8 text-center text-sm text-slate-400">
+            <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-emerald-400" />
+            Toutes les opportunités sont à jour
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {opps.map(o => {
+              const days = daysSince(o.updatedAt)
+              return (
+                <Link key={o.id} to="/pipeline" className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors group">
+                  <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-500 flex-shrink-0">
+                    {days}j
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-900 truncate">{o.title}</p>
+                    <p className="text-xs text-slate-400">
+                      {o.company?.name ?? 'Sans entreprise'} · {formatCurrency(o.value)}
+                    </p>
+                  </div>
+                  <span className="text-xs text-slate-400 flex-shrink-0">
+                    {formatRelative(o.updatedAt)}
+                  </span>
+                </Link>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function DashboardPage() {
   const { data: stats, isLoading } = useQuery<DashboardStats>({
     queryKey: ['dashboard-stats'],
@@ -220,6 +437,26 @@ export function DashboardPage() {
     queryFn: async () => { const { data } = await api.get('/dashboard/today'); return data.data },
     refetchInterval: 60_000,
     staleTime: 30_000,
+  })
+
+  const { data: kpis, isLoading: kpisLoading } = useQuery<KpisData>({
+    queryKey: ['dashboard-kpis'],
+    queryFn: async () => { const { data } = await api.get('/dashboard/kpis'); return data.data },
+    refetchInterval: 60_000,
+  })
+
+  const { data: charts, isLoading: chartsLoading } = useQuery<ChartsData>({
+    queryKey: ['dashboard-charts'],
+    queryFn: async () => { const { data } = await api.get('/dashboard/charts'); return data.data },
+    refetchInterval: 5 * 60_000,
+    staleTime: 2 * 60_000,
+  })
+
+  const { data: alerts, isLoading: alertsLoading } = useQuery<AlertsData>({
+    queryKey: ['dashboard-alerts'],
+    queryFn: async () => { const { data } = await api.get('/dashboard/alerts'); return data.data },
+    refetchInterval: 5 * 60_000,
+    staleTime: 2 * 60_000,
   })
 
   if (isLoading) return <PageSpinner />
@@ -281,7 +518,7 @@ export function DashboardPage() {
       )}
 
       {/* KPIs row 1 */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <KpiCard
           icon={<Euro className="w-5 h-5" />}
           label="CA ce mois"
@@ -295,6 +532,16 @@ export function DashboardPage() {
           value={formatCurrency(stats.opportunities.pipelineValue)}
           sub={`${stats.opportunities.open} opportunité(s) en cours`}
         />
+        {kpisLoading ? (
+          <KpiSkeleton />
+        ) : (
+          <KpiCard
+            icon={<TrendingUp className="w-5 h-5" />}
+            label="Pipeline pondéré"
+            value={formatCurrency(kpis?.pipelineWeightedValue ?? 0)}
+            sub="Valeur × probabilité"
+          />
+        )}
         <KpiCard
           icon={<FileText className="w-5 h-5" />}
           label="MRR"
@@ -369,7 +616,7 @@ export function DashboardPage() {
       <TodayWidget today={today} />
 
       {/* Bottom row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recent activities */}
         <div className="card">
           <div className="card-header">
@@ -426,6 +673,18 @@ export function DashboardPage() {
             ))}
           </div>
         </div>
+
+        {/* Tickets par statut */}
+        <TicketsPieChart data={charts?.ticketsByStatus} isLoading={chartsLoading} />
+      </div>
+
+      {/* Alertes détaillées */}
+      <div>
+        <div className="flex items-center gap-2 mb-4">
+          <AlertTriangle className="w-4 h-4 text-amber-500" />
+          <h2 className="text-base font-semibold text-slate-800">Alertes &amp; à traiter</h2>
+        </div>
+        <AlertsSection alerts={alerts} isLoading={alertsLoading} />
       </div>
     </div>
   )

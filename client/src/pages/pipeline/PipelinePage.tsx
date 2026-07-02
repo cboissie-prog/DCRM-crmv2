@@ -15,6 +15,7 @@ import {
   MoreHorizontal, Edit2, Trash2, ChevronRight,
   Building2, User, Calendar, X, Settings, GripVertical,
   Pencil, Bell, BellOff, FileText, CalendarCheck, Phone, Zap, Link2,
+  PartyPopper, UserPlus,
 } from 'lucide-react'
 import api from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
@@ -647,6 +648,243 @@ function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, st
   )
 }
 
+// ─── Modale WON → Contact ─────────────────────────────────────────────────────
+const wonContactSchema = z.object({
+  firstName: z.string().min(1, 'Prénom requis'),
+  lastName: z.string().min(1, 'Nom requis'),
+  email: z.string().email('Email invalide').optional().or(z.literal('')),
+  phone: z.string().optional(),
+})
+type WonContactForm = z.infer<typeof wonContactSchema>
+
+function WonContactModal({ opp, contacts, onClose }: { opp: Opportunity; contacts: Contact[]; onClose: () => void }) {
+  const qc = useQueryClient()
+  const [mode, setMode] = useState<'choose' | 'create' | 'link'>('choose')
+  const [selectedContactId, setSelectedContactId] = useState<string>(opp.contactId ?? '')
+  const [contactSearch, setContactSearch] = useState('')
+
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<WonContactForm>({
+    resolver: zodResolver(wonContactSchema) as Resolver<WonContactForm>,
+    defaultValues: {
+      firstName: opp.contact?.firstName ?? '',
+      lastName: opp.contact?.lastName ?? '',
+    },
+  })
+
+  const createContactMutation = useMutation({
+    mutationFn: async (values: WonContactForm) => {
+      const { data } = await api.post('/contacts', {
+        firstName: values.firstName,
+        lastName: values.lastName,
+        email: values.email || undefined,
+        phone: values.phone || undefined,
+        companyId: opp.companyId || undefined,
+      })
+      const contactId = data.data?.id
+      if (contactId) {
+        await api.put(`/pipeline/opportunities/${opp.id}`, {
+          title: opp.title, stage: opp.stage, value: opp.value, probability: opp.probability,
+          contactId,
+        })
+      }
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pipeline-opportunities'] })
+      qc.invalidateQueries({ queryKey: ['contacts-list'] })
+      toast.success('Contact créé et lié à l\'opportunité')
+      onClose()
+    },
+    onError: () => toast.error('Erreur lors de la création du contact'),
+  })
+
+  const linkContactMutation = useMutation({
+    mutationFn: (contactId: string) =>
+      api.put(`/pipeline/opportunities/${opp.id}`, {
+        title: opp.title, stage: opp.stage, value: opp.value, probability: opp.probability,
+        contactId,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pipeline-opportunities'] })
+      toast.success('Contact lié à l\'opportunité')
+      onClose()
+    },
+    onError: () => toast.error('Erreur lors du lien'),
+  })
+
+  const filteredContacts = contactSearch
+    ? contacts.filter(c =>
+        `${c.firstName} ${c.lastName}`.toLowerCase().includes(contactSearch.toLowerCase()) ||
+        (c.email ?? '').toLowerCase().includes(contactSearch.toLowerCase()),
+      )
+    : contacts
+
+  const alreadyLinked = !!opp.contactId && !!opp.contact
+
+  return (
+    <Modal open onClose={onClose} title="Opportunité gagnée !" size="md">
+      {mode === 'choose' && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+            <PartyPopper className="w-6 h-6 text-emerald-600 flex-shrink-0" />
+            <div>
+              <p className="font-semibold text-emerald-800">Félicitations !</p>
+              <p className="text-sm text-emerald-700">
+                L'opportunité <strong>{opp.title}</strong> est maintenant gagnée.
+              </p>
+            </div>
+          </div>
+
+          {alreadyLinked ? (
+            <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+              <p className="text-sm text-slate-600 mb-1">Contact déjà lié :</p>
+              <p className="text-sm font-semibold text-slate-900">
+                {opp.contact!.firstName} {opp.contact!.lastName}
+              </p>
+              {opp.company && <p className="text-xs text-slate-500">{opp.company.name}</p>}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-600">
+              Voulez-vous créer ou lier un contact pour cette opportunité ?
+            </p>
+          )}
+
+          <div className="flex flex-col gap-2">
+            {!alreadyLinked && (
+              <button
+                onClick={() => setMode('create')}
+                className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-primary-300 hover:bg-primary-50 text-left transition-colors group"
+              >
+                <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center flex-shrink-0 group-hover:bg-primary-200 transition-colors">
+                  <UserPlus className="w-4 h-4 text-primary-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-900">Créer un contact</p>
+                  <p className="text-xs text-slate-500">Nouveau contact lié à cette opportunité</p>
+                </div>
+              </button>
+            )}
+            <button
+              onClick={() => setMode('link')}
+              className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-primary-300 hover:bg-primary-50 text-left transition-colors group"
+            >
+              <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0 group-hover:bg-primary-200 transition-colors">
+                <Link2 className="w-4 h-4 text-slate-600 group-hover:text-primary-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-slate-900">
+                  {alreadyLinked ? 'Changer le contact lié' : 'Lier un contact existant'}
+                </p>
+                <p className="text-xs text-slate-500">Sélectionner parmi les contacts existants</p>
+              </div>
+            </button>
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <button className="btn-secondary" onClick={onClose}>Ignorer</button>
+          </div>
+        </div>
+      )}
+
+      {mode === 'create' && (
+        <form onSubmit={handleSubmit(v => createContactMutation.mutate(v))} className="space-y-4">
+          <button
+            type="button"
+            onClick={() => setMode('choose')}
+            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 mb-2"
+          >
+            <ChevronRight className="w-3.5 h-3.5 rotate-180" /> Retour
+          </button>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="form-group">
+              <label className="label">Prénom *</label>
+              <input {...register('firstName')} className={cn('input', errors.firstName && 'input-error')} />
+              {errors.firstName && <p className="form-error">{errors.firstName.message}</p>}
+            </div>
+            <div className="form-group">
+              <label className="label">Nom *</label>
+              <input {...register('lastName')} className={cn('input', errors.lastName && 'input-error')} />
+              {errors.lastName && <p className="form-error">{errors.lastName.message}</p>}
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="label">Email</label>
+            <input {...register('email')} type="email" className={cn('input', errors.email && 'input-error')} />
+            {errors.email && <p className="form-error">{errors.email.message}</p>}
+          </div>
+          <div className="form-group">
+            <label className="label">Téléphone</label>
+            <input {...register('phone')} type="tel" className="input" />
+          </div>
+          {opp.company && (
+            <p className="text-xs text-slate-500">Le contact sera lié à <strong>{opp.company.name}</strong></p>
+          )}
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" className="btn-secondary" onClick={onClose}>Ignorer</button>
+            <button type="submit" className="btn-primary" disabled={isSubmitting || createContactMutation.isPending}>
+              <UserPlus className="w-4 h-4" /> Créer le contact
+            </button>
+          </div>
+        </form>
+      )}
+
+      {mode === 'link' && (
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => setMode('choose')}
+            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700"
+          >
+            <ChevronRight className="w-3.5 h-3.5 rotate-180" /> Retour
+          </button>
+          <div className="relative">
+            <input
+              value={contactSearch}
+              onChange={e => setContactSearch(e.target.value)}
+              placeholder="Rechercher un contact..."
+              className="input pl-9"
+            />
+            <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          </div>
+          <div className="max-h-60 overflow-y-auto space-y-1 border border-slate-100 rounded-xl p-2">
+            {filteredContacts.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-4">Aucun contact trouvé</p>
+            ) : (
+              filteredContacts.slice(0, 50).map(c => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setSelectedContactId(c.id)}
+                  className={cn(
+                    'flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm transition-colors text-left',
+                    selectedContactId === c.id
+                      ? 'bg-primary-50 border border-primary-200 text-primary-700'
+                      : 'hover:bg-slate-50 text-slate-700 border border-transparent',
+                  )}
+                >
+                  <User className="w-4 h-4 flex-shrink-0 text-slate-400" />
+                  <span className="flex-1 font-medium">{c.firstName} {c.lastName}</span>
+                  {c.company && <span className="text-xs text-slate-400">{c.company.name}</span>}
+                </button>
+              ))
+            )}
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <button className="btn-secondary" onClick={onClose}>Ignorer</button>
+            <button
+              className="btn-primary"
+              disabled={!selectedContactId || linkContactMutation.isPending}
+              onClick={() => selectedContactId && linkContactMutation.mutate(selectedContactId)}
+            >
+              <Link2 className="w-4 h-4" /> Lier ce contact
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
 // ─── Page principale ──────────────────────────────────────────────────────────
 export function PipelinePage() {
   const { user, isAuthenticated } = useAuthStore()
@@ -661,6 +899,7 @@ export function PipelinePage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null)
   const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null)
   const [showPipelineManager, setShowPipelineManager] = useState(false)
+  const [wonOpp, setWonOpp] = useState<Opportunity | null>(null)
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: pipelines = [] } = useQuery<Pipeline[]>({
@@ -725,7 +964,15 @@ export function PipelinePage() {
   const stageMutation = useMutation({
     mutationFn: ({ id, stage }: { id: string; stage: string }) =>
       api.patch(`/pipeline/opportunities/${id}/stage`, { stage }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pipeline-opportunities'] }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['pipeline-opportunities'] })
+      // Opportunité passée sur une étape « gagnée » → proposer de créer/lier un contact
+      const wonStageKeys = stages.filter(s => s.isWon).map(s => s.key)
+      if (wonStageKeys.includes(variables.stage)) {
+        const opp = opportunities.find(o => o.id === variables.id)
+        if (opp) setWonOpp({ ...opp, stage: variables.stage })
+      }
+    },
     onError: () => toast.error('Erreur lors du changement de stage'),
   })
 
@@ -1093,6 +1340,14 @@ export function PipelinePage() {
         <PipelineManagerModal
           pipelines={pipelines}
           onClose={() => setShowPipelineManager(false)}
+        />
+      )}
+
+      {wonOpp && (
+        <WonContactModal
+          opp={wonOpp}
+          contacts={contacts}
+          onClose={() => setWonOpp(null)}
         />
       )}
     </div>

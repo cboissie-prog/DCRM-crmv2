@@ -106,9 +106,13 @@ router.delete('/leads/:id', requirePermission('pipeline:delete'), async (req: Au
 
 router.post('/leads/:id/convert', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { pipelineId: bodyPipelineId, stage: bodyStage } = z.object({
+    const { pipelineId: bodyPipelineId, stage: bodyStage, value, probability, expectedCloseDate, notes } = z.object({
       pipelineId: z.string().optional(),
       stage: z.string().optional(),
+      value: z.number().optional(),
+      probability: z.number().int().min(0).max(100).optional(),
+      expectedCloseDate: z.string().optional(),
+      notes: z.string().optional(),
     }).parse(req.body)
     const lead = await prisma.lead.findUnique({ where: { id: req.params.id }, include: { contact: true } })
     if (!lead) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Lead introuvable' } }); return }
@@ -126,6 +130,10 @@ router.post('/leads/:id/convert', requirePermission('pipeline:update'), async (r
         pipelineId: pipeline?.id,
         stage: bodyStage ?? firstStage?.key ?? 'QUALIFICATION',
         assignedToId: req.userId,
+        ...(value !== undefined && { value }),
+        ...(probability !== undefined && { probability }),
+        ...(expectedCloseDate && { expectedCloseDate: new Date(expectedCloseDate) }),
+        ...(notes && { notes }),
       },
     })
     await prisma.lead.update({ where: { id: lead.id }, data: { status: 'CONVERTED' } })

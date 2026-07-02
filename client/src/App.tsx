@@ -68,9 +68,6 @@ const NpsPage = lazy(() =>
 const AutomationsPage = lazy(() =>
   import('./pages/automations/AutomationsPage').then(m => ({ default: m.AutomationsPage }))
 )
-const ActivitiesPage = lazy(() =>
-  import('./pages/activities/ActivitiesPage').then(m => ({ default: m.ActivitiesPage }))
-)
 const AppointmentsPage = lazy(() =>
   import('./pages/appointments/AppointmentsPage').then(m => ({ default: m.AppointmentsPage }))
 )
@@ -212,10 +209,6 @@ export default function App() {
                 <Route path="/automations" element={<AutomationsPage />} />
               </Route>
 
-              {/* activities:read */}
-              <Route element={<ProtectedRoute permission="activities:read" />}>
-                <Route path="/activities" element={<ActivitiesPage />} />
-              </Route>
 
               {/* appointments:read */}
               <Route element={<ProtectedRoute permission="appointments:read" />}>

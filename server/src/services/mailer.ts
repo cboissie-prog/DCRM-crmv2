@@ -12,6 +12,52 @@ const transporter = nodemailer.createTransport({
 const FROM = process.env.SMTP_FROM || 'DCB Technologies <noreply@dcb-technologies.fr>'
 const APP_URL = process.env.APP_URL || 'http://localhost:5173'
 
+/** Envoi générique — retourne silencieusement si le mailer n'est pas configuré */
+export async function sendMail(opts: { to: string; subject: string; html: string; text?: string }): Promise<void> {
+  if (!process.env.SMTP_HOST && !process.env.SMTP_USER) return
+  await transporter.sendMail({ from: FROM, ...opts })
+}
+
+/** Email de clôture de ticket envoyé au demandeur/contact */
+export async function sendTicketClosedEmail(params: {
+  to: string
+  reference: string
+  title: string
+  technicien?: string
+  timeSpent: number
+  status: string
+}): Promise<void> {
+  const { to, reference, title, technicien, timeSpent, status } = params
+  const timeLabel = timeSpent < 60
+    ? `${timeSpent} min`
+    : `${Math.floor(timeSpent / 60)}h${timeSpent % 60 > 0 ? ` ${timeSpent % 60}min` : ''}`
+  const statusLabel = status === 'CLOSED' ? 'Fermé' : status === 'RESOLVED' ? 'Résolu' : status
+
+  await sendMail({
+    to,
+    subject: `[Clôture] #${reference} — ${title}`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 560px; margin: auto; padding: 32px; background: #f8fafc; border-radius: 12px;">
+        <h2 style="color: #1e293b; margin-bottom: 4px;">Ticket clôturé</h2>
+        <p style="color: #64748b; margin-bottom: 24px; font-size: 14px;">Votre demande de support a été traitée et clôturée.</p>
+        <div style="background: white; border-radius: 8px; padding: 20px; border: 1px solid #e2e8f0;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+            <tr><td style="padding: 8px 0; color: #64748b; width: 40%;">Référence</td><td style="color: #1e293b; font-weight: 600; font-family: monospace;">${reference}</td></tr>
+            <tr><td style="padding: 8px 0; color: #64748b;">Titre</td><td style="color: #1e293b;">${title}</td></tr>
+            <tr><td style="padding: 8px 0; color: #64748b;">Statut final</td><td style="color: #1e293b;">${statusLabel}</td></tr>
+            ${technicien ? `<tr><td style="padding: 8px 0; color: #64748b;">Technicien</td><td style="color: #1e293b;">${technicien}</td></tr>` : ''}
+            <tr><td style="padding: 8px 0; color: #64748b;">Temps passé</td><td style="color: #1e293b;">${timeLabel}</td></tr>
+          </table>
+        </div>
+        <p style="color: #94a3b8; font-size: 12px; margin-top: 24px;">
+          Cet email est envoyé automatiquement par DCB Technologies CRM.
+        </p>
+      </div>
+    `,
+    text: `Ticket clôturé\n\nRéférence : ${reference}\nTitre : ${title}\nStatut : ${statusLabel}${technicien ? `\nTechnicien : ${technicien}` : ''}\nTemps passé : ${timeLabel}\n`,
+  })
+}
+
 export async function sendPasswordResetEmail(email: string, token: string): Promise<void> {
   const resetUrl = `${APP_URL}/reset-password?token=${token}`
   await transporter.sendMail({

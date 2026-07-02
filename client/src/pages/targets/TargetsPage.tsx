@@ -154,19 +154,30 @@ function TargetFormModal({ users, period, editing, onClose, onSaved }: TargetFor
   const [loading, setLoading] = useState(false)
 
   const onSubmit = async () => {
-    if (!userId || !target) return
+    if (!editing && !userId) return
+    if (!target) return
+    const targetValue = parseFloat(target)
+    if (isNaN(targetValue) || targetValue <= 0) {
+      toast.error("L'objectif doit être un nombre positif")
+      return
+    }
     setLoading(true)
     try {
+      const actualValue = parseFloat(actual) || 0
       if (editing) {
-        await api.put(`/targets/${editing.id}`, { target: parseFloat(target), actual: parseFloat(actual) })
+        await api.put(`/targets/${editing.id}`, { target: targetValue, actual: actualValue })
         toast.success('Objectif mis à jour')
       } else {
-        await api.post('/targets', { userId, period, target: parseFloat(target), actual: parseFloat(actual) })
+        await api.post('/targets', { userId, period, target: targetValue, actual: actualValue })
         toast.success('Objectif créé')
       }
       onSaved()
       onClose()
-    } catch { toast.error('Erreur lors de la sauvegarde') }
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: { message?: string } } } }
+      const msg = axiosErr?.response?.data?.error?.message ?? 'Erreur lors de la sauvegarde'
+      toast.error(msg)
+    }
     finally { setLoading(false) }
   }
 
@@ -196,7 +207,7 @@ function TargetFormModal({ users, period, editing, onClose, onSaved }: TargetFor
       <p className="text-xs text-slate-400">Période : <strong>{periodLabel(period)}</strong></p>
       <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
         <button className="btn-secondary" onClick={onClose}>Annuler</button>
-        <button className="btn-primary" onClick={onSubmit} disabled={loading || !userId || !target}>
+        <button className="btn-primary" onClick={onSubmit} disabled={loading || (!editing && !userId) || !target}>
           {loading ? 'Enregistrement…' : editing ? 'Mettre à jour' : 'Créer'}
         </button>
       </div>
@@ -404,7 +415,7 @@ function PrevisionsTab({ period }: { period: string }) {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                 <YAxis tickFormatter={v => `${Math.round(v / 1000)}k`} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v) => [`${Number(v).toLocaleString('fr-FR')} €`, '']} />
+                <Tooltip formatter={(v) => [`${Number(v ?? 0).toLocaleString('fr-FR')} €`, '']} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Bar dataKey="Pipeline brut"    fill="#e2e8f0" radius={[4,4,0,0]} />
                 <Bar dataKey="Pipeline pondéré" fill="#6366f1" radius={[4,4,0,0]} />

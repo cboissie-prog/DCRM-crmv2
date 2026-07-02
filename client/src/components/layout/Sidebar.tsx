@@ -20,7 +20,6 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" />, children: [
     { label: 'Tableau de bord', to: '/' },
-    { label: 'Activités',      to: '/activities' },
     { label: 'Rapports',       to: '/reports' },
   ]},
   { label: 'Appels', icon: <Phone className="w-4 h-4" />, to: '/calls' },

@@ -71,6 +71,10 @@ function AddToPipelineModal({ lead, open, onClose }: { lead: Lead | null; open: 
   const qc = useQueryClient()
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>('')
   const [selectedStage, setSelectedStage] = useState<string>('')
+  const [value, setValue] = useState<string>('')
+  const [probability, setProbability] = useState<string>('')
+  const [expectedCloseDate, setExpectedCloseDate] = useState<string>('')
+  const [notes, setNotes] = useState<string>('')
 
   const { data: pipelines = [] } = useQuery<Pipeline[]>({
     queryKey: ['pipelines'],
@@ -84,22 +88,32 @@ function AddToPipelineModal({ lead, open, onClose }: { lead: Lead | null; open: 
   const activeStages = activePipeline?.stages.filter(s => !s.isWon && !s.isLost) ?? []
 
   const convertMutation = useMutation({
-    mutationFn: ({ pipelineId, stage }: { pipelineId: string; stage: string }) =>
-      api.post(`/pipeline/leads/${lead!.id}/convert`, { pipelineId, stage }),
+    mutationFn: (payload: { pipelineId: string; stage: string; value?: number; probability?: number; expectedCloseDate?: string; notes?: string }) =>
+      api.post(`/pipeline/leads/${lead!.id}/convert`, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pipeline-leads'] })
       qc.invalidateQueries({ queryKey: ['pipeline-opportunities'] })
       toast.success('Opportunité créée dans le pipeline !')
       onClose()
     },
-    onError: () => toast.error('Erreur lors de la création'),
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
+      toast.error(msg || 'Erreur lors de la création')
+    },
   })
 
   const handleSubmit = () => {
     const pid = selectedPipelineId || activePipeline?.id
     const stg = selectedStage || activeStages[0]?.key
     if (!pid || !stg) { toast.error('Sélectionnez un pipeline et une étape'); return }
-    convertMutation.mutate({ pipelineId: pid, stage: stg })
+    convertMutation.mutate({
+      pipelineId: pid,
+      stage: stg,
+      ...(value.trim() !== '' && { value: Number(value) }),
+      ...(probability.trim() !== '' && { probability: Number(probability) }),
+      ...(expectedCloseDate && { expectedCloseDate }),
+      ...(notes.trim() !== '' && { notes: notes.trim() }),
+    })
   }
 
   if (!lead) return null
@@ -172,6 +186,26 @@ function AddToPipelineModal({ lead, open, onClose }: { lead: Lead | null; open: 
             </div>
           </div>
         )}
+
+        {/* Conversion fields (optional) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="form-group">
+            <label className="label">Montant (€)</label>
+            <input className="input" type="number" min="0" step="100" placeholder="0" value={value} onChange={e => setValue(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="label">Probabilité (%)</label>
+            <input className="input" type="number" min="0" max="100" placeholder="20" value={probability} onChange={e => setProbability(e.target.value)} />
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="label">Date de clôture prévue</label>
+          <input className="input" type="date" value={expectedCloseDate} onChange={e => setExpectedCloseDate(e.target.value)} />
+        </div>
+        <div className="form-group">
+          <label className="label">Notes</label>
+          <textarea className="input" rows={2} placeholder="Contexte de la conversion..." value={notes} onChange={e => setNotes(e.target.value)} />
+        </div>
 
         <div className="flex justify-end gap-3 pt-2">
           <button className="btn-secondary" onClick={onClose}>Annuler</button>

@@ -44,7 +44,7 @@ const updateSchema = z.object({
 
 // ─── GET /targets?period=2026-Q2 ──────────────────────────────────────────────
 
-router.get('/', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/', requirePermission('targets:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const period = (req.query.period as string) || currentPeriod()
 
@@ -65,7 +65,7 @@ router.get('/', requirePermission('reports:read'), async (req: AuthRequest, res:
 
 // ─── GET /targets/forecast ────────────────────────────────────────────────────
 
-router.get('/forecast', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/forecast', requirePermission('targets:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const period = (req.query.period as string) || currentPeriod()
     const { start, end } = parsePeriod(period)
@@ -171,7 +171,7 @@ router.get('/forecast', requirePermission('reports:read'), async (req: AuthReque
 
 // ─── POST /targets ────────────────────────────────────────────────────────────
 
-router.post('/', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/', requirePermission('targets:write'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = createSchema.parse(req.body)
     // Upsert par userId + period
@@ -195,7 +195,7 @@ router.post('/', requirePermission('reports:read'), async (req: AuthRequest, res
 
 // ─── PUT /targets/:id ─────────────────────────────────────────────────────────
 
-router.put('/:id', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.put('/:id', requirePermission('targets:write'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body   = updateSchema.parse(req.body)
     const id     = req.params.id as string
@@ -210,7 +210,7 @@ router.put('/:id', requirePermission('reports:read'), async (req: AuthRequest, r
 
 // ─── DELETE /targets/:id ──────────────────────────────────────────────────────
 
-router.delete('/:id', requirePermission('reports:read'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.delete('/:id', requirePermission('targets:write'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     await prisma.salesTarget.delete({ where: { id: req.params.id as string } })
     res.json({ success: true })

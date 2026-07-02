@@ -209,6 +209,142 @@ router.get('/churn-risks', requirePermission('dashboard:read'), async (_req: Aut
   } catch (err) { handleRouteError(err, res) }
 })
 
+// GET /dashboard/kpis — 4 KPIs globaux
+router.get('/kpis', requirePermission('dashboard:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const now = new Date()
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+
+    const [
+      contactsCount,
+      openTickets,
+      pipelineAgg,
+      wonCountThisMonth,
+      wonValueThisMonthAgg,
+    ] = await Promise.all([
+      prisma.contact.count({ where: { isActive: true } }),
+      prisma.ticket.count({ where: { status: { in: ['NEW', 'IN_PROGRESS', 'WAITING_CLIENT'] } } }),
+      prisma.opportunity.findMany({
+        where: { stage: { notIn: ['WON', 'LOST'] } },
+        select: { value: true, probability: true },
+      }),
+      prisma.opportunity.count({ where: { stage: 'WON', closedAt: { gte: startOfMonth } } }),
+      prisma.opportunity.aggregate({
+        where: { stage: 'WON', closedAt: { gte: startOfMonth } },
+        _sum: { value: true },
+      }),
+    ])
+
+    const pipelineWeightedValue = pipelineAgg.reduce((sum, o) => sum + o.value * (o.probability / 100), 0)
+
+    res.json({
+      success: true,
+      data: {
+        contactsCount,
+        openTickets,
+        pipelineWeightedValue: Math.round(pipelineWeightedValue),
+        wonThisMonth: {
+          count: wonCountThisMonth,
+          value: wonValueThisMonthAgg._sum.value || 0,
+        },
+      },
+    })
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// GET /dashboard/charts — données pour les graphiques Recharts
+router.get('/charts', requirePermission('dashboard:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const [pipelineByStageRaw, ticketsByStatusRaw, allStages] = await Promise.all([
+      prisma.opportunity.groupBy({
+        by: ['stage'],
+        where: { stage: { notIn: ['WON', 'LOST'] } },
+        _count: { id: true },
+        _sum: { value: true },
+      }),
+      prisma.ticket.groupBy({
+        by: ['status'],
+        _count: { id: true },
+      }),
+      prisma.pipelineStage.findMany({ select: { key: true, name: true } }),
+    ])
+
+    // Construire un map key → name depuis les stages en base (ne pas hardcoder les libellés)
+    const stageNameMap: Record<string, string> = {}
+    for (const s of allStages) {
+      if (!stageNameMap[s.key]) stageNameMap[s.key] = s.name
+    }
+
+    const STATUS_LABELS: Record<string, string> = {
+      NEW: 'Nouveau',
+      IN_PROGRESS: 'En cours',
+      WAITING_CLIENT: 'En attente',
+      RESOLVED: 'Résolu',
+      CLOSED: 'Fermé',
+    }
+
+    const pipelineByStage = pipelineByStageRaw.map(p => ({
+      stage: p.stage,
+      stageName: stageNameMap[p.stage] ?? p.stage,
+      count: p._count.id,
+      value: p._sum.value || 0,
+    }))
+
+    const ticketsByStatus = ticketsByStatusRaw.map(t => ({
+      status: t.status,
+      label: STATUS_LABELS[t.status] ?? t.status,
+      count: t._count.id,
+    }))
+
+    res.json({ success: true, data: { pipelineByStage, ticketsByStatus } })
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// GET /dashboard/alerts — contrats expirant bientôt + opportunités inactives
+router.get('/alerts', requirePermission('dashboard:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const now = new Date()
+    const in60Days = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000)
+    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
+
+    const [expiringContracts, staleOpportunities] = await Promise.all([
+      prisma.contract.findMany({
+        where: {
+          status: { in: ['ACTIVE', 'EXPIRING_SOON'] },
+          endDate: { lte: in60Days, gte: now },
+        },
+        select: {
+          id: true,
+          reference: true,
+          title: true,
+          endDate: true,
+          company: { select: { id: true, name: true } },
+        },
+        orderBy: { endDate: 'asc' },
+        take: 10,
+      }),
+      prisma.opportunity.findMany({
+        where: {
+          stage: { notIn: ['WON', 'LOST'] },
+          updatedAt: { lte: fourteenDaysAgo },
+        },
+        select: {
+          id: true,
+          title: true,
+          stage: true,
+          value: true,
+          updatedAt: true,
+          company: { select: { id: true, name: true } },
+        },
+        orderBy: { updatedAt: 'asc' },
+        take: 10,
+      }),
+    ])
+
+    res.json({ success: true, data: { expiringContracts, staleOpportunities } })
+  } catch (err) { handleRouteError(err, res) }
+})
+
 router.get('/nps', requirePermission('dashboard:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const responses = await prisma.npsResponse.findMany({ orderBy: { createdAt: 'desc' } })

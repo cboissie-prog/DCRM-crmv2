@@ -16,7 +16,6 @@ import ticketsRoutes from './routes/tickets'
 import contractsRoutes from './routes/contracts'
 import equipmentRoutes from './routes/equipment'
 import licensesRoutes from './routes/licenses'
-import activitiesRoutes from './routes/activities'
 import appointmentsRoutes from './routes/appointments'
 import dashboardRoutes from './routes/dashboard'
 import notificationsRoutes from './routes/notifications'
@@ -110,7 +109,6 @@ export function createApp(opts: CreateAppOptions = {}): express.Express {
   app.use('/api/contracts', contractsRoutes)
   app.use('/api/equipment', equipmentRoutes)
   app.use('/api/licenses', licensesRoutes)
-  app.use('/api/activities', activitiesRoutes)
   app.use('/api/appointments', appointmentsRoutes)
   app.use('/api/dashboard', dashboardRoutes)
   app.use('/api/notifications', notificationsRoutes)
