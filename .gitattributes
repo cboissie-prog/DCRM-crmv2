@@ -1,0 +1,3 @@
+# Les scripts shell doivent garder des fins de ligne LF, même sur un checkout Windows
+# (un CRLF casse le shebang et les commandes côté serveur Linux).
+*.sh text eol=lf
