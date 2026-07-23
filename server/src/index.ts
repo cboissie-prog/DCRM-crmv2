@@ -47,6 +47,7 @@ if (process.env.NODE_ENV === 'production') {
 
 import { createApp } from './app'
 import { startScheduler } from './scheduler'
+import { ensureWonLostStagesForAllPipelines } from './services/pipelineService'
 
 const app = createApp()
 const PORT = Number(process.env.PORT) || 3001
@@ -55,6 +56,12 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
   logger.info(`🚀 CRM Server running on http://localhost:${PORT}`)
   logger.info(`   Environment: ${process.env.NODE_ENV || 'development'}`)
   logger.info(`   Database: SQLite (dev.db)`)
+  try {
+    const fixed = await ensureWonLostStagesForAllPipelines()
+    if (fixed > 0) logger.info(`Étapes Gagné/Perdu ajoutées sur ${fixed} pipeline(s) qui en étaient dépourvus`)
+  } catch (err) {
+    logger.error({ err }, 'Échec du rattrapage des étapes Gagné/Perdu')
+  }
   await startScheduler()
 })
 

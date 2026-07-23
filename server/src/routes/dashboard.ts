@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { getWonLostStageKeys } from '../services/pipelineService'
 
 const router = Router()
 router.use(authenticate)
@@ -68,6 +69,7 @@ router.get('/stats', requirePermission('dashboard:read'), async (_req: AuthReque
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0)
     const in60Days = new Date(); in60Days.setDate(now.getDate() + 60)
+    const { wonKeys, lostKeys } = await getWonLostStageKeys()
 
     const [
       totalContacts,
@@ -97,8 +99,8 @@ router.get('/stats', requirePermission('dashboard:read'), async (_req: AuthReque
       prisma.ticket.count({ where: { createdAt: { gte: startOfMonth } } }),
       prisma.contract.count({ where: { status: 'ACTIVE' } }),
       prisma.contract.count({ where: { status: { in: ['ACTIVE', 'EXPIRING_SOON'] }, endDate: { lte: in60Days } } }),
-      prisma.opportunity.count({ where: { stage: { notIn: ['WON', 'LOST'] } } }),
-      prisma.opportunity.count({ where: { stage: 'WON', closedAt: { gte: startOfMonth } } }),
+      prisma.opportunity.count({ where: { stage: { notIn: [...wonKeys, ...lostKeys] } } }),
+      prisma.opportunity.count({ where: { stage: { in: wonKeys }, closedAt: { gte: startOfMonth } } }),
       prisma.license.count({ where: { expiryDate: { lte: in60Days, gte: now } } }),
       prisma.equipment.count({ where: { warrantyExpiry: { lte: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000), gte: now } } }),
       prisma.activity.findMany({
@@ -111,9 +113,9 @@ router.get('/stats', requirePermission('dashboard:read'), async (_req: AuthReque
       }),
       prisma.opportunity.groupBy({ by: ['stage'], _count: { id: true }, _sum: { value: true } }),
       prisma.contract.findMany({ where: { status: 'ACTIVE' }, select: { monthlyAmount: true, annualAmount: true } }),
-      prisma.opportunity.aggregate({ where: { stage: { notIn: ['WON', 'LOST'] } }, _sum: { value: true } }),
-      prisma.opportunity.aggregate({ where: { stage: 'WON', closedAt: { gte: startOfMonth } }, _sum: { value: true } }),
-      prisma.opportunity.aggregate({ where: { stage: 'WON', closedAt: { gte: startOfLastMonth, lte: endOfLastMonth } }, _sum: { value: true } }),
+      prisma.opportunity.aggregate({ where: { stage: { notIn: [...wonKeys, ...lostKeys] } }, _sum: { value: true } }),
+      prisma.opportunity.aggregate({ where: { stage: { in: wonKeys }, closedAt: { gte: startOfMonth } }, _sum: { value: true } }),
+      prisma.opportunity.aggregate({ where: { stage: { in: wonKeys }, closedAt: { gte: startOfLastMonth, lte: endOfLastMonth } }, _sum: { value: true } }),
     ])
 
     const mrr = activeContractsList.reduce((sum, c) => sum + (c.monthlyAmount || c.annualAmount / 12), 0)
@@ -162,9 +164,10 @@ router.get('/revenue', requirePermission('dashboard:read'), async (req: AuthRequ
         label: start.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }),
       }
     })
+    const { wonKeys } = await getWonLostStageKeys()
     const results = await Promise.all(
       periods.map(p => prisma.opportunity.aggregate({
-        where: { stage: 'WON', closedAt: { gte: p.start, lte: p.end } },
+        where: { stage: { in: wonKeys }, closedAt: { gte: p.start, lte: p.end } },
         _sum: { value: true },
       }))
     )
@@ -214,6 +217,7 @@ router.get('/kpis', requirePermission('dashboard:read'), async (_req: AuthReques
   try {
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    const { wonKeys, lostKeys } = await getWonLostStageKeys()
 
     const [
       contactsCount,
@@ -225,12 +229,12 @@ router.get('/kpis', requirePermission('dashboard:read'), async (_req: AuthReques
       prisma.contact.count({ where: { isActive: true } }),
       prisma.ticket.count({ where: { status: { in: ['NEW', 'IN_PROGRESS', 'WAITING_CLIENT'] } } }),
       prisma.opportunity.findMany({
-        where: { stage: { notIn: ['WON', 'LOST'] } },
+        where: { stage: { notIn: [...wonKeys, ...lostKeys] } },
         select: { value: true, probability: true },
       }),
-      prisma.opportunity.count({ where: { stage: 'WON', closedAt: { gte: startOfMonth } } }),
+      prisma.opportunity.count({ where: { stage: { in: wonKeys }, closedAt: { gte: startOfMonth } } }),
       prisma.opportunity.aggregate({
-        where: { stage: 'WON', closedAt: { gte: startOfMonth } },
+        where: { stage: { in: wonKeys }, closedAt: { gte: startOfMonth } },
         _sum: { value: true },
       }),
     ])
@@ -255,10 +259,11 @@ router.get('/kpis', requirePermission('dashboard:read'), async (_req: AuthReques
 // GET /dashboard/charts — données pour les graphiques Recharts
 router.get('/charts', requirePermission('dashboard:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
+    const { wonKeys, lostKeys } = await getWonLostStageKeys()
     const [pipelineByStageRaw, ticketsByStatusRaw, allStages] = await Promise.all([
       prisma.opportunity.groupBy({
         by: ['stage'],
-        where: { stage: { notIn: ['WON', 'LOST'] } },
+        where: { stage: { notIn: [...wonKeys, ...lostKeys] } },
         _count: { id: true },
         _sum: { value: true },
       }),
@@ -306,6 +311,7 @@ router.get('/alerts', requirePermission('dashboard:read'), async (_req: AuthRequ
     const now = new Date()
     const in60Days = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000)
     const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
+    const { wonKeys, lostKeys } = await getWonLostStageKeys()
 
     const [expiringContracts, staleOpportunities] = await Promise.all([
       prisma.contract.findMany({
@@ -325,7 +331,7 @@ router.get('/alerts', requirePermission('dashboard:read'), async (_req: AuthRequ
       }),
       prisma.opportunity.findMany({
         where: {
-          stage: { notIn: ['WON', 'LOST'] },
+          stage: { notIn: [...wonKeys, ...lostKeys] },
           updatedAt: { lte: fourteenDaysAgo },
         },
         select: {

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { getWonLostStageKeys } from '../services/pipelineService'
 
 const router = Router()
 router.use(authenticate)
@@ -69,10 +70,11 @@ router.get('/forecast', requirePermission('targets:read'), async (req: AuthReque
   try {
     const period = (req.query.period as string) || currentPeriod()
     const { start, end } = parsePeriod(period)
+    const { wonKeys, lostKeys } = await getWonLostStageKeys()
 
     const [openOpps, wonOpps] = await Promise.all([
       prisma.opportunity.findMany({
-        where: { stage: { notIn: ['WON', 'LOST'] } },
+        where: { stage: { notIn: [...wonKeys, ...lostKeys] } },
         include: {
           assignedTo: { select: { id: true, firstName: true, lastName: true, avatar: true } },
           company:    { select: { id: true, name: true } },
@@ -80,7 +82,7 @@ router.get('/forecast', requirePermission('targets:read'), async (req: AuthReque
         orderBy: { value: 'desc' },
       }),
       prisma.opportunity.findMany({
-        where: { stage: 'WON', closedAt: { gte: start, lte: end } },
+        where: { stage: { in: wonKeys }, closedAt: { gte: start, lte: end } },
         include: { assignedTo: { select: { id: true, firstName: true, lastName: true } } },
       }),
     ])

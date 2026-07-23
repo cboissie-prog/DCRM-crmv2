@@ -4,6 +4,7 @@ import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
 import { fireAutomations } from '../automation-engine'
+import { getWonLostStageKeys } from '../services/pipelineService'
 
 const router = Router()
 router.use(authenticate)
@@ -261,7 +262,15 @@ router.put('/opportunities/:id', requirePermission('pipeline:update'), async (re
     if (body.expectedCloseDate) data.expectedCloseDate = new Date(body.expectedCloseDate)
     if (body.remindAt) data.remindAt = new Date(body.remindAt)
     else if (body.remindAt === null) data.remindAt = null
-    if (body.stage === 'WON' || body.stage === 'LOST') data.closedAt = new Date()
+    if (body.stage) {
+      // Ne toucher closedAt que si l'étape change réellement, pour ne pas re-dater
+      // la clôture d'une opportunité déjà gagnée/perdue lors d'une simple édition.
+      const current = await prisma.opportunity.findUnique({ where: { id: req.params.id }, select: { stage: true } })
+      if (current && current.stage !== body.stage) {
+        const { wonKeys, lostKeys } = await getWonLostStageKeys()
+        data.closedAt = wonKeys.includes(body.stage) || lostKeys.includes(body.stage) ? new Date() : null
+      }
+    }
     const opp = await prisma.opportunity.update({ where: { id: req.params.id }, data: data as Parameters<typeof prisma.opportunity.update>[0]['data'] })
     res.json({ success: true, data: opp })
   } catch (err) { handleRouteError(err, res) }
@@ -273,7 +282,10 @@ router.patch('/opportunities/:id/stage', requirePermission('pipeline:update'), a
     const previous = await prisma.opportunity.findUnique({ where: { id: req.params.id }, select: { stage: true, title: true, value: true, companyId: true, assignedToId: true } })
     const data: Record<string, unknown> = { stage }
     if (lostReason) data.lostReason = lostReason
-    if (stage === 'WON' || stage === 'LOST') data.closedAt = new Date()
+    if (previous && previous.stage !== stage) {
+      const { wonKeys, lostKeys } = await getWonLostStageKeys()
+      data.closedAt = wonKeys.includes(stage) || lostKeys.includes(stage) ? new Date() : null
+    }
     const opp = await prisma.opportunity.update({ where: { id: req.params.id }, data: data as Parameters<typeof prisma.opportunity.update>[0]['data'] })
     if (previous && previous.stage !== stage) {
       fireAutomations('OPPORTUNITY_STAGE_CHANGED', {

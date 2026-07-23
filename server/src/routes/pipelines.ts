@@ -3,6 +3,7 @@ import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { ensureWonLostStages } from '../services/pipelineService'
 
 const router = Router()
 router.use(authenticate)
@@ -24,24 +25,6 @@ const stageSchema = z.object({
 })
 
 // ─── Helpers ─────────────────────────────────────────────
-
-/** Injecte automatiquement les étapes WON et LOST si elles sont absentes du pipeline. */
-async function ensureWonLostStages(pipelineId: string): Promise<void> {
-  const existing = await prisma.pipelineStage.findMany({ where: { pipelineId }, select: { isWon: true, isLost: true } })
-  const hasWon  = existing.some(s => s.isWon)
-  const hasLost = existing.some(s => s.isLost)
-
-  if (!hasWon) {
-    await prisma.pipelineStage.create({
-      data: { pipelineId, key: 'WON', name: 'Gagné', color: '#10b981', isWon: true, isLost: false, order: 9998 },
-    })
-  }
-  if (!hasLost) {
-    await prisma.pipelineStage.create({
-      data: { pipelineId, key: 'LOST', name: 'Perdu', color: '#ef4444', isWon: false, isLost: true, order: 9999 },
-    })
-  }
-}
 
 /** Réservé aux ADMIN. Renvoie false + 403 sinon. */
 function requireAdmin(req: AuthRequest, res: Response): boolean {
