@@ -30,6 +30,44 @@ const updateUserSchema = z.object({
   isActive: z.boolean().optional(),
 })
 
+/**
+ * Vérifie que l'appelant a le droit d'attribuer `roleRecord` à un compte.
+ *
+ * Sans ce contrôle, `users:create` (détenue par MANAGER) suffisait à créer un compte
+ * ADMIN — donc à s'octroyer le bypass total des permissions. On refuse deux cas :
+ *   1. attribuer ADMIN sans être ADMIN (ADMIN = permissions ['*']) ;
+ *   2. attribuer un rôle possédant une permission que l'appelant n'a pas lui-même
+ *      (escalade horizontale : un MANAGER ne peut pas créer un compte doté de
+ *      `settings:roles` alors que le seed la lui refuse).
+ * Répond directement et renvoie false si l'attribution est refusée.
+ */
+async function canAssignRole(req: AuthRequest, roleRecord: { id: string; name: string }, res: Response): Promise<boolean> {
+  if (req.permissions?.includes('*')) return true
+
+  const forbid = (message: string): false => {
+    res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message } })
+    return false
+  }
+
+  if (roleRecord.name.toUpperCase() === 'ADMIN') {
+    return forbid('Seul un administrateur peut attribuer le rôle ADMIN')
+  }
+
+  const targetPermissions = await prisma.rolePermission.findMany({
+    where: { roleId: roleRecord.id },
+    include: { permission: { select: { key: true } } },
+  })
+  const own = new Set(req.permissions ?? [])
+  const escalating = targetPermissions
+    .map(rp => rp.permission.key)
+    .filter(key => !own.has(key))
+
+  if (escalating.length > 0) {
+    return forbid(`Vous ne pouvez pas attribuer un rôle disposant de permissions que vous n'avez pas (${escalating.join(', ')})`)
+  }
+  return true
+}
+
 // GET / — liste users (ADMIN, MANAGER)
 router.get('/', requirePermission('users:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -57,6 +95,7 @@ router.post('/', requirePermission('users:create'), async (req: AuthRequest, res
         res.status(400).json({ success: false, error: { code: 'INVALID_ROLE', message: 'Rôle inconnu' } })
         return
       }
+      if (!await canAssignRole(req, roleRecord, res)) return
     }
 
     const { role: _role, ...rest } = body
@@ -148,6 +187,9 @@ router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
         res.status(400).json({ success: false, error: { code: 'INVALID_ROLE', message: 'Rôle inconnu' } })
         return
       }
+      // Défense en profondeur : `body.role` est déjà retiré plus haut pour les non-ADMIN,
+      // mais on ne s'appuie pas uniquement sur la chaîne de rôle historique pour autoriser.
+      if (!await canAssignRole(req, roleRecord, res)) return
       roleFields = { role: roleRecord.name, roleId: roleRecord.id }
     }
 

@@ -72,7 +72,14 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
   }
   const token = authHeader.split(' ')[1]
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string; role: string; permissions?: string[] }
+    const payload = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string; role: string; permissions?: string[]; typ?: string }
+    // Les jetons d'accès n'ont pas de claim `typ`. Tout jeton typé est un jeton à usage
+    // spécifique (state OAuth, etc.) et ne doit jamais authentifier une requête, même s'il
+    // se trouvait signé avec ce secret.
+    if (payload.typ !== undefined) {
+      res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Token invalide ou expiré' } })
+      return
+    }
     req.userId = payload.userId
     req.userRole = payload.role
     req.permissions = payload.permissions ?? []

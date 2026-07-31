@@ -51,14 +51,44 @@ router.get('/:key', requirePermission('settings:read'), async (req: AuthRequest,
   } catch (err) { handleRouteError(err, res) }
 })
 
-// PUT /api/settings/:key — update setting (admin only)
+/**
+ * Réglages qui gouvernent l'authentification : ils décident qui peut obtenir un compte.
+ * `googleAllowedDomain` est l'unique garde-fou de l'auto-création via Google OAuth
+ * (routes/auth.ts) — le laisser derrière `settings:write`, que MANAGER possède, revenait
+ * à transformer une permission de paramétrage en provisioning de comptes non authentifié
+ * (pointer le domaine sur un fournisseur public ouvre l'inscription à tout Internet).
+ */
+const AUTH_SENSITIVE_KEYS = new Set(['googleAllowedDomain', 'googleAutoCreateRole'])
+
+/** Nom de domaine simple : labels alphanumériques séparés par des points, TLD d'au moins 2 lettres. */
+const DOMAIN_RE = /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z]{2,}$/
+
+// PUT /api/settings/:key — update setting (les clés d'authentification sont réservées aux ADMIN)
 router.put('/:key', requirePermission('settings:write'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { key } = req.params
     const { value } = z.object({ value: z.string() }).parse(req.body)
     if (!DEFAULTS[key]) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Paramètre inconnu' } }); return }
 
+    if (AUTH_SENSITIVE_KEYS.has(key) && !req.permissions?.includes('*')) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Seul un administrateur peut modifier les paramètres de connexion Google' } })
+      return
+    }
+
     let finalValue = value
+
+    // Domaine autorisé pour l'auto-création Google : format vérifié et normalisé en minuscules.
+    // Sans validation, une valeur vide ou un caractère parasite ouvrait ou cassait silencieusement
+    // le contrôle de domaine côté callback OAuth.
+    if (key === 'googleAllowedDomain') {
+      const domain = value.trim().toLowerCase().replace(/^@/, '')
+      if (!DOMAIN_RE.test(domain)) {
+        res.status(400).json({ success: false, error: { code: 'INVALID_DOMAIN', message: 'Domaine invalide (attendu : exemple.fr)' } })
+        return
+      }
+      finalValue = domain
+    }
+
     // Le rôle d'auto-création Google ne doit jamais être ADMIN (ADMIN = bypass total des permissions).
     // On vérifie aussi que le rôle existe, et on normalise en majuscules (les noms de rôles le sont).
     if (key === 'googleAutoCreateRole') {

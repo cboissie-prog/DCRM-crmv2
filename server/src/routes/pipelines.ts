@@ -142,7 +142,9 @@ router.post('/templates/:id/stages', requirePermission('pipeline:create'), async
 router.put('/templates/:id/stages/:stageId', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   if (!requireAdmin(req, res)) return
   try {
-    const existing = await prisma.pipelineStage.findUnique({ where: { id: req.params.stageId } })
+    // Cadrage sur le template parent : sans ce filtre, la route templates permettait de
+    // modifier l'étape d'un pipeline personnel quelconque par son seul identifiant.
+    const existing = await prisma.pipelineStage.findFirst({ where: { id: req.params.stageId, pipelineId: req.params.id } })
     if (!existing) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Étape introuvable' } }); return }
     if (existing.isWon || existing.isLost) { res.status(400).json({ success: false, error: { code: 'FORBIDDEN', message: 'Impossible de modifier les étapes Gagné/Perdu' } }); return }
     const body = stageSchema.partial().parse(req.body)
@@ -154,7 +156,8 @@ router.put('/templates/:id/stages/:stageId', requirePermission('pipeline:update'
 router.delete('/templates/:id/stages/:stageId', requirePermission('pipeline:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   if (!requireAdmin(req, res)) return
   try {
-    const stage = await prisma.pipelineStage.findUnique({ where: { id: req.params.stageId } })
+    // Cadrage sur le template parent — cf. PUT ci-dessus.
+    const stage = await prisma.pipelineStage.findFirst({ where: { id: req.params.stageId, pipelineId: req.params.id } })
     if (!stage) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Étape introuvable' } }); return }
     if (stage.isWon || stage.isLost) { res.status(400).json({ success: false, error: { code: 'FORBIDDEN', message: 'Impossible de supprimer les étapes Gagné/Perdu' } }); return }
     await prisma.pipelineStage.delete({ where: { id: req.params.stageId } })
@@ -273,7 +276,10 @@ router.post('/:id/stages', requirePermission('pipeline:create'), async (req: Aut
 router.put('/:id/stages/:stageId', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   if (!await canManagePipeline(req.params.id, req, res)) return
   try {
-    const existing = await prisma.pipelineStage.findUnique({ where: { id: req.params.stageId } })
+    // Cadrage sur le pipeline parent : `canManagePipeline` autorise sur :id, la mutation doit
+    // donc porter sur une étape DE ce pipeline. Sans ce filtre, un utilisateur autorisé sur son
+    // propre pipeline pouvait modifier l'étape de n'importe quel autre par son seul identifiant.
+    const existing = await prisma.pipelineStage.findFirst({ where: { id: req.params.stageId, pipelineId: req.params.id } })
     if (!existing) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Étape introuvable' } }); return }
     if (existing.isWon || existing.isLost) { res.status(400).json({ success: false, error: { code: 'FORBIDDEN', message: 'Impossible de modifier les étapes Gagné/Perdu' } }); return }
     const body = stageSchema.partial().parse(req.body)
@@ -285,7 +291,10 @@ router.put('/:id/stages/:stageId', requirePermission('pipeline:update'), async (
 router.delete('/:id/stages/:stageId', requirePermission('pipeline:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   if (!await canManagePipeline(req.params.id, req, res)) return
   try {
-    const stage = await prisma.pipelineStage.findUnique({ where: { id: req.params.stageId } })
+    // Cadrage sur le pipeline parent. C'était doublement nécessaire ici : le comptage
+    // d'opportunités ci-dessous porte sur `req.params.id`, donc supprimer l'étape d'un AUTRE
+    // pipeline renvoyait toujours 0 et le garde-fou « étape non vide » ne se déclenchait jamais.
+    const stage = await prisma.pipelineStage.findFirst({ where: { id: req.params.stageId, pipelineId: req.params.id } })
     if (!stage) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Étape introuvable' } }); return }
     if (stage.isWon || stage.isLost) { res.status(400).json({ success: false, error: { code: 'FORBIDDEN', message: 'Impossible de supprimer les étapes Gagné/Perdu' } }); return }
     const oppsInStage = await prisma.opportunity.count({ where: { pipelineId: req.params.id, stage: stage.key } })
@@ -299,7 +308,15 @@ router.patch('/:id/stages/reorder', requirePermission('pipeline:update'), async 
   if (!await canManagePipeline(req.params.id, req, res)) return
   try {
     const { stages } = z.object({ stages: z.array(z.object({ id: z.string(), order: z.number().int() })) }).parse(req.body)
-    await Promise.all(stages.map(s => prisma.pipelineStage.update({ where: { id: s.id }, data: { order: s.order } })))
+    // `updateMany` avec cadrage sur le pipeline parent : un identifiant d'étape appartenant à un
+    // autre pipeline est ignoré au lieu d'être réécrit. La transaction évite qu'un échec partiel
+    // laisse des ordres dupliqués ou manquants — le Kanban serait alors incohérent sans erreur.
+    await prisma.$transaction(
+      stages.map(s => prisma.pipelineStage.updateMany({
+        where: { id: s.id, pipelineId: req.params.id },
+        data: { order: s.order },
+      }))
+    )
     const updated = await prisma.pipelineStage.findMany({ where: { pipelineId: req.params.id }, orderBy: { order: 'asc' } })
     res.json({ success: true, data: updated })
   } catch (err) { handleRouteError(err, res) }

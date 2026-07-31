@@ -12,6 +12,7 @@
 
 import { Router, Request, Response } from 'express'
 import jwt from 'jsonwebtoken'
+import { createHmac } from 'crypto'
 import { google } from 'googleapis'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest } from '../middleware/auth'
@@ -38,6 +39,22 @@ const CALENDAR_REDIRECT_URI = process.env.GOOGLE_CALENDAR_REDIRECT_URI
       ? new URL(process.env.GOOGLE_REDIRECT_URI).origin + '/api/google/calendar/callback'
       : 'http://localhost:3001/api/google/calendar/callback')
 const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:5173'
+
+/**
+ * Secret dédié à la signature du `state` OAuth Calendar.
+ *
+ * Le state transite en paramètre d'URL : il finit dans l'historique du navigateur, les en-têtes
+ * Referer et les logs d'accès (morgan 'combined'). Signé avec JWT_SECRET, il constituait un
+ * jeton d'accès valide pour `authenticate` — rejouable en `Authorization: Bearer` par quiconque
+ * lisait une ligne de log. On le dérive donc par HMAC pour obtenir une clé indépendante, sans
+ * imposer une nouvelle variable d'environnement aux déploiements existants.
+ */
+const STATE_SECRET = createHmac('sha256', process.env.JWT_SECRET ?? '')
+  .update('google-calendar-oauth-state-v1')
+  .digest('hex')
+
+/** Marqueur de type : `authenticate` refuse tout jeton portant un claim `typ`. */
+const STATE_TOKEN_TYPE = 'gcal_state'
 
 const CALENDAR_SCOPES = [
   'openid',
@@ -170,8 +187,9 @@ router.get('/status', authenticate, async (req: AuthRequest, res: Response): Pro
 router.get('/calendar/connect', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
   if (!requireGoogleConfig(res)) return
   try {
-    // Génère un state JWT signé contenant l'userId (5 min)
-    const state = jwt.sign({ userId: req.userId }, process.env.JWT_SECRET!, { expiresIn: '5m' })
+    // Génère un state JWT signé contenant l'userId (5 min), avec un secret dédié et un claim
+    // de type — il ne doit jamais pouvoir servir de jeton d'accès (cf. STATE_SECRET).
+    const state = jwt.sign({ userId: req.userId, typ: STATE_TOKEN_TYPE }, STATE_SECRET, { expiresIn: '5m' })
     res.cookie(STATE_COOKIE, state, STATE_COOKIE_OPTIONS)
 
     const oauth2Client = getOAuth2Client()
@@ -209,7 +227,8 @@ router.get('/calendar/callback', async (req: Request, res: Response): Promise<vo
   // Décode le JWT state pour obtenir l'userId
   let userId: string
   try {
-    const payload = jwt.verify(state, process.env.JWT_SECRET!) as { userId: string }
+    const payload = jwt.verify(state, STATE_SECRET) as { userId: string; typ?: string }
+    if (payload.typ !== STATE_TOKEN_TYPE) throw new Error('type de jeton inattendu')
     userId = payload.userId
   } catch {
     res.status(400).json({ success: false, error: { code: 'INVALID_STATE', message: 'State expiré ou invalide' } })
