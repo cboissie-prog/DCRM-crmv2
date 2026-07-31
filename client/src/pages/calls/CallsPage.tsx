@@ -18,6 +18,7 @@ import {
   Upload, FileText, Ticket, TrendingUp,
   Download, Clock, Building2, User, ChevronDown,
 } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -83,9 +84,12 @@ export function CallsPage() {
     <div className="space-y-5 fade-in">
       {/* Header */}
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Appels téléphoniques</h1>
-          <p className="page-subtitle">{data?.meta.total ?? 0} appels</p>
+        <div className="flex items-center gap-3">
+          <PageIcon module="calls" icon={<Phone className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">Appels téléphoniques</h1>
+            <p className="page-subtitle">{data?.meta.total ?? 0} appels</p>
+          </div>
         </div>
         <CanDo permission="calls:create">
           <button className="btn-primary" onClick={() => setShowCreate(true)}>

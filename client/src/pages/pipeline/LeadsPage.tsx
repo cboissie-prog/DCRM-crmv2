@@ -9,6 +9,7 @@ import {
   AlertCircle, Plus, Pencil, Trash2,
   PhoneOff, ArrowRightCircle, RotateCcw, UserPlus, Users, X,
 } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 import api from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
 import { formatDate, formatRelative, LEAD_SOURCES, getScoreColor, getScoreBg, cn } from '../../lib/utils'
@@ -373,9 +374,12 @@ export function LeadsPage() {
     <div className="space-y-5 fade-in">
       {/* Header */}
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Leads</h1>
-          <p className="page-subtitle">{totalLeads} leads</p>
+        <div className="flex items-center gap-3">
+          <PageIcon module="commercial" icon={<UserPlus className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">Leads</h1>
+            <p className="page-subtitle">{totalLeads} leads</p>
+          </div>
         </div>
         {canEdit && (
           <button className="btn-primary" onClick={() => { createForm.reset({ score: 50, source: 'MANUAL' }); setShowCreate(true) }}>

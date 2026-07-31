@@ -17,6 +17,7 @@ import {
   Pencil, Bell, BellOff, FileText, CalendarCheck, Phone, Zap, Link2,
   PartyPopper, UserPlus,
 } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 import api from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
 import { formatCurrency, formatDate, cn } from '../../lib/utils'
@@ -1107,9 +1108,12 @@ export function PipelinePage() {
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="page-header">
         <div className="flex flex-wrap items-center gap-4">
-          <div>
-            <h1 className="page-title">Pipeline commercial</h1>
-            <p className="page-subtitle">{activeOpps.length} opportunités en cours</p>
+          <div className="flex items-center gap-3">
+            <PageIcon module="commercial" icon={<TrendingUp className="w-5 h-5" />} />
+            <div>
+              <h1 className="page-title">Pipeline commercial</h1>
+              <p className="page-subtitle">{activeOpps.length} opportunités en cours</p>
+            </div>
           </div>
           {/* Sélecteur de pipeline */}
           {pipelines.length > 0 && (

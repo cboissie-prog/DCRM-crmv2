@@ -14,6 +14,7 @@ import {
   Target, TrendingUp, Trophy, Plus, Pencil, Trash2,
   ChevronLeft, ChevronRight, CheckCircle2, Clock, CalendarRange,
 } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -721,9 +722,7 @@ export function TargetsPage() {
       {/* Header */}
       <div className="page-header">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
-            <Target className="w-5 h-5 text-indigo-600" />
-          </div>
+          <PageIcon module="commercial" icon={<Target className="w-5 h-5" />} />
           <div>
             <h1 className="page-title">Objectifs & Prévisions</h1>
             <p className="page-subtitle">Quotas commerciaux et pipeline pondéré</p>

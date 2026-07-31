@@ -21,6 +21,7 @@ import {
   Calendar,
   ChevronDown,
 } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 import api from '../../lib/api'
 import { cn, formatDateTime } from '../../lib/utils'
 import { Avatar } from '../../components/ui/Avatar'
@@ -538,11 +539,14 @@ export function AppointmentsPage() {
       {/* Header + Filters — zone fixe */}
       <div className={isCalendar ? 'flex-none space-y-3' : 'space-y-5'}>
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Agenda & Interventions</h1>
-          <p className="page-subtitle">
-            {calendarTitle} &mdash; {appointments.length} événement{appointments.length !== 1 ? 's' : ''}
-          </p>
+        <div className="flex items-center gap-3">
+          <PageIcon module="agenda" icon={<Calendar className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">Agenda & Interventions</h1>
+            <p className="page-subtitle">
+              {calendarTitle} &mdash; {appointments.length} événement{appointments.length !== 1 ? 's' : ''}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           {/* Sélecteur de calendrier */}
