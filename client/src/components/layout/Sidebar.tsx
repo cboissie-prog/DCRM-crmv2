@@ -5,6 +5,7 @@ import {
   ChevronDown, Monitor, LogOut, LayoutGrid, X, Phone,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { moduleTheme, type ModuleKey } from '../../lib/moduleTheme'
 import { useAuthStore } from '../../store/authStore'
 import { Avatar } from '../ui/Avatar'
 import { useState } from 'react'
@@ -12,33 +13,34 @@ import { useState } from 'react'
 interface NavItem {
   label: string
   icon: React.ReactNode
+  module?: ModuleKey
   to?: string
   children?: { label: string; to: string; roles?: string[]; permission?: string }[]
   roles?: string[]
 }
 
 const navItems: NavItem[] = [
-  { label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" />, to: '/' },
-  { label: 'Appels', icon: <Phone className="w-4 h-4" />, to: '/calls' },
-  { label: 'Commercial', icon: <TrendingUp className="w-4 h-4" />, children: [
+  { label: 'Dashboard', module: 'dashboard', icon: <LayoutDashboard className="w-4 h-4" />, to: '/' },
+  { label: 'Appels', module: 'calls', icon: <Phone className="w-4 h-4" />, to: '/calls' },
+  { label: 'Commercial', module: 'commercial', icon: <TrendingUp className="w-4 h-4" />, children: [
     { label: 'Pipeline',            to: '/pipeline' },
     { label: 'Leads',               to: '/leads' },
     { label: 'Objectifs & Prévisions', to: '/targets' },
   ]},
-  { label: 'Agenda', icon: <Calendar className="w-4 h-4" />, to: '/appointments' },
-  { label: 'Contacts', icon: <Users className="w-4 h-4" />, children: [
+  { label: 'Agenda', module: 'agenda', icon: <Calendar className="w-4 h-4" />, to: '/appointments' },
+  { label: 'Contacts', module: 'contacts', icon: <Users className="w-4 h-4" />, children: [
     { label: 'Tous les contacts', to: '/contacts' },
     { label: 'Entreprises',       to: '/companies' },
     { label: 'Cartographie',      to: '/companies/map' },
   ]},
-  { label: 'Parc informatique', icon: <Monitor className="w-4 h-4" />, children: [
+  { label: 'Parc informatique', module: 'parc', icon: <Monitor className="w-4 h-4" />, children: [
     { label: 'Clients',     to: '/parc' },
     { label: 'Équipements', to: '/equipment' },
     { label: 'Licences',    to: '/licenses' },
     { label: 'Contrats',    to: '/contracts' },
   ]},
-  { label: 'Tickets SAV', icon: <Wrench className="w-4 h-4" />, to: '/tickets' },
-  { label: 'Outils', icon: <LayoutGrid className="w-4 h-4" />, children: [
+  { label: 'Tickets SAV', module: 'tickets', icon: <Wrench className="w-4 h-4" />, to: '/tickets' },
+  { label: 'Outils', module: 'tools', icon: <LayoutGrid className="w-4 h-4" />, children: [
     { label: 'Catalogue produits',   to: '/products' },
     { label: 'Base de connaissance', to: '/knowledge' },
     { label: 'Automatisations',      to: '/automations',     roles: ['ADMIN'] },
@@ -70,6 +72,8 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   const isActive = (to: string | undefined) =>
     !!to && (location.pathname === to || (to !== '/' && location.pathname.startsWith(to)))
+
+  const theme = (item: NavItem) => (item.module ? moduleTheme[item.module] : undefined)
 
   const handleNavClick = () => {
     // Ferme la sidebar sur mobile après navigation
@@ -137,12 +141,14 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                 key={item.to}
                 to={item.to}
                 onClick={handleNavClick}
-                className={({ isActive: active }) =>
-                  cn('sidebar-item', active || (item.to !== '/' && isActive(item.to)) ? 'active' : '')
-                }
+                className={({ isActive: active }) => {
+                  const on = active || (item.to !== '/' && isActive(item.to))
+                  const t = theme(item)
+                  return cn('sidebar-item', on && (t ? cn(t.activeBg, t.activeText) : 'active'))
+                }}
                 end={item.to === '/'}
               >
-                {item.icon}
+                <span className={cn('flex items-center', theme(item)?.icon)}>{item.icon}</span>
                 <span>{item.label}</span>
               </NavLink>
             )
@@ -164,9 +170,9 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
               <div key={item.label}>
                 <button
                   onClick={() => toggle(item.label)}
-                  className={cn('sidebar-item w-full', hasActiveChild && 'text-primary-700')}
+                  className={cn('sidebar-item w-full', hasActiveChild && (theme(item)?.activeText ?? 'text-primary-700'))}
                 >
-                  {item.icon}
+                  <span className={cn('flex items-center', theme(item)?.icon)}>{item.icon}</span>
                   <span className="flex-1 text-left">{item.label}</span>
                   <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', isOpen && 'rotate-180')} />
                 </button>
@@ -178,10 +184,13 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                         to={child.to}
                         end={child.to === '/' || child.to === '/settings'}
                         onClick={handleNavClick}
-                        className={({ isActive: active }) =>
-                          cn('flex items-center py-1.5 px-2 rounded-md text-xs font-medium transition-colors',
-                            active ? 'text-primary-700 bg-primary-50' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50')
-                        }
+                        className={({ isActive: active }) => {
+                          const t = theme(item)
+                          return cn('flex items-center py-1.5 px-2 rounded-md text-xs font-medium transition-colors',
+                            active
+                              ? t ? cn(t.activeText, t.activeBg) : 'text-primary-700 bg-primary-50'
+                              : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50')
+                        }}
                       >
                         {child.label}
                       </NavLink>
