@@ -48,3 +48,5 @@ server/uploads/
 # OS
 .DS_Store
 Thumbs.db
+server/sample.bin
+*.bin
