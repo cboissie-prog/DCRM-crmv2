@@ -67,6 +67,27 @@ router.get('/periods', requirePermission('targets:read'), async (_req: AuthReque
   res.json({ success: true, data: quartersAround(8, 4) })
 })
 
+// ─── GET /targets/eligible-users ──────────────────────────────────────────────
+// Utilisateurs pouvant recevoir un objectif : ceux dont le rôle donne accès
+// à l'onglet Objectifs & Prévisions (permission targets:read), ADMIN inclus.
+
+router.get('/eligible-users', requirePermission('targets:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const users = await prisma.user.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          { role: 'ADMIN' }, // ADMIN a toutes les permissions implicitement
+          { roleRef: { permissions: { some: { permission: { key: 'targets:read' } } } } },
+        ],
+      },
+      select: userSelect,
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+    })
+    res.json({ success: true, data: users })
+  } catch (err) { handleRouteError(err, res) }
+})
+
 // ─── GET /targets?period=2026-Q2 ──────────────────────────────────────────────
 
 router.get('/', requirePermission('targets:read'), async (req: AuthRequest, res: Response): Promise<void> => {

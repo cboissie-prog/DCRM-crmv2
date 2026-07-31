@@ -302,9 +302,10 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
     staleTime: 30_000,
   })
 
+  // Utilisateurs éligibles = ceux dont le rôle a la permission targets:read
   const { data: usersData } = useQuery<{ data: UserInfo[] }>({
-    queryKey: ['users-list'],
-    queryFn: async () => { const { data } = await api.get('/users'); return data },
+    queryKey: ['targets-eligible-users'],
+    queryFn: async () => { const { data } = await api.get('/targets/eligible-users'); return data },
     enabled: isAdmin,
     staleTime: 60_000,
   })
@@ -326,7 +327,7 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
   const totalTarget = targets.reduce((s, t) => s + t.target, 0)
   const totalActual = targets.reduce((s, t) => s + t.computedActual, 0)
   const globalPct   = totalTarget > 0 ? Math.round(totalActual / totalTarget * 100) : 0
-  const users       = (usersData?.data ?? []).filter(u => u.role !== 'TECHNICIEN')
+  const users       = usersData?.data ?? []
 
   if (isLoading) return <PageSpinner />
 
