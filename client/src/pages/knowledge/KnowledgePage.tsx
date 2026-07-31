@@ -14,6 +14,7 @@ import {
   ClipboardList, HelpCircle, CheckCircle2, Monitor, Code2,
   Wifi, ShoppingCart, FileText, ArrowLeft, Clock, X,
 } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -330,9 +331,12 @@ export function KnowledgePage() {
 
       {/* ── Sidebar catégories ── */}
       <aside className="lg:w-56 flex-shrink-0 space-y-1">
-        <div className="mb-3">
-          <h1 className="page-title">Base de connaissance</h1>
-          <p className="page-subtitle text-xs">{totalArticles} article{totalArticles !== 1 ? 's' : ''}</p>
+        <div className="mb-3 flex items-center gap-3">
+          <PageIcon module="tools" icon={<BookOpen className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">Base de connaissance</h1>
+            <p className="page-subtitle text-xs">{totalArticles} article{totalArticles !== 1 ? 's' : ''}</p>
+          </div>
         </div>
 
         {/* Tous */}

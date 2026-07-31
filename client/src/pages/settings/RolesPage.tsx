@@ -6,6 +6,7 @@ import { z } from 'zod'
 import {
   Shield, Users, Plus, Trash2, Edit, Lock, AlertCircle, ArrowLeft,
 } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 import api from '../../lib/api'
 import {
   useRoles,
@@ -101,11 +102,14 @@ export function RolesPage() {
     <div className="space-y-5 fade-in">
       {/* Header */}
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Gestion des rôles</h1>
-          <p className="page-subtitle">
-            {roles?.length ?? 0} rôle{(roles?.length ?? 0) > 1 ? 's' : ''}
-          </p>
+        <div className="flex items-center gap-3">
+          <PageIcon module="tools" icon={<Shield className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">Gestion des rôles</h1>
+            <p className="page-subtitle">
+              {roles?.length ?? 0} rôle{(roles?.length ?? 0) > 1 ? 's' : ''}
+            </p>
+          </div>
         </div>
         <CanDo permission="settings:roles">
           <button className="btn-primary" onClick={() => setShowCreate(true)}>

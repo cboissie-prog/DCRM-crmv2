@@ -4,7 +4,8 @@ import { formatDate } from '../../lib/utils'
 import { Badge } from '../../components/ui/Badge'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { useAuthStore } from '../../store/authStore'
-import { ThumbsUp, ThumbsDown, Minus, MessageSquare } from 'lucide-react'
+import { ThumbsUp, ThumbsDown, Minus, MessageSquare, Smile } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 import { cn } from '../../lib/utils'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -111,9 +112,12 @@ export function NpsPage() {
     <div className="space-y-6 fade-in">
       {/* Header */}
       <div className="page-header">
-        <div>
-          <h1 className="page-title">NPS & Satisfaction client</h1>
-          <p className="page-subtitle">{total} réponse{total !== 1 ? 's' : ''} collectée{total !== 1 ? 's' : ''}</p>
+        <div className="flex items-center gap-3">
+          <PageIcon module="tools" icon={<Smile className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">NPS & Satisfaction client</h1>
+            <p className="page-subtitle">{total} réponse{total !== 1 ? 's' : ''} collectée{total !== 1 ? 's' : ''}</p>
+          </div>
         </div>
       </div>
 

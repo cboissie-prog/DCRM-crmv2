@@ -13,8 +13,9 @@ import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
 import {
   Plus, Search, ArrowLeft, Clock, MessageSquare,
-  ChevronDown, Send, Lock, Unlock, Trash2, Edit2, Timer, Download, X, CalendarPlus,
+  ChevronDown, Send, Lock, Unlock, Trash2, Edit2, Timer, Download, X, CalendarPlus, Wrench,
 } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 import { downloadCsv } from '../../lib/exportCsv'
 import { useForm, useWatch, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -223,9 +224,12 @@ export function TicketsListView() {
   return (
     <div className="space-y-5 fade-in">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Tickets SAV</h1>
-          <p className="page-subtitle">{data?.meta.total || 0} tickets</p>
+        <div className="flex items-center gap-3">
+          <PageIcon module="tickets" icon={<Wrench className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">Tickets SAV</h1>
+            <p className="page-subtitle">{data?.meta.total || 0} tickets</p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button

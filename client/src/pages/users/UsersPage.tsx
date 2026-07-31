@@ -7,7 +7,8 @@ import { Avatar } from '../../components/ui/Avatar'
 import { PageSpinner, Spinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
-import { Plus, ShieldAlert, UserCheck, UserX, Edit2 } from 'lucide-react'
+import { Plus, ShieldAlert, UserCheck, UserX, Edit2, Users } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -121,9 +122,12 @@ export function UsersPage() {
   return (
     <div className="space-y-5 fade-in">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Gestion des utilisateurs</h1>
-          <p className="page-subtitle">{users?.length || 0} utilisateur{(users?.length || 0) !== 1 ? 's' : ''}</p>
+        <div className="flex items-center gap-3">
+          <PageIcon module="tools" icon={<Users className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">Gestion des utilisateurs</h1>
+            <p className="page-subtitle">{users?.length || 0} utilisateur{(users?.length || 0) !== 1 ? 's' : ''}</p>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">

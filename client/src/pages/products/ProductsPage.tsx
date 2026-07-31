@@ -12,6 +12,7 @@ import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
 import { useAuthStore } from '../../store/authStore'
 import { Plus, Search, Pencil, Trash2, Package, Tag, Key, FileText, Monitor, Wrench, Globe, GraduationCap } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 import { CONTRACT_TYPES } from '../../lib/utils'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -166,9 +167,12 @@ export function ProductsPage() {
     <div className="space-y-5 fade-in">
       {/* Header */}
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Catalogue produits</h1>
-          <p className="page-subtitle">{total} produit{total !== 1 ? 's' : ''}</p>
+        <div className="flex items-center gap-3">
+          <PageIcon module="tools" icon={<Package className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">Catalogue produits</h1>
+            <p className="page-subtitle">{total} produit{total !== 1 ? 's' : ''}</p>
+          </div>
         </div>
         {canEdit && (
           <button className="btn-primary" onClick={() => { createForm.reset({ type: 'PRODUCT', category: 'HARDWARE', vatRate: 20, unit: 'unité', isActive: true }); setShowCreate(true) }}>

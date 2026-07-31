@@ -10,6 +10,7 @@ import {
   Plus, Pencil, Trash2, Zap, AlertTriangle, CheckCircle2,
   XCircle, Clock, ChevronDown, ChevronUp, ScrollText,
 } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -519,9 +520,12 @@ export function AutomationsPage() {
   return (
     <div className="space-y-5 fade-in">
       <div className="page-header flex-wrap gap-3">
-        <div>
-          <h1 className="page-title">Automatisations</h1>
-          <p className="page-subtitle">{automations.length} règle{automations.length !== 1 ? 's' : ''} · {active} active{active !== 1 ? 's' : ''}</p>
+        <div className="flex items-center gap-3">
+          <PageIcon module="tools" icon={<Zap className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">Automatisations</h1>
+            <p className="page-subtitle">{automations.length} règle{automations.length !== 1 ? 's' : ''} · {active} active{active !== 1 ? 's' : ''}</p>
+          </div>
         </div>
         <button className="btn-primary" onClick={() => openCreate()}>
           <Plus className="w-4 h-4" /> Nouvelle règle
