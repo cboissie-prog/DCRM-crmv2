@@ -1,4 +1,6 @@
 /** @type {import('tailwindcss').Config} */
+import { moduleColors } from './module.colors.js'
+
 export default {
   darkMode: 'class',
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
@@ -17,6 +19,10 @@ export default {
           800: '#3730a3',
           900: '#312e81',
         },
+        // Palettes sémantiques par module — valeurs définies dans module.colors.js
+        ...Object.fromEntries(
+          Object.entries(moduleColors).map(([key, palette]) => [`module-${key}`, palette])
+        ),
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
