@@ -49,13 +49,15 @@ const userSelect = { id: true, firstName: true, lastName: true, avatar: true, ro
 // Le « réalisé » n'est plus saisi : il est calculé depuis les opportunités gagnées.
 
 const createSchema = z.object({
-  userId:  z.string().min(1),
-  period:  z.string().regex(/^\d{4}-Q[1-4]$|^\d{4}-\d{2}$/, 'Format: 2026-Q1 ou 2026-01'),
-  target:  z.number().positive('Objectif doit être positif'),
+  userId:     z.string().min(1),
+  period:     z.string().regex(/^\d{4}-Q[1-4]$|^\d{4}-\d{2}$/, 'Format: 2026-Q1 ou 2026-01'),
+  target:     z.number().positive('Objectif doit être positif'),
+  pipelineId: z.string().min(1).nullable().optional(), // null/absent = objectif global
 })
 
 const updateSchema = z.object({
-  target: z.number().positive(),
+  target:     z.number().positive(),
+  pipelineId: z.string().min(1).nullable().optional(),
 })
 
 // ─── GET /targets/periods ─────────────────────────────────────────────────────
@@ -78,16 +80,20 @@ router.get('/', requirePermission('targets:read'), async (req: AuthRequest, res:
 
     const targets = await prisma.salesTarget.findMany({
       where,
-      include: { user: { select: userSelect } },
+      include: {
+        user:     { select: userSelect },
+        pipeline: { select: { id: true, name: true, color: true } },
+      },
       orderBy: { createdAt: 'asc' },
     })
 
-    // Réalisé calculé depuis les opportunités gagnées de la période
+    // Réalisé calculé depuis les opportunités gagnées de la période,
+    // ventilé par pipeline pour les objectifs liés à un pipeline
     const { wonKeys } = await getWonLostStageKeys()
     const { start, end } = parsePeriod(period)
-    const wonByUser = targets.length > 0 && wonKeys.length > 0
+    const wonGroups = targets.length > 0 && wonKeys.length > 0
       ? await prisma.opportunity.groupBy({
-          by: ['assignedToId'],
+          by: ['assignedToId', 'pipelineId'],
           _sum: { value: true },
           where: {
             stage:        { in: wonKeys },
@@ -96,8 +102,10 @@ router.get('/', requirePermission('targets:read'), async (req: AuthRequest, res:
           },
         })
       : []
-    const actualByUser = new Map(wonByUser.map(w => [w.assignedToId, w._sum.value ?? 0]))
-    const enriched = targets.map(t => ({ ...t, computedActual: actualByUser.get(t.userId) ?? 0 }))
+    const computedFor = (userId: string, pipelineId: string | null) => pipelineId
+      ? wonGroups.find(w => w.assignedToId === userId && w.pipelineId === pipelineId)?._sum.value ?? 0
+      : wonGroups.filter(w => w.assignedToId === userId).reduce((s, w) => s + (w._sum.value ?? 0), 0)
+    const enriched = targets.map(t => ({ ...t, computedActual: computedFor(t.userId, t.pipelineId) }))
 
     res.json({ success: true, data: enriched, meta: { period } })
   } catch (err) { handleRouteError(err, res) }
@@ -288,19 +296,26 @@ router.get('/performance', requirePermission('targets:read'), async (req: AuthRe
 router.post('/', requirePermission('targets:write'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = createSchema.parse(req.body)
-    // Upsert par userId + period
-    const existing = await prisma.salesTarget.findFirst({ where: { userId: body.userId, period: body.period } })
+    const pipelineId = body.pipelineId ?? null
+    // Upsert par userId + period + pipeline (null = objectif global)
+    const existing = await prisma.salesTarget.findFirst({
+      where: { userId: body.userId, period: body.period, pipelineId },
+    })
+    const include = {
+      user:     { select: userSelect },
+      pipeline: { select: { id: true, name: true, color: true } },
+    }
     let target
     if (existing) {
       target = await prisma.salesTarget.update({
         where: { id: existing.id },
         data: { target: body.target },
-        include: { user: { select: userSelect } },
+        include,
       })
     } else {
       target = await prisma.salesTarget.create({
-        data: { userId: body.userId, period: body.period, target: body.target },
-        include: { user: { select: userSelect } },
+        data: { userId: body.userId, period: body.period, target: body.target, pipelineId },
+        include,
       })
     }
     res.status(201).json({ success: true, data: target })
@@ -316,7 +331,10 @@ router.put('/:id', requirePermission('targets:write'), async (req: AuthRequest, 
     const target = await prisma.salesTarget.update({
       where: { id },
       data:  body,
-      include: { user: { select: userSelect } },
+      include: {
+        user:     { select: userSelect },
+        pipeline: { select: { id: true, name: true, color: true } },
+      },
     })
     res.json({ success: true, data: target })
   } catch (err) { handleRouteError(err, res) }

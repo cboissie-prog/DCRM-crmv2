@@ -27,6 +27,9 @@ interface SalesTarget {
   target:         number
   /** CA réalisé, calculé côté serveur depuis les opportunités gagnées de la période */
   computedActual: number
+  /** null = objectif global (tous pipelines) */
+  pipelineId:     string | null
+  pipeline:       { id: string; name: string; color: string } | null
   createdAt:      string
 }
 
@@ -206,16 +209,18 @@ function ProgressBar({ value, max, color }: { value: number; max: number; color:
 
 interface TargetFormProps {
   users:     UserInfo[]
+  pipelines: PipelineInfo[]
   period:    string
   editing:   SalesTarget | null
   onClose:   () => void
   onSaved:   () => void
 }
 
-function TargetFormModal({ users, period, editing, onClose, onSaved }: TargetFormProps) {
-  const [userId, setUserId]   = useState(editing?.userId ?? '')
-  const [target, setTarget]   = useState(editing?.target.toString() ?? '')
-  const [loading, setLoading] = useState(false)
+function TargetFormModal({ users, pipelines, period, editing, onClose, onSaved }: TargetFormProps) {
+  const [userId, setUserId]         = useState(editing?.userId ?? '')
+  const [pipelineId, setPipelineId] = useState(editing?.pipelineId ?? '')
+  const [target, setTarget]         = useState(editing?.target.toString() ?? '')
+  const [loading, setLoading]       = useState(false)
 
   const onSubmit = async () => {
     if (!editing && !userId) return
@@ -228,10 +233,10 @@ function TargetFormModal({ users, period, editing, onClose, onSaved }: TargetFor
     setLoading(true)
     try {
       if (editing) {
-        await api.put(`/targets/${editing.id}`, { target: targetValue })
+        await api.put(`/targets/${editing.id}`, { target: targetValue, pipelineId: pipelineId || null })
         toast.success('Objectif mis à jour')
       } else {
-        await api.post('/targets', { userId, period, target: targetValue })
+        await api.post('/targets', { userId, period, target: targetValue, pipelineId: pipelineId || null })
         toast.success('Objectif créé')
       }
       onSaved()
@@ -258,11 +263,21 @@ function TargetFormModal({ users, period, editing, onClose, onSaved }: TargetFor
         </div>
       )}
       <div>
+        <label className="label">Pipeline</label>
+        <select className="input" value={pipelineId} onChange={e => setPipelineId(e.target.value)}>
+          <option value="">Global — tous les pipelines</option>
+          {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      </div>
+      <div>
         <label className="label">Objectif (€) *</label>
         <input className="input" type="number" min="0" value={target} onChange={e => setTarget(e.target.value)} placeholder="25000" />
       </div>
       <p className="text-xs text-slate-400">Période : <strong>{periodLabel(period)}</strong></p>
-      <p className="text-xs text-slate-400">Le réalisé est calculé automatiquement depuis les opportunités gagnées de la période.</p>
+      <p className="text-xs text-slate-400">
+        Le réalisé est calculé automatiquement depuis les opportunités gagnées de la période
+        {pipelineId ? ' sur ce pipeline' : ', tous pipelines confondus'}.
+      </p>
       <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
         <button className="btn-secondary" onClick={onClose}>Annuler</button>
         <button className="btn-primary" onClick={onSubmit} disabled={loading || (!editing && !userId) || !target}>
@@ -290,6 +305,13 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
   const { data: usersData } = useQuery<{ data: UserInfo[] }>({
     queryKey: ['users-list'],
     queryFn: async () => { const { data } = await api.get('/users'); return data },
+    enabled: isAdmin,
+    staleTime: 60_000,
+  })
+
+  const { data: pipelinesData } = useQuery<{ data: PipelineInfo[] }>({
+    queryKey: ['pipelines-list'],
+    queryFn: async () => { const { data } = await api.get('/pipelines'); return data },
     enabled: isAdmin,
     staleTime: 60_000,
   })
@@ -342,6 +364,7 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wide">
                 <th className="px-5 py-3 text-left">Commercial</th>
+                <th className="px-5 py-3 text-left">Pipeline</th>
                 <th className="px-5 py-3 text-right">Objectif</th>
                 <th className="px-5 py-3 text-right">Réalisé</th>
                 <th className="px-5 py-3 text-left w-48">Progression</th>
@@ -362,6 +385,16 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
                           <p className="text-xs text-slate-400 capitalize">{t.user.role.toLowerCase()}</p>
                         </div>
                       </div>
+                    </td>
+                    <td className="px-5 py-4">
+                      {t.pipeline ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 bg-slate-100 px-2 py-1 rounded-full">
+                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: t.pipeline.color }} />
+                          {t.pipeline.name}
+                        </span>
+                      ) : (
+                        <span className="text-xs font-medium text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full">Global</span>
+                      )}
                     </td>
                     <td className="px-5 py-4 text-right text-sm font-semibold text-slate-700">{fmt(t.target)}</td>
                     <td className="px-5 py-4 text-right">
@@ -400,6 +433,7 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
       >
         <TargetFormModal
           users={users}
+          pipelines={pipelinesData?.data ?? []}
           period={period}
           editing={editing}
           onClose={() => { setShowModal(false); setEditing(null) }}

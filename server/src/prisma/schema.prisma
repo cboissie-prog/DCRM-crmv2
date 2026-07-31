@@ -146,6 +146,7 @@ model Pipeline {
   updatedAt     DateTime        @updatedAt
   stages        PipelineStage[]
   opportunities Opportunity[]
+  salesTargets  SalesTarget[]
 }
 
 model PipelineStage {
@@ -510,14 +511,16 @@ model AutomationLog {
 // ─── OBJECTIFS COMMERCIAUX ──────────────────────────────
 
 model SalesTarget {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  period    String
-  target    Float
-  actual    Float    @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period     String
+  target     Float
+  actual     Float     @default(0)
+  pipelineId String?   // null = objectif global (tous pipelines)
+  pipeline   Pipeline? @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 }
 
 // ─── BASE DE CONNAISSANCE ───────────────────────────────
