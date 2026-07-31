@@ -6,17 +6,21 @@ import { PageSpinner } from '../../components/ui/Spinner'
 import { Badge } from '../../components/ui/Badge'
 import { Avatar } from '../../components/ui/Avatar'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Cell, PieChart, Pie, Legend } from 'recharts'
-import { Users, Building2, Wrench, FileText, TrendingUp, AlertTriangle, Euro, ArrowUp, ArrowDown, Minus, Clock, Key, Shield, ChevronRight, CalendarDays, CheckCircle2, MapPin, ArrowRight, RefreshCw } from 'lucide-react'
+import { Users, Building2, Wrench, FileText, TrendingUp, AlertTriangle, Euro, ArrowUp, ArrowDown, Minus, Clock, Key, Shield, ChevronRight, CalendarDays, CheckCircle2, MapPin, ArrowRight, RefreshCw, LayoutDashboard } from 'lucide-react'
 import type { DashboardStats } from '../../types'
+import { moduleTheme, type ModuleKey } from '../../lib/moduleTheme'
+import { PageIcon } from '../../components/ui/PageIcon'
 
-function KpiCard({ icon, label, value, sub, trend }: {
-  icon: React.ReactNode; label: string; value: string; sub?: string; trend?: { value: number; label: string }
+function KpiCard({ icon, label, value, sub, trend, module }: {
+  icon: React.ReactNode; label: string; value: string; sub?: string
+  trend?: { value: number; label: string }; module: ModuleKey
 }) {
   const trendSign = trend ? (trend.value > 0 ? 'positive' : trend.value < 0 ? 'negative' : 'neutral') : null
+  const theme = moduleTheme[module]
   return (
     <div className="kpi-card">
       <div className="flex items-start justify-between">
-        <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center text-primary-600">
+        <div className={`w-10 h-10 rounded-xl ${theme.bg} ${theme.icon} flex items-center justify-center`}>
           {icon}
         </div>
         {trend && (
@@ -186,8 +190,8 @@ function TodayWidget({ today }: { today?: TodayData }) {
           {appts.map(a => (
             <Link key={a.id} to="/appointments" className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50 transition-colors group">
               <div className={`w-1 self-stretch rounded-full flex-shrink-0 ${APPT_TYPE_COLORS[a.type] ?? 'bg-slate-400'}`} />
-              <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                <CalendarDays className="w-4 h-4 text-blue-500" />
+              <div className="w-8 h-8 rounded-lg bg-module-agenda-50 flex items-center justify-center flex-shrink-0">
+                <CalendarDays className="w-4 h-4 text-module-agenda-600" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-slate-900 truncate">{a.title}</p>
@@ -216,9 +220,9 @@ function TodayWidget({ today }: { today?: TodayData }) {
             const p = PRIORITY_CONFIG[t.priority] ?? PRIORITY_CONFIG.MEDIUM
             return (
               <Link key={t.id} to={`/tickets/${t.id}`} className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50 transition-colors group">
-                <div className="w-1 self-stretch rounded-full flex-shrink-0 bg-amber-400" />
-                <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
-                  <Wrench className="w-4 h-4 text-amber-500" />
+                <div className="w-1 self-stretch rounded-full flex-shrink-0 bg-module-tickets-400" />
+                <div className="w-8 h-8 rounded-lg bg-module-tickets-50 flex items-center justify-center flex-shrink-0">
+                  <Wrench className="w-4 h-4 text-module-tickets-600" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-slate-900 truncate">{t.title}</p>
@@ -476,9 +480,12 @@ export function DashboardPage() {
   return (
     <div className="space-y-6 fade-in">
       {/* Header */}
-      <div>
-        <h1 className="page-title">Tableau de bord</h1>
-        <p className="page-subtitle">Vue d'ensemble de votre activité</p>
+      <div className="flex items-center gap-3">
+        <PageIcon module="dashboard" icon={<LayoutDashboard className="w-5 h-5" />} />
+        <div>
+          <h1 className="page-title">Tableau de bord</h1>
+          <p className="page-subtitle">Vue d'ensemble de votre activité</p>
+        </div>
       </div>
 
       {/* Alerts */}
@@ -520,6 +527,7 @@ export function DashboardPage() {
       {/* KPIs row 1 */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <KpiCard
+          module="commercial"
           icon={<Euro className="w-5 h-5" />}
           label="CA ce mois"
           value={formatCurrency(stats.opportunities.wonValueThisMonth)}
@@ -527,6 +535,7 @@ export function DashboardPage() {
           trend={{ value: wonVariation, label: 'vs mois dernier' }}
         />
         <KpiCard
+          module="commercial"
           icon={<TrendingUp className="w-5 h-5" />}
           label="Pipeline commercial"
           value={formatCurrency(stats.opportunities.pipelineValue)}
@@ -536,6 +545,7 @@ export function DashboardPage() {
           <KpiSkeleton />
         ) : (
           <KpiCard
+            module="commercial"
             icon={<TrendingUp className="w-5 h-5" />}
             label="Pipeline pondéré"
             value={formatCurrency(kpis?.pipelineWeightedValue ?? 0)}
@@ -543,12 +553,14 @@ export function DashboardPage() {
           />
         )}
         <KpiCard
+          module="parc"
           icon={<FileText className="w-5 h-5" />}
           label="MRR"
           value={formatCurrency(stats.mrr)}
           sub={`ARR : ${formatCurrency(stats.arr)}`}
         />
         <KpiCard
+          module="tickets"
           icon={<Wrench className="w-5 h-5" />}
           label="Tickets ouverts"
           value={String(stats.tickets.open)}
@@ -558,10 +570,10 @@ export function DashboardPage() {
 
       {/* KPIs row 2 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard icon={<Users className="w-5 h-5" />} label="Contacts" value={String(stats.contacts.total)} sub={`+${stats.contacts.newThisMonth} ce mois`} />
-        <KpiCard icon={<Building2 className="w-5 h-5" />} label="Entreprises" value={String(stats.companies.total)} />
-        <KpiCard icon={<Shield className="w-5 h-5" />} label="Contrats actifs" value={String(stats.contracts.active)} sub={`${stats.contracts.expiringSoon} expirent bientôt`} />
-        <KpiCard icon={<Clock className="w-5 h-5" />} label="Tickets ce mois" value={String(stats.tickets.newThisMonth)} sub="Nouveaux tickets" />
+        <KpiCard module="contacts" icon={<Users className="w-5 h-5" />} label="Contacts" value={String(stats.contacts.total)} sub={`+${stats.contacts.newThisMonth} ce mois`} />
+        <KpiCard module="contacts" icon={<Building2 className="w-5 h-5" />} label="Entreprises" value={String(stats.companies.total)} />
+        <KpiCard module="parc" icon={<Shield className="w-5 h-5" />} label="Contrats actifs" value={String(stats.contracts.active)} sub={`${stats.contracts.expiringSoon} expirent bientôt`} />
+        <KpiCard module="tickets" icon={<Clock className="w-5 h-5" />} label="Tickets ce mois" value={String(stats.tickets.newThisMonth)} sub="Nouveaux tickets" />
       </div>
 
       {/* Charts */}
