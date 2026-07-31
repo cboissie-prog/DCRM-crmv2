@@ -13,12 +13,14 @@ import { useAuthStore } from '../../store/authStore'
 import { Plus, Search, Building2, Users, Wrench, FileText, TrendingUp, MapPin, Pencil, Trash2, Download, Upload } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import { ImportCsvModal } from '../../components/ui/ImportCsvModal'
+import { CompanySearchInput, type SocietePrefill } from '../../components/ui/CompanySearchInput'
 import { downloadCsv } from '../../lib/exportCsv'
 import type { Company, PaginatedResponse } from '../../types'
 
 const schema = z.object({
   name: z.string().min(1, 'Nom requis'),
   siret: z.string().optional(),
+  vatNumber: z.string().optional(),
   website: z.string().optional(),
   sector: z.string().optional(),
   employees: z.coerce.number().int().optional(),
@@ -260,6 +262,7 @@ export function CompaniesPage() {
           isPending={createMutation.isPending}
           onCancel={() => setShowCreate(false)}
           submitLabel="Créer"
+          withSearch
         />
       </Modal>
 
@@ -314,16 +317,30 @@ function CompanyForm({
   isPending,
   onCancel,
   submitLabel,
+  withSearch = false,
 }: {
   form: ReturnType<typeof useForm<Form>>
   onSubmit: (v: Form) => void
   isPending: boolean
   onCancel: () => void
   submitLabel: string
+  withSearch?: boolean
 }) {
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = form
+  const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } = form
+
+  const applyPrefill = (p: SocietePrefill) => {
+    setValue('name', p.name, { shouldValidate: true })
+    setValue('siret', p.siret)
+    setValue('vatNumber', p.vatNumber)
+    setValue('city', p.city)
+    setValue('postalCode', p.postalCode)
+    setValue('billingAddress', p.billingAddress)
+    toast.success('Formulaire pré-rempli', p.activity || undefined)
+  }
+
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      {withSearch && <CompanySearchInput onSelect={applyPrefill} />}
       <div className="form-group">
         <label className="label">Raison sociale *</label>
         <input {...register('name')} className={`input ${errors.name ? 'input-error' : ''}`} />
@@ -335,9 +352,13 @@ function CompanyForm({
           <input {...register('siret')} className="input" />
         </div>
         <div className="form-group">
-          <label className="label">Site web</label>
-          <input {...register('website')} className="input" placeholder="https://" />
+          <label className="label">N° TVA</label>
+          <input {...register('vatNumber')} className="input" placeholder="FR…" />
         </div>
+      </div>
+      <div className="form-group">
+        <label className="label">Site web</label>
+        <input {...register('website')} className="input" placeholder="https://" />
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="form-group">

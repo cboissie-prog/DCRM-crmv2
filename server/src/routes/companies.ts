@@ -6,6 +6,7 @@ import { handleRouteError } from '../middleware/errorHandler'
 import { ciContains } from '../lib/query'
 import { csvEscape } from '../lib/csv'
 import { geocodeAddress, buildAddressQuery, sleep } from '../lib/geocode'
+import { searchEntreprises } from '../lib/entreprises'
 import logger from '../lib/logger'
 
 const router = Router()
@@ -72,6 +73,19 @@ router.post('/', requirePermission('companies:create'), async (req: AuthRequest,
     }
     const company = await prisma.company.create({ data: body })
     res.status(201).json({ success: true, data: company })
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// ─── Recherche d'entreprises françaises (API publique recherche-entreprises.api.gouv.fr)
+// Proxy obligatoire : le CSP (connect-src 'self') interdit l'appel direct depuis le front.
+
+// GET /companies/entreprises/search?q=… — résultats avec fiche complète (pré-remplissage)
+router.get('/entreprises/search', requirePermission('companies:create'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const q = ((req.query.q as string) ?? '').trim()
+    if (q.length < 3) { res.json({ success: true, data: [] }); return }
+    const results = await searchEntreprises(q)
+    res.json({ success: true, data: results })
   } catch (err) { handleRouteError(err, res) }
 })
 

@@ -16,6 +16,7 @@ import { useAuthStore } from '../../store/authStore'
 import { Plus, Search, Mail, Phone, Building2, Pencil, Trash2, Download, Upload, X, Users } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import { ImportCsvModal } from '../../components/ui/ImportCsvModal'
+import { CompanySearchInput } from '../../components/ui/CompanySearchInput'
 import { downloadCsv } from '../../lib/exportCsv'
 import type { Contact, PaginatedResponse } from '../../types'
 
@@ -410,6 +411,15 @@ function ContactFormFields({
                 ✕ Annuler
               </button>
             </div>
+            <CompanySearchInput onSelect={p => {
+              form.setValue('newCompanyName', p.name)
+              form.setValue('newCompanySiret', p.siret)
+              form.setValue('newCompanyVatNumber', p.vatNumber)
+              form.setValue('newCompanySector', p.activity)
+              form.setValue('newCompanyCity', p.city)
+              form.setValue('newCompanyPostalCode', p.postalCode)
+              form.setValue('newCompanyBillingAddress', p.billingAddress)
+            }} />
             <input
               {...register('newCompanyName')}
               placeholder="Nom de l'entreprise *"

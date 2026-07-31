@@ -50,3 +50,4 @@ server/uploads/
 Thumbs.db
 server/sample.bin
 *.bin
+server/src/prisma/test.db*
