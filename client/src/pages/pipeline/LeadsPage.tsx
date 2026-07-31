@@ -17,6 +17,7 @@ import { Avatar } from '../../components/ui/Avatar'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
+import { CompanySearchInput } from '../../components/ui/CompanySearchInput'
 import type { Lead } from '../../types'
 
 const LEAD_STATUSES: Record<string, { label: string; color: string }> = {
@@ -708,6 +709,15 @@ function LeadFormFields({
                       ✕ Annuler
                     </button>
                   </div>
+                  <CompanySearchInput onSelect={p => {
+                    form.setValue('newCompanyName', p.name)
+                    form.setValue('newCompanySiret', p.siret)
+                    form.setValue('newCompanyVatNumber', p.vatNumber)
+                    form.setValue('newCompanySector', p.activity)
+                    form.setValue('newCompanyCity', p.city)
+                    form.setValue('newCompanyPostalCode', p.postalCode)
+                    form.setValue('newCompanyBillingAddress', p.billingAddress)
+                  }} />
                   <input {...register('newCompanyName')} placeholder="Nom de l'entreprise *" className="input" autoFocus />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <input {...register('newCompanySiret')} placeholder="SIRET" className="input" />

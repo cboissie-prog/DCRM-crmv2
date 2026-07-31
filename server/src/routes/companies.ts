@@ -6,6 +6,7 @@ import { handleRouteError } from '../middleware/errorHandler'
 import { ciContains } from '../lib/query'
 import { csvEscape } from '../lib/csv'
 import { geocodeAddress, buildAddressQuery, sleep } from '../lib/geocode'
+import { isSocieteConfigured, searchSocieteCompanies, getSocieteCompanyDetails } from '../lib/societe'
 import logger from '../lib/logger'
 
 const router = Router()
@@ -72,6 +73,41 @@ router.post('/', requirePermission('companies:create'), async (req: AuthRequest,
     }
     const company = await prisma.company.create({ data: body })
     res.status(201).json({ success: true, data: company })
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// ─── Recherche societe.com (proxy — CSP interdit l'appel direct depuis le front)
+
+// GET /companies/societe/status — la recherche est-elle disponible ?
+router.get('/societe/status', requirePermission('companies:create'), async (_req: AuthRequest, res: Response): Promise<void> => {
+  res.json({ success: true, data: { enabled: isSocieteConfigured() } })
+})
+
+// GET /companies/societe/search?q=… — recherche par nom
+router.get('/societe/search', requirePermission('companies:create'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const q = ((req.query.q as string) ?? '').trim()
+    if (!isSocieteConfigured()) { res.json({ success: true, data: [] }); return }
+    if (q.length < 3) { res.json({ success: true, data: [] }); return }
+    const results = await searchSocieteCompanies(q)
+    res.json({ success: true, data: results })
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// GET /companies/societe/:siren — fiche pour pré-remplir le formulaire
+router.get('/societe/:siren', requirePermission('companies:create'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const siren = (req.params.siren ?? '').replace(/\D/g, '')
+    if (siren.length !== 9) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'SIREN invalide (9 chiffres)' } })
+      return
+    }
+    const details = await getSocieteCompanyDetails(siren)
+    if (!details) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Fiche entreprise indisponible' } })
+      return
+    }
+    res.json({ success: true, data: details })
   } catch (err) { handleRouteError(err, res) }
 })
 
