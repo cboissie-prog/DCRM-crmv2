@@ -1,15 +1,28 @@
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import { format, formatDistanceToNow, parseISO } from 'date-fns'
+import { format, formatDistanceToNow, parseISO, isValid } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatDate(date: string | Date | null | undefined, fmt = 'dd/MM/yyyy') {
-  if (!date) return '—'
+/**
+ * Convertit une entrée en Date exploitable, ou null si elle ne l'est pas.
+ *
+ * `format()` et `formatDistanceToNow()` lèvent un RangeError sur une date invalide. Les gardes
+ * ne couvraient que null/undefined : une chaîne vide ou malformée renvoyée par l'API faisait
+ * donc tomber tout l'arbre React au lieu d'une seule cellule.
+ */
+function toValidDate(date: string | Date | null | undefined): Date | null {
+  if (!date) return null
   const d = typeof date === 'string' ? parseISO(date) : date
+  return isValid(d) ? d : null
+}
+
+export function formatDate(date: string | Date | null | undefined, fmt = 'dd/MM/yyyy') {
+  const d = toValidDate(date)
+  if (!d) return '—'
   return format(d, fmt, { locale: fr })
 }
 
@@ -18,8 +31,8 @@ export function formatDateTime(date: string | Date | null | undefined) {
 }
 
 export function formatRelative(date: string | Date | null | undefined) {
-  if (!date) return '—'
-  const d = typeof date === 'string' ? parseISO(date) : date
+  const d = toValidDate(date)
+  if (!d) return '—'
   return formatDistanceToNow(d, { addSuffix: true, locale: fr })
 }
 

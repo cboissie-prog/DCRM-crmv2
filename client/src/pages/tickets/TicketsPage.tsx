@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useLocation, useSearchParams } from 'react-router-dom'
 import api from '../../lib/api'
+import { useUsersList } from '../../hooks/useApi'
 import {
   formatDate, formatDateTime, formatRelative,
   TICKET_STATUSES, TICKET_PRIORITIES, TICKET_CATEGORIES,
@@ -194,11 +195,7 @@ export function TicketsListView() {
     staleTime: 30_000,
   })
 
-  const { data: usersData } = useQuery({
-    queryKey: ['users-list'],
-    queryFn: async () => { const { data } = await api.get('/users'); return data.data as { id: string; firstName: string; lastName: string }[] },
-    staleTime: 60_000,
-  })
+  const { data: usersData } = useUsersList()
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/tickets/${id}`),
@@ -854,12 +851,7 @@ function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalPr
     enabled: open,
   })
 
-  const { data: usersData } = useQuery({
-    queryKey: ['users-list'],
-    queryFn: async () => { const { data } = await api.get('/users'); return data.data as { id: string; firstName: string; lastName: string }[] },
-    staleTime: 60_000,
-    enabled: open && canAssign,
-  })
+  const { data: usersData } = useUsersList({ enabled: open && canAssign })
 
   const mutation = useMutation({
     mutationFn: (values: TicketForm) => {

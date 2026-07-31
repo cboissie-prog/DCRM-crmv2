@@ -58,11 +58,27 @@ async function refreshAccessToken(): Promise<string> {
   return refreshPromise
 }
 
+/**
+ * Routes d'authentification dont le 401 est un résultat métier, pas un jeton expiré.
+ *
+ * Sans cette exclusion, un mauvais mot de passe déclenchait la mécanique de refresh : elle
+ * échouait, purgeait le stockage et faisait `window.location.href = '/login'`. Le rechargement
+ * complet du document détruisait le message d'erreur avant qu'il soit peint — l'utilisateur
+ * voyait le formulaire clignoter et se vider, sans explication. Et si un cookie de refresh
+ * valide subsistait, la requête de connexion était rejouée avec le mauvais mot de passe,
+ * doublant le comptage face à la limite de débit.
+ */
+const AUTH_ENDPOINTS = ['/auth/login', '/auth/refresh']
+
 // Handle 401 → refresh (cookie envoyé automatiquement) ou logout
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config
+    const url: string = originalRequest?.url ?? ''
+    if (AUTH_ENDPOINTS.some(endpoint => url.includes(endpoint))) {
+      return Promise.reject(error)
+    }
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true
       try {

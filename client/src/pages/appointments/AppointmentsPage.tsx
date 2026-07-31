@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useUsersList } from '../../hooks/useApi'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -388,11 +389,7 @@ export function AppointmentsPage() {
     staleTime: 30_000,
   })
 
-  const { data: usersData } = useQuery<{ data: User[] }>({
-    queryKey: ['users-list'],
-    queryFn: async () => { const { data } = await api.get('/users'); return data },
-    staleTime: 60_000,
-  })
+  const { data: usersList } = useUsersList<User>()
 
   const { data: contactsData } = useQuery<{ data: Contact[] }>({
     queryKey: ['contacts-list'],
@@ -407,7 +404,7 @@ export function AppointmentsPage() {
   })
 
   const appointments: Appointment[] = apptData?.data ?? []
-  const users:        User[]        = usersData?.data ?? []
+  const users:        User[]        = usersList ?? []
   const contacts:     Contact[]     = contactsData?.data ?? []
   const tickets:      Ticket[]      = ticketsData?.data ?? []
 

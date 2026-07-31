@@ -20,6 +20,29 @@ export function useList<T>(
   })
 }
 
+/**
+ * Liste des utilisateurs — hook unique pour la clé de cache partagée `['users-list']`.
+ *
+ * Six écrans consommaient cette même clé avec des fonctions de requête renvoyant deux formes
+ * différentes : les unes l'enveloppe `{ success, data }`, les autres le tableau. Avec un
+ * `staleTime` de 60 s, le second écran visité lisait la forme du premier sans refetch, et un
+ * `.map` sur l'enveloppe faisait tomber la page entière (passer de l'Agenda au Pipeline suffisait).
+ * Une seule fonction de requête pour une seule clé : la forme ne peut plus diverger.
+ */
+export function useUsersList<T = { id: string; firstName: string; lastName: string }>(
+  options?: Partial<UseQueryOptions<T[]>>
+) {
+  return useQuery<T[]>({
+    queryKey: ['users-list'],
+    queryFn: async () => {
+      const { data } = await api.get('/users')
+      return (data?.data ?? []) as T[]
+    },
+    staleTime: 60_000,
+    ...options,
+  })
+}
+
 // Generic list hook with meta — renvoie { data: T; meta?: { total, page, limit } }
 export interface ListWithMeta<T> {
   data: T

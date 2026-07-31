@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '../../lib/api'
+import { useUsersList } from '../../hooks/useApi'
 import {
   formatDate, formatDateTime, formatRelative, formatDuration,
   CALL_DIRECTIONS, CALL_STATUSES, CALL_CATEGORIES, CALL_PRIORITIES,
@@ -22,6 +23,7 @@ import { PageIcon } from '../../components/ui/PageIcon'
 import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { optionalNumber } from '../../lib/formFields'
 import { useAuthStore } from '../../store/authStore'
 import { CanDo } from '../../components/CanDo'
 import type { Call, PaginatedResponse } from '../../types'
@@ -747,7 +749,7 @@ const callFormSchema = z.object({
   status:         z.string(),
   category:       z.string().optional(),
   priority:       z.string(),
-  duration:       z.coerce.number().optional(),
+  duration:       optionalNumber(),
   startedAt:      z.string().optional(),
   notes:          z.string().optional(),
   contactId:      z.string().optional(),
@@ -825,12 +827,7 @@ function CallFormModal({ open, onClose, call, onSuccess }: CallFormModalProps) {
     enabled: open,
     staleTime: 60_000,
   })
-  const { data: usersData } = useQuery({
-    queryKey: ['users-list'],
-    queryFn: async () => { const { data } = await api.get('/users'); return data.data as { id: string; firstName: string; lastName: string }[] },
-    enabled: open,
-    staleTime: 60_000,
-  })
+  const { data: usersData } = useUsersList({ enabled: open })
 
   const mutation = useMutation({
     mutationFn: (values: CallFormData) => {
@@ -990,7 +987,7 @@ function TicketFromCallModal({ open, call, onClose, onSuccess }: { open: boolean
 
   const { data: contactsData } = useQuery({ queryKey: ['contacts-select'], queryFn: async () => { const { data } = await api.get('/contacts', { params: { limit: 200 } }); return data.data as { id: string; firstName: string; lastName: string }[] }, enabled: open, staleTime: 60_000 })
   const { data: companiesData } = useQuery({ queryKey: ['companies-select'], queryFn: async () => { const { data } = await api.get('/companies', { params: { limit: 200 } }); return data.data as { id: string; name: string }[] }, enabled: open, staleTime: 60_000 })
-  const { data: usersData } = useQuery({ queryKey: ['users-list'], queryFn: async () => { const { data } = await api.get('/users'); return data.data as { id: string; firstName: string; lastName: string }[] }, enabled: open && canAssign, staleTime: 60_000 })
+  const { data: usersData } = useUsersList({ enabled: open && canAssign })
 
   const mutation = useMutation({
     mutationFn: async (values: TicketFromCallData) => {

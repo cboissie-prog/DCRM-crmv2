@@ -10,6 +10,7 @@ import {
 import { useForm, Controller, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { requiredNumber } from '../../lib/formFields'
 import {
   Plus, Search, Euro, TrendingUp, Trophy,
   MoreHorizontal, Edit2, Trash2, ChevronRight,
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import api from '../../lib/api'
+import { useUsersList } from '../../hooks/useApi'
 import { useAuthStore } from '../../store/authStore'
 import { formatCurrency, formatDate, cn } from '../../lib/utils'
 import { Modal } from '../../components/ui/Modal'
@@ -53,8 +55,8 @@ const opportunitySchema = z.object({
   contactId: z.string().optional(),
   companyId: z.string().optional(),
   stage: z.string().min(1, 'Stage requis'),
-  value: z.coerce.number().min(0, 'Valeur invalide'),
-  probability: z.coerce.number().min(0).max(100, 'Entre 0 et 100'),
+  value: requiredNumber(z.number().min(0, 'Valeur invalide'), 'Valeur requise'),
+  probability: requiredNumber(z.number().min(0).max(100, 'Entre 0 et 100'), 'Probabilité requise'),
   expectedCloseDate: z.string().optional(),
   notes: z.string().optional(),
   assignedToId: z.string().optional(),
@@ -951,15 +953,7 @@ export function PipelinePage() {
     staleTime: 60_000,
   })
 
-  const { data: users = [] } = useQuery<UserType[]>({
-    queryKey: ['users-list'],
-    queryFn: async () => {
-      const { data } = await api.get('/users')
-      return data.data ?? data
-    },
-    enabled: canAssign,
-    staleTime: 60_000,
-  })
+  const { data: users = [] } = useUsersList<UserType>({ enabled: canAssign })
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const stageMutation = useMutation({
