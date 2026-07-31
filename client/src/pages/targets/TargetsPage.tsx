@@ -12,7 +12,7 @@ import { toast } from '../../components/ui/Toast'
 import { Avatar } from '../../components/ui/Avatar'
 import {
   Target, TrendingUp, Trophy, Plus, Pencil, Trash2,
-  ChevronRight, CheckCircle2, Clock,
+  ChevronLeft, ChevronRight, CheckCircle2, Clock, CalendarRange,
 } from 'lucide-react'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -115,6 +115,63 @@ function periodLabel(p: string) {
 
 const fmt = (n: number) =>
   n >= 1000 ? `${(n / 1000).toFixed(1).replace('.0', '')} k€` : `${n} €`
+
+// ── Navigation de période ─────────────────────────────────────────────────────
+
+function PeriodNav({ periods, period, onChange }: { periods: string[]; period: string; onChange: (p: string) => void }) {
+  const idx       = periods.indexOf(period)
+  const current   = currentPeriod()
+  const isCurrent = period === current
+  // Format YYYY-QN : la comparaison lexicographique suit l'ordre chronologique
+  const isFuture  = period > current
+  const isPast    = period < current
+
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <button
+          onClick={() => idx > 0 && onChange(periods[idx - 1])}
+          disabled={idx <= 0}
+          className="px-2.5 py-2 text-slate-500 hover:bg-slate-50 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-white transition-colors"
+          title="Période précédente"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <div className="flex items-center gap-2 px-4 py-2 border-x border-slate-100 min-w-[7.5rem] justify-center">
+          <CalendarRange className="w-4 h-4 text-indigo-500" />
+          <span className="text-sm font-semibold text-slate-800">{periodLabel(period)}</span>
+        </div>
+        <button
+          onClick={() => idx >= 0 && idx < periods.length - 1 && onChange(periods[idx + 1])}
+          disabled={idx < 0 || idx >= periods.length - 1}
+          className="px-2.5 py-2 text-slate-500 hover:bg-slate-50 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-white transition-colors"
+          title="Période suivante"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+
+      {isCurrent && (
+        <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full">
+          Trimestre en cours
+        </span>
+      )}
+      {isFuture && (
+        <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full">
+          À venir
+        </span>
+      )}
+      {!isCurrent && (
+        <button
+          onClick={() => onChange(current)}
+          className="text-xs font-medium text-slate-400 hover:text-indigo-600 hover:underline transition-colors"
+        >
+          {isPast ? 'Revenir au trimestre en cours' : 'Trimestre en cours'}
+        </button>
+      )}
+    </div>
+  )
+}
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
 
@@ -626,7 +683,7 @@ export function TargetsPage() {
   return (
     <div className="space-y-6 fade-in">
       {/* Header */}
-      <div className="page-header flex-wrap gap-3">
+      <div className="page-header">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
             <Target className="w-5 h-5 text-indigo-600" />
@@ -636,38 +693,31 @@ export function TargetsPage() {
             <p className="page-subtitle">Quotas commerciaux et pipeline pondéré</p>
           </div>
         </div>
-
-        {/* Period selector */}
-        <select
-          className="input w-36 text-sm"
-          value={period}
-          onChange={e => setPeriod(e.target.value)}
-        >
-          {periods.map(p => (
-            <option key={p} value={p}>{periodLabel(p)}</option>
-          ))}
-        </select>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-slate-100 rounded-xl w-fit">
-        {[
-          { key: 'objectifs' as const,   label: 'Objectifs',   icon: <Target     className="w-4 h-4" /> },
-          { key: 'previsions' as const,  label: 'Prévisions',  icon: <TrendingUp className="w-4 h-4" /> },
-          ...(isAdmin ? [{ key: 'performance' as const, label: 'Performance', icon: <Trophy className="w-4 h-4" /> }] : []),
-        ].map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              tab === t.key
-                ? 'bg-white text-indigo-700 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            {t.icon}{t.label}
-          </button>
-        ))}
+      {/* Tabs + navigation de période */}
+      <div className="space-y-3">
+        <div className="flex gap-1 p-1 bg-slate-100 rounded-xl w-fit">
+          {[
+            { key: 'objectifs' as const,   label: 'Objectifs',   icon: <Target     className="w-4 h-4" /> },
+            { key: 'previsions' as const,  label: 'Prévisions',  icon: <TrendingUp className="w-4 h-4" /> },
+            ...(isAdmin ? [{ key: 'performance' as const, label: 'Performance', icon: <Trophy className="w-4 h-4" /> }] : []),
+          ].map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                tab === t.key
+                  ? 'bg-white text-indigo-700 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {t.icon}{t.label}
+            </button>
+          ))}
+        </div>
+
+        <PeriodNav periods={periods} period={period} onChange={setPeriod} />
       </div>
 
       {/* Tab content */}
