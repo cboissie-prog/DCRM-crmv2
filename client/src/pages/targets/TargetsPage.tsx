@@ -290,7 +290,7 @@ function TargetFormModal({ users, pipelines, period, editing, onClose, onSaved }
 
 // ── Onglet Objectifs ──────────────────────────────────────────────────────────
 
-function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean }) {
+function ObjectifsTab({ period, canWrite }: { period: string; canWrite: boolean }) {
   const qc = useQueryClient()
   const [showModal,  setShowModal]  = useState(false)
   const [editing,    setEditing]    = useState<SalesTarget | null>(null)
@@ -306,14 +306,14 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
   const { data: usersData } = useQuery<{ data: UserInfo[] }>({
     queryKey: ['targets-eligible-users'],
     queryFn: async () => { const { data } = await api.get('/targets/eligible-users'); return data },
-    enabled: isAdmin,
+    enabled: canWrite,
     staleTime: 60_000,
   })
 
   const { data: pipelinesData } = useQuery<{ data: PipelineInfo[] }>({
     queryKey: ['pipelines-list'],
     queryFn: async () => { const { data } = await api.get('/pipelines'); return data },
-    enabled: isAdmin,
+    enabled: canWrite,
     staleTime: 60_000,
   })
 
@@ -344,7 +344,7 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
       </div>
 
       {/* Actions */}
-      {isAdmin && (
+      {canWrite && (
         <div className="flex justify-end">
           <button className="btn-primary flex items-center gap-2" onClick={() => { setEditing(null); setShowModal(true) }}>
             <Plus className="w-4 h-4" /> Ajouter un objectif
@@ -357,7 +357,7 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
         <div className="text-center py-16 text-slate-400">
           <Target className="w-12 h-12 mx-auto mb-3 opacity-30" />
           <p className="font-medium">Aucun objectif pour {periodLabel(period)}</p>
-          {isAdmin && <p className="text-sm mt-1">Cliquez sur "Ajouter un objectif" pour commencer</p>}
+          {canWrite && <p className="text-sm mt-1">Cliquez sur "Ajouter un objectif" pour commencer</p>}
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-x-auto shadow-sm">
@@ -369,7 +369,7 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
                 <th className="px-5 py-3 text-right">Objectif</th>
                 <th className="px-5 py-3 text-right">Réalisé</th>
                 <th className="px-5 py-3 text-left w-48">Progression</th>
-                {isAdmin && <th className="px-5 py-3" />}
+                {canWrite && <th className="px-5 py-3" />}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -404,7 +404,7 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
                     <td className="px-5 py-4">
                       <ProgressBar value={t.computedActual} max={t.target} color={color} />
                     </td>
-                    {isAdmin && (
+                    {canWrite && (
                       <td className="px-5 py-4">
                         <div className="flex items-center justify-end gap-1">
                           <button onClick={() => { setEditing(t); setShowModal(true) }}
@@ -701,8 +701,9 @@ function PerformanceTab({ period }: { period: string }) {
 // ── Page principale ───────────────────────────────────────────────────────────
 
 export function TargetsPage() {
-  const user    = useAuthStore(s => s.user)
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'MANAGER'
+  const hasPermission = useAuthStore(s => s.hasPermission)
+  const canWrite   = hasPermission('targets:write')    // attribuer/modifier des objectifs
+  const canReadAll = hasPermission('targets:read_all') // vue équipe (Performance)
 
   const [tab,    setTab]    = useState<'objectifs' | 'previsions' | 'performance'>('objectifs')
   const [period, setPeriod] = useState(currentPeriod)
@@ -736,7 +737,7 @@ export function TargetsPage() {
           {[
             { key: 'objectifs' as const,   label: 'Objectifs',   icon: <Target     className="w-4 h-4" /> },
             { key: 'previsions' as const,  label: 'Prévisions',  icon: <TrendingUp className="w-4 h-4" /> },
-            ...(isAdmin ? [{ key: 'performance' as const, label: 'Performance', icon: <Trophy className="w-4 h-4" /> }] : []),
+            ...(canReadAll ? [{ key: 'performance' as const, label: 'Performance', icon: <Trophy className="w-4 h-4" /> }] : []),
           ].map(t => (
             <button
               key={t.key}
@@ -756,9 +757,9 @@ export function TargetsPage() {
       </div>
 
       {/* Tab content */}
-      {tab === 'objectifs'   && <ObjectifsTab   period={period} isAdmin={isAdmin} />}
+      {tab === 'objectifs'   && <ObjectifsTab   period={period} canWrite={canWrite} />}
       {tab === 'previsions'  && <PrevisionsTab  period={period} />}
-      {tab === 'performance' && isAdmin && <PerformanceTab period={period} />}
+      {tab === 'performance' && canReadAll && <PerformanceTab period={period} />}
     </div>
   )
 }

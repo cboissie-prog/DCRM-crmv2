@@ -45,6 +45,10 @@ function quartersAround(past: number, future: number): string[] {
 
 const userSelect = { id: true, firstName: true, lastName: true, avatar: true, role: true }
 
+/** Peut voir les objectifs/prévisions de toute l'équipe (sinon : uniquement les siens) */
+const canReadAll = (req: AuthRequest): boolean =>
+  req.permissions?.includes('*') || req.permissions?.includes('targets:read_all') || false
+
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 // Le « réalisé » n'est plus saisi : il est calculé depuis les opportunités gagnées.
 
@@ -71,7 +75,7 @@ router.get('/periods', requirePermission('targets:read'), async (_req: AuthReque
 // Utilisateurs pouvant recevoir un objectif : ceux dont le rôle donne accès
 // à l'onglet Objectifs & Prévisions (permission targets:read), ADMIN inclus.
 
-router.get('/eligible-users', requirePermission('targets:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/eligible-users', requirePermission('targets:write'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const users = await prisma.user.findMany({
       where: {
@@ -94,10 +98,9 @@ router.get('/', requirePermission('targets:read'), async (req: AuthRequest, res:
   try {
     const period = (req.query.period as string) || currentPeriod()
 
-    // COMMERCIAL voit uniquement ses propres objectifs
+    // Sans targets:read_all, on ne voit que ses propres objectifs
     const where: Record<string, unknown> = { period }
-    const authUser = await prisma.user.findUnique({ where: { id: req.userId }, select: { role: true } })
-    if (authUser?.role === 'COMMERCIAL') where.userId = req.userId
+    if (!canReadAll(req)) where.userId = req.userId
 
     const targets = await prisma.salesTarget.findMany({
       where,
@@ -141,7 +144,9 @@ router.get('/forecast', requirePermission('targets:read'), async (req: AuthReque
     const { start, end } = parsePeriod(period)
     const { wonKeys, lostKeys } = await getWonLostStageKeys()
 
-    const pipelineFilter = pipelineId ? { pipelineId } : {}
+    // Sans targets:read_all, la prévision est limitée à ses propres opportunités
+    const pipelineFilter: Record<string, unknown> = pipelineId ? { pipelineId } : {}
+    if (!canReadAll(req)) pipelineFilter.assignedToId = req.userId
     const [openOpps, wonOpps, stages] = await Promise.all([
       prisma.opportunity.findMany({
         where: { stage: { notIn: [...wonKeys, ...lostKeys] }, ...pipelineFilter },
@@ -260,14 +265,10 @@ router.get('/forecast', requirePermission('targets:read'), async (req: AuthReque
 })
 
 // ─── GET /targets/performance?period=2026-Q2 ─────────────────────────────────
-// Classement des commerciaux — réservé ADMIN / MANAGER.
+// Classement des commerciaux — nécessite la vue équipe.
 
-router.get('/performance', requirePermission('targets:read'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/performance', requirePermission('targets:read_all'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (req.userRole !== 'ADMIN' && req.userRole !== 'MANAGER') {
-      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Réservé aux managers' } })
-      return
-    }
     const period = (req.query.period as string) || undefined
     const dates  = period ? parsePeriod(period) : null
     const { wonKeys, lostKeys } = await getWonLostStageKeys()

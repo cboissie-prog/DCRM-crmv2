@@ -51,8 +51,9 @@ const PERMISSIONS = [
   { key: 'products:update', label: 'Modifier un produit', category: 'Produits' },
   { key: 'products:delete', label: 'Supprimer un produit', category: 'Produits' },
   // Objectifs
-  { key: 'targets:read',  label: 'Voir les objectifs de vente',    category: 'Objectifs' },
-  { key: 'targets:write', label: 'Créer/modifier les objectifs',   category: 'Objectifs' },
+  { key: 'targets:read',     label: 'Voir ses objectifs et prévisions',              category: 'Objectifs' },
+  { key: 'targets:read_all', label: 'Voir les objectifs et prévisions de l\'équipe', category: 'Objectifs' },
+  { key: 'targets:write',    label: 'Attribuer/modifier les objectifs',              category: 'Objectifs' },
   // Automatisations
   { key: 'automation:read', label: 'Voir les automatisations', category: 'Automatisations' },
   { key: 'automation:create', label: 'Créer une automatisation', category: 'Automatisations' },
