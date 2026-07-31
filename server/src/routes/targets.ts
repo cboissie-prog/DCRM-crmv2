@@ -27,20 +27,38 @@ function parsePeriod(period: string): { start: Date; end: Date } {
   return { start: new Date(y, mo - 1, 1), end: new Date(y, mo, 0, 23, 59, 59, 999) }
 }
 
+function lastNQuarters(n: number): string[] {
+  const quarters: string[] = []
+  const now = new Date()
+  let year = now.getFullYear()
+  let q = Math.ceil((now.getMonth() + 1) / 3)
+  for (let i = 0; i < n; i++) {
+    quarters.unshift(`${year}-Q${q}`)
+    q--
+    if (q === 0) { q = 4; year-- }
+  }
+  return quarters
+}
+
 const userSelect = { id: true, firstName: true, lastName: true, avatar: true, role: true }
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
+// Le « réalisé » n'est plus saisi : il est calculé depuis les opportunités gagnées.
 
 const createSchema = z.object({
   userId:  z.string().min(1),
   period:  z.string().regex(/^\d{4}-Q[1-4]$|^\d{4}-\d{2}$/, 'Format: 2026-Q1 ou 2026-01'),
   target:  z.number().positive('Objectif doit être positif'),
-  actual:  z.number().min(0).optional(),
 })
 
 const updateSchema = z.object({
-  target: z.number().positive().optional(),
-  actual: z.number().min(0).optional(),
+  target: z.number().positive(),
+})
+
+// ─── GET /targets/periods ─────────────────────────────────────────────────────
+
+router.get('/periods', requirePermission('targets:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
+  res.json({ success: true, data: lastNQuarters(8) })
 })
 
 // ─── GET /targets?period=2026-Q2 ──────────────────────────────────────────────
@@ -60,21 +78,40 @@ router.get('/', requirePermission('targets:read'), async (req: AuthRequest, res:
       orderBy: { createdAt: 'asc' },
     })
 
-    res.json({ success: true, data: targets, meta: { period } })
+    // Réalisé calculé depuis les opportunités gagnées de la période
+    const { wonKeys } = await getWonLostStageKeys()
+    const { start, end } = parsePeriod(period)
+    const wonByUser = targets.length > 0 && wonKeys.length > 0
+      ? await prisma.opportunity.groupBy({
+          by: ['assignedToId'],
+          _sum: { value: true },
+          where: {
+            stage:        { in: wonKeys },
+            closedAt:     { gte: start, lte: end },
+            assignedToId: { in: targets.map(t => t.userId) },
+          },
+        })
+      : []
+    const actualByUser = new Map(wonByUser.map(w => [w.assignedToId, w._sum.value ?? 0]))
+    const enriched = targets.map(t => ({ ...t, computedActual: actualByUser.get(t.userId) ?? 0 }))
+
+    res.json({ success: true, data: enriched, meta: { period } })
   } catch (err) { handleRouteError(err, res) }
 })
 
-// ─── GET /targets/forecast ────────────────────────────────────────────────────
+// ─── GET /targets/forecast?period=&pipelineId= ────────────────────────────────
 
 router.get('/forecast', requirePermission('targets:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const period = (req.query.period as string) || currentPeriod()
+    const period     = (req.query.period as string) || currentPeriod()
+    const pipelineId = (req.query.pipelineId as string) || undefined
     const { start, end } = parsePeriod(period)
     const { wonKeys, lostKeys } = await getWonLostStageKeys()
 
-    const [openOpps, wonOpps] = await Promise.all([
+    const pipelineFilter = pipelineId ? { pipelineId } : {}
+    const [openOpps, wonOpps, stages] = await Promise.all([
       prisma.opportunity.findMany({
-        where: { stage: { notIn: [...wonKeys, ...lostKeys] } },
+        where: { stage: { notIn: [...wonKeys, ...lostKeys] }, ...pipelineFilter },
         include: {
           assignedTo: { select: { id: true, firstName: true, lastName: true, avatar: true } },
           company:    { select: { id: true, name: true } },
@@ -82,10 +119,20 @@ router.get('/forecast', requirePermission('targets:read'), async (req: AuthReque
         orderBy: { value: 'desc' },
       }),
       prisma.opportunity.findMany({
-        where: { stage: { in: wonKeys }, closedAt: { gte: start, lte: end } },
+        where: { stage: { in: wonKeys }, closedAt: { gte: start, lte: end }, ...pipelineFilter },
         include: { assignedTo: { select: { id: true, firstName: true, lastName: true } } },
       }),
+      // Métadonnées d'étapes (nom, couleur, ordre) — pipeline par défaut prioritaire
+      prisma.pipelineStage.findMany({
+        where: pipelineId ? { pipelineId } : {},
+        orderBy: [{ pipeline: { isDefault: 'desc' } }, { order: 'asc' }],
+      }),
     ])
+
+    const stageMeta = new Map<string, { name: string; color: string; order: number }>()
+    for (const s of stages) {
+      if (!stageMeta.has(s.key)) stageMeta.set(s.key, { name: s.name, color: s.color, order: s.order })
+    }
 
     // Summary
     const weightedTotal = openOpps.reduce((s, o) => s + o.value * o.probability / 100, 0)
@@ -93,15 +140,23 @@ router.get('/forecast', requirePermission('targets:read'), async (req: AuthReque
     const wonTotal      = wonOpps.reduce((s, o) => s + o.value, 0)
 
     // By stage
-    const stageMap = new Map<string, { stage: string; count: number; rawValue: number; weightedValue: number; probability: number }>()
+    const stageMap = new Map<string, { stage: string; count: number; rawValue: number; weightedValue: number; probaSum: number }>()
     for (const o of openOpps) {
-      const s = stageMap.get(o.stage) ?? { stage: o.stage, count: 0, rawValue: 0, weightedValue: 0, probability: o.probability }
+      const s = stageMap.get(o.stage) ?? { stage: o.stage, count: 0, rawValue: 0, weightedValue: 0, probaSum: 0 }
       s.count++
       s.rawValue      += o.value
       s.weightedValue += o.value * o.probability / 100
+      s.probaSum      += o.probability
       stageMap.set(o.stage, s)
     }
     const byStage = [...stageMap.values()]
+      .map(({ probaSum, ...s }) => ({
+        ...s,
+        stageName:  stageMeta.get(s.stage)?.name  ?? s.stage,
+        stageColor: stageMeta.get(s.stage)?.color ?? '#6366f1',
+        avgProba:   s.count > 0 ? Math.round(probaSum / s.count) : 0,
+      }))
+      .sort((a, b) => (stageMeta.get(a.stage)?.order ?? 99) - (stageMeta.get(b.stage)?.order ?? 99))
 
     // By user (open opps + won in period)
     type UserEntry = {
@@ -137,7 +192,7 @@ router.get('/forecast', requirePermission('targets:read'), async (req: AuthReque
     }
     const byUser = [...userMap.values()].sort((a, b) => b.weightedValue - a.weightedValue)
 
-    // Top opportunities (prob ≥ 50, sorted by weighted desc)
+    // Top opportunities (prob ≥ 50)
     const topOpportunities = openOpps
       .filter(o => o.probability >= 50)
       .slice(0, 8)
@@ -171,6 +226,59 @@ router.get('/forecast', requirePermission('targets:read'), async (req: AuthReque
   } catch (err) { handleRouteError(err, res) }
 })
 
+// ─── GET /targets/performance?period=2026-Q2 ─────────────────────────────────
+// Classement des commerciaux — réservé ADMIN / MANAGER.
+
+router.get('/performance', requirePermission('targets:read'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (req.userRole !== 'ADMIN' && req.userRole !== 'MANAGER') {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Réservé aux managers' } })
+      return
+    }
+    const period = (req.query.period as string) || undefined
+    const dates  = period ? parsePeriod(period) : null
+    const { wonKeys, lostKeys } = await getWonLostStageKeys()
+
+    const users = await prisma.user.findMany({
+      where: { isActive: true, role: { in: ['COMMERCIAL', 'MANAGER', 'ADMIN'] } },
+      select: userSelect,
+    })
+
+    const performance = await Promise.all(users.map(async user => {
+      const baseWhere = dates
+        ? { assignedToId: user.id, closedAt: { gte: dates.start, lte: dates.end } }
+        : { assignedToId: user.id }
+
+      const [wonResult, lostCount, activeCount, createdCount] = await Promise.all([
+        prisma.opportunity.aggregate({
+          _sum: { value: true }, _count: { id: true },
+          where: { ...baseWhere, stage: { in: wonKeys } },
+        }),
+        prisma.opportunity.count({ where: { ...baseWhere, stage: { in: lostKeys } } }),
+        prisma.opportunity.count({ where: { assignedToId: user.id, stage: { notIn: [...wonKeys, ...lostKeys] } } }),
+        prisma.opportunity.count({
+          where: dates
+            ? { assignedToId: user.id, createdAt: { gte: dates.start, lte: dates.end } }
+            : { assignedToId: user.id },
+        }),
+      ])
+
+      const wonCount    = wonResult._count.id
+      const wonValue    = wonResult._sum.value ?? 0
+      const closedCount = wonCount + lostCount
+      const winRate     = closedCount > 0 ? Math.round((wonCount / closedCount) * 100) : 0
+      const avgDeal     = wonCount > 0 ? wonValue / wonCount : 0
+
+      return { user, wonCount, wonValue, lostCount, activeCount, createdCount, winRate, avgDeal }
+    }))
+
+    const active = performance.filter(p => p.createdCount > 0 || p.wonCount > 0 || p.activeCount > 0)
+    active.sort((a, b) => b.wonValue - a.wonValue)
+
+    res.json({ success: true, data: active })
+  } catch (err) { handleRouteError(err, res) }
+})
+
 // ─── POST /targets ────────────────────────────────────────────────────────────
 
 router.post('/', requirePermission('targets:write'), async (req: AuthRequest, res: Response): Promise<void> => {
@@ -182,12 +290,12 @@ router.post('/', requirePermission('targets:write'), async (req: AuthRequest, re
     if (existing) {
       target = await prisma.salesTarget.update({
         where: { id: existing.id },
-        data: { target: body.target, ...(body.actual !== undefined ? { actual: body.actual } : {}) },
+        data: { target: body.target },
         include: { user: { select: userSelect } },
       })
     } else {
       target = await prisma.salesTarget.create({
-        data: { userId: body.userId, period: body.period, target: body.target, actual: body.actual ?? 0 },
+        data: { userId: body.userId, period: body.period, target: body.target },
         include: { user: { select: userSelect } },
       })
     }

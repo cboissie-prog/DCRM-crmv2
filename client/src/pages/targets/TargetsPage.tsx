@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell,
 } from 'recharts'
 import api from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
@@ -20,13 +20,14 @@ import {
 interface UserInfo { id: string; firstName: string; lastName: string; avatar?: string; role: string }
 
 interface SalesTarget {
-  id:        string
-  userId:    string
-  user:      UserInfo
-  period:    string
-  target:    number
-  actual:    number
-  createdAt: string
+  id:             string
+  userId:         string
+  user:           UserInfo
+  period:         string
+  target:         number
+  /** CA réalisé, calculé côté serveur depuis les opportunités gagnées de la période */
+  computedActual: number
+  createdAt:      string
 }
 
 interface ForecastSummary {
@@ -38,10 +39,25 @@ interface ForecastSummary {
 
 interface ForecastByStage {
   stage:         string
+  stageName:     string
+  stageColor:    string
   count:         number
   rawValue:      number
   weightedValue: number
-  probability:   number
+  avgProba:      number
+}
+
+interface PipelineInfo { id: string; name: string; color: string; isDefault: boolean }
+
+interface PerfData {
+  user:         UserInfo
+  wonCount:     number
+  wonValue:     number
+  lostCount:    number
+  activeCount:  number
+  createdCount: number
+  winRate:      number
+  avgDeal:      number
 }
 
 interface ForecastByUser {
@@ -100,14 +116,6 @@ function periodLabel(p: string) {
 const fmt = (n: number) =>
   n >= 1000 ? `${(n / 1000).toFixed(1).replace('.0', '')} k€` : `${n} €`
 
-const STAGE_LABELS: Record<string, string> = {
-  NEW: 'Nouveau', QUALIFICATION: 'Qualification', PROPOSAL: 'Proposition',
-  NEGOTIATION: 'Négociation', WON: 'Gagné', LOST: 'Perdu',
-}
-const STAGE_COLORS: Record<string, string> = {
-  NEW: '#94a3b8', QUALIFICATION: '#60a5fa', PROPOSAL: '#a78bfa', NEGOTIATION: '#fb923c',
-}
-
 // ── Stat card ─────────────────────────────────────────────────────────────────
 
 function StatCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) {
@@ -150,7 +158,6 @@ interface TargetFormProps {
 function TargetFormModal({ users, period, editing, onClose, onSaved }: TargetFormProps) {
   const [userId, setUserId]   = useState(editing?.userId ?? '')
   const [target, setTarget]   = useState(editing?.target.toString() ?? '')
-  const [actual, setActual]   = useState(editing?.actual.toString() ?? '0')
   const [loading, setLoading] = useState(false)
 
   const onSubmit = async () => {
@@ -163,12 +170,11 @@ function TargetFormModal({ users, period, editing, onClose, onSaved }: TargetFor
     }
     setLoading(true)
     try {
-      const actualValue = parseFloat(actual) || 0
       if (editing) {
-        await api.put(`/targets/${editing.id}`, { target: targetValue, actual: actualValue })
+        await api.put(`/targets/${editing.id}`, { target: targetValue })
         toast.success('Objectif mis à jour')
       } else {
-        await api.post('/targets', { userId, period, target: targetValue, actual: actualValue })
+        await api.post('/targets', { userId, period, target: targetValue })
         toast.success('Objectif créé')
       }
       onSaved()
@@ -194,17 +200,12 @@ function TargetFormModal({ users, period, editing, onClose, onSaved }: TargetFor
           </select>
         </div>
       )}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="label">Objectif (€) *</label>
-          <input className="input" type="number" min="0" value={target} onChange={e => setTarget(e.target.value)} placeholder="25000" />
-        </div>
-        <div>
-          <label className="label">Réalisé (€)</label>
-          <input className="input" type="number" min="0" value={actual} onChange={e => setActual(e.target.value)} placeholder="0" />
-        </div>
+      <div>
+        <label className="label">Objectif (€) *</label>
+        <input className="input" type="number" min="0" value={target} onChange={e => setTarget(e.target.value)} placeholder="25000" />
       </div>
       <p className="text-xs text-slate-400">Période : <strong>{periodLabel(period)}</strong></p>
+      <p className="text-xs text-slate-400">Le réalisé est calculé automatiquement depuis les opportunités gagnées de la période.</p>
       <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
         <button className="btn-secondary" onClick={onClose}>Annuler</button>
         <button className="btn-primary" onClick={onSubmit} disabled={loading || (!editing && !userId) || !target}>
@@ -244,7 +245,7 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
 
   const targets = data?.data ?? []
   const totalTarget = targets.reduce((s, t) => s + t.target, 0)
-  const totalActual = targets.reduce((s, t) => s + t.actual, 0)
+  const totalActual = targets.reduce((s, t) => s + t.computedActual, 0)
   const globalPct   = totalTarget > 0 ? Math.round(totalActual / totalTarget * 100) : 0
   const users       = (usersData?.data ?? []).filter(u => u.role !== 'TECHNICIEN')
 
@@ -292,7 +293,7 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
             </thead>
             <tbody className="divide-y divide-slate-50">
               {targets.map(t => {
-                const pct   = t.target > 0 ? Math.round(t.actual / t.target * 100) : 0
+                const pct   = t.target > 0 ? Math.round(t.computedActual / t.target * 100) : 0
                 const color = pct >= 100 ? 'bg-emerald-500' : pct >= 75 ? 'bg-amber-400' : pct >= 50 ? 'bg-indigo-500' : 'bg-slate-300'
                 return (
                   <tr key={t.id} className="hover:bg-slate-50 transition-colors">
@@ -307,10 +308,10 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
                     </td>
                     <td className="px-5 py-4 text-right text-sm font-semibold text-slate-700">{fmt(t.target)}</td>
                     <td className="px-5 py-4 text-right">
-                      <span className={`text-sm font-bold ${pct >= 100 ? 'text-emerald-600' : 'text-slate-900'}`}>{fmt(t.actual)}</span>
+                      <span className={`text-sm font-bold ${pct >= 100 ? 'text-emerald-600' : 'text-slate-900'}`}>{fmt(t.computedActual)}</span>
                     </td>
                     <td className="px-5 py-4">
-                      <ProgressBar value={t.actual} max={t.target} color={color} />
+                      <ProgressBar value={t.computedActual} max={t.target} color={color} />
                     </td>
                     {isAdmin && (
                       <td className="px-5 py-4">
@@ -371,10 +372,21 @@ function ObjectifsTab({ period, isAdmin }: { period: string; isAdmin: boolean })
 
 function PrevisionsTab({ period }: { period: string }) {
   const navigate = useNavigate()
+  const [pipelineId, setPipelineId] = useState('')
+
+  const { data: pipelinesData } = useQuery<{ data: PipelineInfo[] }>({
+    queryKey: ['pipelines-list'],
+    queryFn: async () => { const { data } = await api.get('/pipelines'); return data },
+    staleTime: 60_000,
+  })
+  const pipelines = pipelinesData?.data ?? []
 
   const { data, isLoading } = useQuery<{ data: ForecastData }>({
-    queryKey: ['forecast', period],
-    queryFn: async () => { const { data } = await api.get(`/targets/forecast?period=${period}`); return data },
+    queryKey: ['forecast', period, pipelineId],
+    queryFn: async () => {
+      const { data } = await api.get('/targets/forecast', { params: { period, pipelineId: pipelineId || undefined } })
+      return data
+    },
     staleTime: 30_000,
   })
 
@@ -385,16 +397,26 @@ function PrevisionsTab({ period }: { period: string }) {
 
   const { summary, byStage, byUser, topOpportunities } = forecast
 
-  // Chart data
+  // Chart data — étapes réelles (nom, couleur) renvoyées par l'API
   const chartData = byStage.map(s => ({
-    name: STAGE_LABELS[s.stage] ?? s.stage,
+    name: s.stageName,
     'Pipeline brut':     Math.round(s.rawValue),
     'Pipeline pondéré':  Math.round(s.weightedValue),
-    color:               STAGE_COLORS[s.stage] ?? '#6366f1',
+    color:               s.stageColor,
   }))
 
   return (
     <div className="space-y-6">
+      {/* Filtre pipeline */}
+      {pipelines.length > 1 && (
+        <div className="flex justify-end">
+          <select className="input w-56 text-sm" value={pipelineId} onChange={e => setPipelineId(e.target.value)}>
+            <option value="">Tous les pipelines</option>
+            {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+      )}
+
       {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard label="Pipeline pondéré"  value={fmt(summary.weightedTotal)} sub="Valeur × probabilité" color="text-indigo-600" />
@@ -418,7 +440,9 @@ function PrevisionsTab({ period }: { period: string }) {
                 <Tooltip formatter={(v) => [`${Number(v ?? 0).toLocaleString('fr-FR')} €`, '']} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Bar dataKey="Pipeline brut"    fill="#e2e8f0" radius={[4,4,0,0]} />
-                <Bar dataKey="Pipeline pondéré" fill="#6366f1" radius={[4,4,0,0]} />
+                <Bar dataKey="Pipeline pondéré" fill="#6366f1" radius={[4,4,0,0]}>
+                  {chartData.map(d => <Cell key={d.name} fill={d.color} />)}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -512,16 +536,92 @@ function PrevisionsTab({ period }: { period: string }) {
   )
 }
 
+// ── Onglet Performance (managers) ─────────────────────────────────────────────
+
+function PerformanceTab({ period }: { period: string }) {
+  const { data: perf = [], isLoading } = useQuery<PerfData[]>({
+    queryKey: ['commercial-performance', period],
+    queryFn: async () => {
+      const { data } = await api.get('/targets/performance', { params: { period } })
+      return data.data ?? []
+    },
+    staleTime: 30_000,
+  })
+
+  if (isLoading) return <PageSpinner />
+
+  if (perf.length === 0) {
+    return <div className="text-center py-16 text-slate-400">Aucune donnée pour cette période</div>
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-2xl overflow-x-auto shadow-sm">
+      <table className="w-full">
+        <thead>
+          <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+            <th className="px-5 py-3 text-left">Commercial</th>
+            <th className="px-5 py-3 text-right">Opps créées</th>
+            <th className="px-5 py-3 text-right">Actives</th>
+            <th className="px-5 py-3 text-right">Gagnées</th>
+            <th className="px-5 py-3 text-right">CA gagné</th>
+            <th className="px-5 py-3 text-right">Panier moyen</th>
+            <th className="px-5 py-3 text-left w-40">Taux de succès</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-50">
+          {perf.map(p => (
+            <tr key={p.user.id} className="hover:bg-slate-50 transition-colors">
+              <td className="px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <Avatar firstName={p.user.firstName} lastName={p.user.lastName} src={p.user.avatar} size="sm" />
+                  <span className="text-sm font-medium text-slate-900">{p.user.firstName} {p.user.lastName}</span>
+                </div>
+              </td>
+              <td className="px-5 py-4 text-right text-sm text-slate-600">{p.createdCount}</td>
+              <td className="px-5 py-4 text-right text-sm text-slate-600">{p.activeCount}</td>
+              <td className="px-5 py-4 text-right text-sm">
+                <span className="font-semibold text-emerald-700">{p.wonCount}</span>
+                {p.lostCount > 0 && <span className="text-slate-400 text-xs ml-1">/ {p.lostCount} perdues</span>}
+              </td>
+              <td className="px-5 py-4 text-right text-sm font-semibold text-slate-900">{fmt(p.wonValue)}</td>
+              <td className="px-5 py-4 text-right text-sm text-slate-600">{p.avgDeal > 0 ? fmt(Math.round(p.avgDeal)) : '—'}</td>
+              <td className="px-5 py-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-16 bg-slate-100 rounded-full h-1.5">
+                    <div
+                      className={`h-1.5 rounded-full ${p.winRate >= 60 ? 'bg-emerald-500' : p.winRate >= 30 ? 'bg-amber-500' : 'bg-red-400'}`}
+                      style={{ width: `${p.winRate}%` }}
+                    />
+                  </div>
+                  <span className={`text-sm font-semibold ${p.winRate >= 60 ? 'text-emerald-600' : p.winRate >= 30 ? 'text-amber-600' : 'text-red-500'}`}>
+                    {p.winRate}%
+                  </span>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 // ── Page principale ───────────────────────────────────────────────────────────
 
 export function TargetsPage() {
   const user    = useAuthStore(s => s.user)
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'MANAGER'
 
-  const [tab,    setTab]    = useState<'objectifs' | 'previsions'>('objectifs')
+  const [tab,    setTab]    = useState<'objectifs' | 'previsions' | 'performance'>('objectifs')
   const [period, setPeriod] = useState(currentPeriod)
 
-  const periods = periodOptions()
+  // Périodes fournies par l'API (8 derniers trimestres glissants), fallback local
+  const { data: periodsData } = useQuery<{ data: string[] }>({
+    queryKey: ['target-periods'],
+    queryFn: async () => { const { data } = await api.get('/targets/periods'); return data },
+    staleTime: 3_600_000,
+  })
+  const periods = periodsData?.data ?? periodOptions()
 
   return (
     <div className="space-y-6 fade-in">
@@ -551,10 +651,11 @@ export function TargetsPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-slate-100 rounded-xl w-fit">
-        {([
-          { key: 'objectifs',  label: 'Objectifs',  icon: <Target     className="w-4 h-4" /> },
-          { key: 'previsions', label: 'Prévisions', icon: <TrendingUp className="w-4 h-4" /> },
-        ] as const).map(t => (
+        {[
+          { key: 'objectifs' as const,   label: 'Objectifs',   icon: <Target     className="w-4 h-4" /> },
+          { key: 'previsions' as const,  label: 'Prévisions',  icon: <TrendingUp className="w-4 h-4" /> },
+          ...(isAdmin ? [{ key: 'performance' as const, label: 'Performance', icon: <Trophy className="w-4 h-4" /> }] : []),
+        ].map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
@@ -570,8 +671,9 @@ export function TargetsPage() {
       </div>
 
       {/* Tab content */}
-      {tab === 'objectifs'  && <ObjectifsTab  period={period} isAdmin={isAdmin} />}
-      {tab === 'previsions' && <PrevisionsTab period={period} />}
+      {tab === 'objectifs'   && <ObjectifsTab   period={period} isAdmin={isAdmin} />}
+      {tab === 'previsions'  && <PrevisionsTab  period={period} />}
+      {tab === 'performance' && isAdmin && <PerformanceTab period={period} />}
     </div>
   )
 }

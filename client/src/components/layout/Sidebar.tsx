@@ -18,10 +18,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" />, children: [
-    { label: 'Tableau de bord', to: '/' },
-    { label: 'Rapports',       to: '/reports' },
-  ]},
+  { label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" />, to: '/' },
   { label: 'Appels', icon: <Phone className="w-4 h-4" />, to: '/calls' },
   { label: 'Commercial', icon: <TrendingUp className="w-4 h-4" />, children: [
     { label: 'Pipeline',            to: '/pipeline' },
@@ -64,7 +61,7 @@ interface SidebarProps {
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const location = useLocation()
   const { user, logout, hasPermission } = useAuthStore()
-  const [expanded, setExpanded] = useState<string[]>(['Dashboard', 'Commercial', 'Contacts', 'Parc informatique'])
+  const [expanded, setExpanded] = useState<string[]>(['Commercial', 'Contacts', 'Parc informatique'])
 
   const toggle = (label: string) =>
     setExpanded(prev => prev.includes(label) ? prev.filter(l => l !== label) : [...prev, label])

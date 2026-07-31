@@ -50,8 +50,6 @@ const PERMISSIONS = [
   { key: 'products:create', label: 'Créer un produit', category: 'Produits' },
   { key: 'products:update', label: 'Modifier un produit', category: 'Produits' },
   { key: 'products:delete', label: 'Supprimer un produit', category: 'Produits' },
-  // Rapports
-  { key: 'reports:read', label: 'Voir les rapports et statistiques', category: 'Rapports' },
   // Objectifs
   { key: 'targets:read',  label: 'Voir les objectifs de vente',    category: 'Objectifs' },
   { key: 'targets:write', label: 'Créer/modifier les objectifs',   category: 'Objectifs' },
@@ -96,6 +94,8 @@ export async function seedBase() {
   await prisma.permission.deleteMany({ where: { key: { startsWith: 'interventions:' } } })
   // Module Activités retiré : suppression des permissions associées
   await prisma.permission.deleteMany({ where: { key: { startsWith: 'activities:' } } })
+  // Page Rapports fusionnée dans Objectifs & Prévisions (targets:*)
+  await prisma.permission.deleteMany({ where: { key: { startsWith: 'reports:' } } })
 
   // ─── PERMISSIONS ───────────────────────────────────────
   for (const perm of PERMISSIONS) {
@@ -121,7 +121,6 @@ export async function seedBase() {
     'pipeline:read', 'pipeline:create', 'pipeline:update', 'pipeline:delete',
     'tickets:read', 'tickets:create', 'tickets:update',
     'products:read',
-    'reports:read',
     'targets:read',
     'appointments:read', 'appointments:create', 'appointments:update', 'appointments:delete',
     'calls:read', 'calls:create', 'calls:update',

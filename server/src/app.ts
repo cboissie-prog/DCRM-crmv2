@@ -25,7 +25,6 @@ import targetsRoutes from './routes/targets'
 import parcRoutes from './routes/parc'
 import pipelinesRoutes from './routes/pipelines'
 import settingsRoutes from './routes/settings'
-import reportsRoutes from './routes/reports'
 import searchRoutes from './routes/search'
 import rolesRoutes from './routes/roles'
 import apikeysRoutes from './routes/apikeys'
@@ -118,7 +117,6 @@ export function createApp(opts: CreateAppOptions = {}): express.Express {
   app.use('/api/parc', parcRoutes)
   app.use('/api/pipelines', pipelinesRoutes)
   app.use('/api/settings', settingsRoutes)
-  app.use('/api/reports', reportsRoutes)
   app.use('/api/search', searchRoutes)
   app.use('/api/roles', authenticate, rolesRoutes)
   app.use('/api/apikeys', authenticate, apikeysRoutes)

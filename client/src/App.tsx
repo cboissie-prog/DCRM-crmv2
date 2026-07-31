@@ -83,9 +83,6 @@ const ParcOverviewPage = lazy(() =>
 const ParcClientPage = lazy(() =>
   import('./pages/parc/ParcClientPage').then(m => ({ default: m.ParcClientPage }))
 )
-const ReportsPage = lazy(() =>
-  import('./pages/reports/ReportsPage').then(m => ({ default: m.ReportsPage }))
-)
 const TargetsPage = lazy(() =>
   import('./pages/targets/TargetsPage').then(m => ({ default: m.TargetsPage }))
 )
@@ -218,11 +215,6 @@ export default function App() {
               {/* products:read */}
               <Route element={<ProtectedRoute permission="products:read" />}>
                 <Route path="/products" element={<ProductsPage />} />
-              </Route>
-
-              {/* reports:read */}
-              <Route element={<ProtectedRoute permission="reports:read" />}>
-                <Route path="/reports" element={<ReportsPage />} />
               </Route>
 
               {/* targets:read */}
