@@ -27,15 +27,18 @@ function parsePeriod(period: string): { start: Date; end: Date } {
   return { start: new Date(y, mo - 1, 1), end: new Date(y, mo, 0, 23, 59, 59, 999) }
 }
 
-function lastNQuarters(n: number): string[] {
-  const quarters: string[] = []
+/** Trimestres du plus ancien au plus récent : `past` en arrière (trimestre courant inclus) + `future` en avant */
+function quartersAround(past: number, future: number): string[] {
   const now = new Date()
   let year = now.getFullYear()
   let q = Math.ceil((now.getMonth() + 1) / 3)
-  for (let i = 0; i < n; i++) {
-    quarters.unshift(`${year}-Q${q}`)
-    q--
-    if (q === 0) { q = 4; year-- }
+  // Recule jusqu'au premier trimestre de la fenêtre
+  for (let i = 0; i < past - 1; i++) { q--; if (q === 0) { q = 4; year-- } }
+  const quarters: string[] = []
+  for (let i = 0; i < past + future; i++) {
+    quarters.push(`${year}-Q${q}`)
+    q++
+    if (q === 5) { q = 1; year++ }
   }
   return quarters
 }
@@ -58,7 +61,8 @@ const updateSchema = z.object({
 // ─── GET /targets/periods ─────────────────────────────────────────────────────
 
 router.get('/periods', requirePermission('targets:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
-  res.json({ success: true, data: lastNQuarters(8) })
+  // 8 trimestres passés (courant inclus) + 4 futurs pour planifier les objectifs à venir
+  res.json({ success: true, data: quartersAround(8, 4) })
 })
 
 // ─── GET /targets?period=2026-Q2 ──────────────────────────────────────────────

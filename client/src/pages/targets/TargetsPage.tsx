@@ -101,7 +101,7 @@ function currentPeriod() {
 function periodOptions() {
   const year = new Date().getFullYear()
   const opts = []
-  for (const y of [year, year - 1]) {
+  for (const y of [year - 1, year, year + 1]) {
     for (const q of [1, 2, 3, 4]) opts.push(`${y}-Q${q}`)
   }
   return opts
