@@ -1420,6 +1420,26 @@ function PipelineManagerModal({ pipelines, onClose }: PipelineManagerModalProps)
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['pipelines'] }); setDeleteConfirm(null) },
     onError: (err: unknown) => toast.error((err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message || 'Erreur'),
   })
+  const reorderStagesMutation = useMutation({
+    mutationFn: (stages: { id: string; order: number }[]) => api.patch(`/pipelines/${selectedId}/stages/reorder`, { stages }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pipelines'] }),
+    onError: () => { toast.error('Erreur lors du réordonnancement'); qc.invalidateQueries({ queryKey: ['pipelines'] }) },
+  })
+
+  const onStageDragEnd = (result: DropResult) => {
+    if (!result.destination || !selected) return
+    const from = result.source.index
+    const to = result.destination.index
+    if (from === to) return
+    const stages = [...selected.stages]
+    const [moved] = stages.splice(from, 1)
+    stages.splice(to, 0, moved)
+    const reordered = stages.map((s, i) => ({ ...s, order: i + 1 }))
+    // Mise à jour optimiste du cache pour un retour visuel immédiat
+    qc.setQueryData<Pipeline[]>(['pipelines'], old =>
+      old?.map(p => (p.id === selected.id ? { ...p, stages: reordered } : p)))
+    reorderStagesMutation.mutate(reordered.map(s => ({ id: s.id, order: s.order })))
+  }
 
   const openEditPipeline = (p: Pipeline) => {
     setEditingPipeline(p)
@@ -1505,29 +1525,51 @@ function PipelineManagerModal({ pipelines, onClose }: PipelineManagerModalProps)
                     <Plus className="w-3 h-3" /> Ajouter
                   </button>
                 </div>
-                {selected.stages.map(s => (
-                  <div key={s.id} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-slate-100 bg-slate-50">
-                    <GripVertical className="w-4 h-4 text-slate-300 flex-shrink-0" />
-                    <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: s.color }} />
-                    <span className="flex-1 text-sm font-medium text-slate-700">{s.name}</span>
-                    <span className="text-xs text-slate-400 font-mono">{s.key}</span>
-                    {s.isWon && <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">Gagné</span>}
-                    {s.isLost && <span className="text-xs font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full">Perdu</span>}
-                    {!s.isWon && !s.isLost && (
-                      <>
-                        <button onClick={() => openEditStage(s)} className="p-1 rounded hover:bg-slate-200 text-slate-400">
-                          <Pencil className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={() => setDeleteConfirm({ type: 'stage', id: s.id, pipelineId: selected.id })}
-                          className="p-1 rounded hover:bg-red-100 text-slate-400 hover:text-red-600"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </>
+                <DragDropContext onDragEnd={onStageDragEnd}>
+                  <Droppable droppableId="stage-manager-list">
+                    {dropProvided => (
+                      <div ref={dropProvided.innerRef} {...dropProvided.droppableProps} className="space-y-2">
+                        {selected.stages.map((s, i) => (
+                          <Draggable key={s.id} draggableId={s.id} index={i}>
+                            {(dragProvided, dragSnapshot) => (
+                              <div
+                                ref={dragProvided.innerRef}
+                                {...dragProvided.draggableProps}
+                                className={cn(
+                                  'flex items-center gap-3 px-3 py-2 rounded-lg border border-slate-100 bg-slate-50',
+                                  dragSnapshot.isDragging && 'shadow-lg ring-2 ring-primary-300 bg-white',
+                                )}
+                              >
+                                <span {...dragProvided.dragHandleProps} className="cursor-grab active:cursor-grabbing" title="Glisser pour réordonner">
+                                  <GripVertical className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                                </span>
+                                <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: s.color }} />
+                                <span className="flex-1 text-sm font-medium text-slate-700">{s.name}</span>
+                                <span className="text-xs text-slate-400 font-mono">{s.key}</span>
+                                {s.isWon && <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">Gagné</span>}
+                                {s.isLost && <span className="text-xs font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-full">Perdu</span>}
+                                {!s.isWon && !s.isLost && (
+                                  <>
+                                    <button onClick={() => openEditStage(s)} className="p-1 rounded hover:bg-slate-200 text-slate-400">
+                                      <Pencil className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => setDeleteConfirm({ type: 'stage', id: s.id, pipelineId: selected.id })}
+                                      className="p-1 rounded hover:bg-red-100 text-slate-400 hover:text-red-600"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </Draggable>
+                        ))}
+                        {dropProvided.placeholder}
+                      </div>
                     )}
-                  </div>
-                ))}
+                  </Droppable>
+                </DragDropContext>
                 {selected.stages.length === 0 && (
                   <p className="text-xs text-slate-400 text-center py-4">Aucune étape définie</p>
                 )}
