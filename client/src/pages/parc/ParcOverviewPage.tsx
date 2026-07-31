@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../../lib/api'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Monitor, Key, FileText, AlertTriangle, Building2, ChevronRight, MapPin, CheckCircle2 } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 
 interface ParcCompany {
   id: string
@@ -39,9 +40,12 @@ export function ParcOverviewPage() {
     <div className="space-y-6 fade-in">
       {/* Header */}
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Parc informatique</h1>
-          <p className="page-subtitle">{companies.length} client{companies.length !== 1 ? 's' : ''} · {totalAlerts} alerte{totalAlerts !== 1 ? 's' : ''}</p>
+        <div className="flex items-center gap-3">
+          <PageIcon module="parc" icon={<Monitor className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">Parc informatique</h1>
+            <p className="page-subtitle">{companies.length} client{companies.length !== 1 ? 's' : ''} · {totalAlerts} alerte{totalAlerts !== 1 ? 's' : ''}</p>
+          </div>
         </div>
       </div>
 

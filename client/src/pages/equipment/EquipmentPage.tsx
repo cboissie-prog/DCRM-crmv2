@@ -12,6 +12,7 @@ import {
   Monitor, Laptop, Server, Printer, ShoppingCart,
   Network, Router, HardDrive, Tablet, Smartphone, HelpCircle,
 } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -241,9 +242,12 @@ export function EquipmentPage() {
   return (
     <div className="space-y-5 fade-in">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Parc informatique</h1>
-          <p className="page-subtitle">{data?.meta?.total ?? data?.data?.length ?? 0} équipements</p>
+        <div className="flex items-center gap-3">
+          <PageIcon module="parc" icon={<HardDrive className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">Parc informatique</h1>
+            <p className="page-subtitle">{data?.meta?.total ?? data?.data?.length ?? 0} équipements</p>
+          </div>
         </div>
         {canCreate && (
           <button className="btn-primary" onClick={openCreate}>

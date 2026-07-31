@@ -11,6 +11,7 @@ import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
 import { useAuthStore } from '../../store/authStore'
 import { Plus, Search, Building2, Users, Wrench, FileText, TrendingUp, MapPin, Pencil, Trash2, Download, Upload } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 import { ImportCsvModal } from '../../components/ui/ImportCsvModal'
 import { downloadCsv } from '../../lib/exportCsv'
 import type { Company, PaginatedResponse } from '../../types'
@@ -115,9 +116,12 @@ export function CompaniesPage() {
   return (
     <div className="space-y-5 fade-in">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Entreprises</h1>
-          <p className="page-subtitle">{data?.meta.total || 0} entreprises</p>
+        <div className="flex items-center gap-3">
+          <PageIcon module="contacts" icon={<Building2 className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">Entreprises</h1>
+            <p className="page-subtitle">{data?.meta.total || 0} entreprises</p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button

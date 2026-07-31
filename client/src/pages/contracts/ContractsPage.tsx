@@ -7,7 +7,8 @@ import { Badge } from '../../components/ui/Badge'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
-import { Plus, Pencil, Trash2, X } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, FileText } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -166,9 +167,12 @@ export function ContractsPage() {
   return (
     <div className="space-y-5 fade-in">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Contrats</h1>
-          <p className="page-subtitle">{data?.meta.total ?? 0} contrats</p>
+        <div className="flex items-center gap-3">
+          <PageIcon module="parc" icon={<FileText className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">Contrats</h1>
+            <p className="page-subtitle">{data?.meta.total ?? 0} contrats</p>
+          </div>
         </div>
         {canWrite && (
           <button className="btn-primary" onClick={openCreate}>

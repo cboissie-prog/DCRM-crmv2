@@ -8,7 +8,8 @@ import { Badge } from '../../components/ui/Badge'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
-import { Plus, Pencil, Trash2, AlertTriangle, X } from 'lucide-react'
+import { Plus, Pencil, Trash2, AlertTriangle, X, Key } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -180,9 +181,12 @@ export function LicensesPage() {
   return (
     <div className="space-y-5 fade-in">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Licences</h1>
-          <p className="page-subtitle">{licenses.length} licence{licenses.length !== 1 ? 's' : ''}</p>
+        <div className="flex items-center gap-3">
+          <PageIcon module="parc" icon={<Key className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">Licences</h1>
+            <p className="page-subtitle">{licenses.length} licence{licenses.length !== 1 ? 's' : ''}</p>
+          </div>
         </div>
         {canCreate && (
           <button className="btn-primary" onClick={openCreate}>

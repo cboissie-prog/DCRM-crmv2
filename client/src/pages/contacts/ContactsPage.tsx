@@ -13,7 +13,8 @@ import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
 import { useAuthStore } from '../../store/authStore'
-import { Plus, Search, Mail, Phone, Building2, Pencil, Trash2, Download, Upload, X } from 'lucide-react'
+import { Plus, Search, Mail, Phone, Building2, Pencil, Trash2, Download, Upload, X, Users } from 'lucide-react'
+import { PageIcon } from '../../components/ui/PageIcon'
 import { ImportCsvModal } from '../../components/ui/ImportCsvModal'
 import { downloadCsv } from '../../lib/exportCsv'
 import type { Contact, PaginatedResponse } from '../../types'
@@ -164,9 +165,12 @@ export function ContactsPage() {
   return (
     <div className="space-y-5 fade-in">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Contacts</h1>
-          <p className="page-subtitle">{data?.meta.total || 0} contacts</p>
+        <div className="flex items-center gap-3">
+          <PageIcon module="contacts" icon={<Users className="w-5 h-5" />} />
+          <div>
+            <h1 className="page-title">Contacts</h1>
+            <p className="page-subtitle">{data?.meta.total || 0} contacts</p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
