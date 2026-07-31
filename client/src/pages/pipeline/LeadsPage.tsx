@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { optionalNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
 import {
   TrendingUp, Search, Building2,
@@ -62,7 +63,7 @@ const leadSchema = z.object({
   title: z.string().min(1, 'Titre requis'),
   description: z.string().optional(),
   source: z.string().optional(),
-  score: z.coerce.number().int().min(0).max(100).optional(),
+  score: optionalNumber(z.number().int().min(0).max(100)),
   status: z.string().optional(),
 })
 type LeadForm = z.infer<typeof leadSchema>

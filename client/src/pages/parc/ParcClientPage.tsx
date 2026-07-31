@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { optionalNumber, requiredNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
 import { differenceInDays, parseISO, isAfter } from 'date-fns'
 import api from '../../lib/api'
@@ -64,11 +65,11 @@ const licenseSchema = z.object({
   software:     z.string().min(1, 'Logiciel requis'),
   vendor:       z.string().optional(),
   licenseKey:   z.string().optional(),
-  seats:        z.coerce.number().min(1),
+  seats:        requiredNumber(z.number().min(1), 'Nombre de postes requis'),
   type:         z.string().min(1),
   purchaseDate: z.string().optional(),
   expiryDate:   z.string().optional(),
-  cost:         z.coerce.number().optional(),
+  cost:         optionalNumber(),
   notes:        z.string().optional(),
 })
 type LicenseForm = z.infer<typeof licenseSchema>
@@ -81,9 +82,9 @@ const contractSchema = z.object({
   startDate:       z.string().min(1, 'Date de début requise'),
   endDate:         z.string().min(1, 'Date de fin requise'),
   renewalDate:     z.string().optional(),
-  monthlyAmount:   z.coerce.number().min(0),
-  annualAmount:    z.coerce.number().min(0),
-  slaResponseTime: z.coerce.number().optional(),
+  monthlyAmount:   requiredNumber(z.number().min(0), 'Montant mensuel requis'),
+  annualAmount:    requiredNumber(z.number().min(0), 'Montant annuel requis'),
+  slaResponseTime: optionalNumber(),
   autoRenewal:     z.boolean().optional(),
   notes:           z.string().optional(),
 })

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { optionalNumber, requiredNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
 import api from '../../lib/api'
 import { formatDate } from '../../lib/utils'
@@ -72,10 +73,10 @@ const productSchema = z.object({
   description: z.string().optional(),
   category: z.string().min(1, 'Catégorie requise'),
   type: z.string().min(1, 'Type requis'),
-  price: z.coerce.number().min(0, 'Prix invalide'),
-  vatRate: z.coerce.number().min(0).max(100).optional(),
+  price: requiredNumber(z.number().min(0, 'Prix invalide'), 'Prix requis'),
+  vatRate: optionalNumber(z.number().min(0).max(100)),
   unit: z.string().optional(),
-  stock: z.coerce.number().int().min(0).optional().or(z.literal('')),
+  stock: optionalNumber(z.number().int().min(0)),
   supplier: z.string().optional(),
   isActive: z.boolean().optional(),
 })

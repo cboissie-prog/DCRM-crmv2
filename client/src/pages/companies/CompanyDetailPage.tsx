@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { optionalNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
 import api from '../../lib/api'
 import {
@@ -29,8 +30,8 @@ const companySchema = z.object({
   vatNumber: z.string().optional(),
   website: z.string().optional(),
   sector: z.string().optional(),
-  employees: z.coerce.number().int().optional().or(z.literal('')),
-  annualRevenue: z.coerce.number().optional().or(z.literal('')),
+  employees: optionalNumber(z.number().int()),
+  annualRevenue: optionalNumber(),
   billingAddress: z.string().optional(),
   deliveryAddress: z.string().optional(),
   city: z.string().optional(),

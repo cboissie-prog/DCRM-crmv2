@@ -1,5 +1,6 @@
 import { Router, Response } from 'express'
 import { z } from 'zod'
+import { optionalDateString } from '../lib/zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
@@ -15,8 +16,8 @@ const equipmentSchema = z.object({
   brand: z.string().optional(),
   model: z.string().optional(),
   serialNumber: z.string().optional(),
-  purchaseDate: z.string().optional(),
-  warrantyExpiry: z.string().optional(),
+  purchaseDate: optionalDateString,
+  warrantyExpiry: optionalDateString,
   location: z.string().optional(),
   status: z.string().optional(),
   notes: z.string().optional(),

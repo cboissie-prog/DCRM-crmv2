@@ -12,6 +12,7 @@ import { PageIcon } from '../../components/ui/PageIcon'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { optionalNumber, requiredNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
 import type { Contract, Company, PaginatedResponse } from '../../types'
 import { useAuthStore } from '../../store/authStore'
@@ -25,9 +26,9 @@ const contractSchema = z.object({
   startDate: z.string().min(1, 'Date de début requise'),
   endDate: z.string().min(1, 'Date de fin requise'),
   renewalDate: z.string().optional(),
-  monthlyAmount: z.coerce.number().min(0),
-  annualAmount: z.coerce.number().min(0),
-  slaResponseTime: z.coerce.number().optional(),
+  monthlyAmount: requiredNumber(z.number().min(0), 'Montant mensuel requis'),
+  annualAmount: requiredNumber(z.number().min(0), 'Montant annuel requis'),
+  slaResponseTime: optionalNumber(),
   autoRenewal: z.boolean().optional(),
   notes: z.string().optional(),
 })

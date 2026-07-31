@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { optionalNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
 import api from '../../lib/api'
 import { PageSpinner } from '../../components/ui/Spinner'
@@ -23,7 +24,7 @@ const schema = z.object({
   vatNumber: z.string().optional(),
   website: z.string().optional(),
   sector: z.string().optional(),
-  employees: z.coerce.number().int().optional(),
+  employees: optionalNumber(z.number().int()),
   city: z.string().optional(),
   postalCode: z.string().optional(),
   billingAddress: z.string().optional(),

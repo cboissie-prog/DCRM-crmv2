@@ -1,5 +1,6 @@
 import { Router, Response } from 'express'
 import { z } from 'zod'
+import { optionalDateString } from '../lib/zod'
 import { Prisma } from '@prisma/client'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
@@ -22,7 +23,7 @@ const contractSchema = z.object({
   status: z.string().optional(),
   startDate: z.string(),
   endDate: z.string(),
-  renewalDate: z.string().optional(),
+  renewalDate: optionalDateString,
   monthlyAmount: z.number().optional(),
   annualAmount: z.number().optional(),
   slaResponseTime: z.number().int().optional(),

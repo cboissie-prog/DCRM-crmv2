@@ -13,6 +13,7 @@ import { PageIcon } from '../../components/ui/PageIcon'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { optionalNumber, requiredNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
 import type { License, Company, Equipment } from '../../types'
 import { useAuthStore } from '../../store/authStore'
@@ -33,11 +34,11 @@ const licenseSchema = z.object({
   software: z.string().min(1, 'Logiciel requis'),
   vendor: z.string().optional(),
   licenseKey: z.string().optional(),
-  seats: z.coerce.number().min(1, 'Au moins 1 poste'),
+  seats: requiredNumber(z.number().min(1, 'Au moins 1 poste'), 'Nombre de postes requis'),
   type: z.string().min(1, 'Type requis'),
   purchaseDate: z.string().optional(),
   expiryDate: z.string().optional(),
-  cost: z.coerce.number().optional(),
+  cost: optionalNumber(),
   notes: z.string().optional(),
 })
 type LicenseForm = z.infer<typeof licenseSchema>
