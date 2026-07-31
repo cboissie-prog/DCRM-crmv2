@@ -187,7 +187,11 @@ router.put('/:id', requirePermission('appointments:update'), async (req: AuthReq
       return
     }
 
-    const { userIds, contactIds, ...rest } = req.body
+    // Parsing par schéma comme le POST : `...rest` était passé brut à Prisma, donc n'importe
+    // quel scalaire du modèle était inscriptible — notamment `createdById`, dont dépend
+    // `isVisibleByUser`. Se déclarer créateur rendait l'accès permanent, même après révocation
+    // du partage de calendrier.
+    const { userIds, contactIds, ...rest } = appointmentSchema.partial().parse(req.body)
     const appointmentId = req.params.id
 
     // Récupère les participants actuels AVANT la mise à jour (pour détecter les retraits)

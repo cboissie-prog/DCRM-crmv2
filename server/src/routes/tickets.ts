@@ -18,11 +18,15 @@ async function generateTicketRef(tx: Prisma.TransactionClient): Promise<string> 
   return `TKT-${year}-${String(count + 1).padStart(4, '0')}`
 }
 
+/** Statuts et priorités reconnus — miroir de TICKET_STATUSES / TICKET_PRIORITIES côté client. */
+const TICKET_STATUS = ['NEW', 'IN_PROGRESS', 'WAITING_CLIENT', 'RESOLVED', 'CLOSED'] as const
+const TICKET_PRIORITY = ['LOW', 'NORMAL', 'HIGH', 'CRITICAL'] as const
+
 const ticketSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
   category: z.string(),
-  priority: z.string().optional(),
+  priority: z.enum(TICKET_PRIORITY).optional(),
   contactId: z.string().optional(),
   companyId: z.string().optional(),
   contractId: z.string().optional(),
@@ -190,7 +194,12 @@ router.put('/:id', requirePermission('tickets:update'), async (req: AuthRequest,
 
 router.patch('/:id/status', requirePermission('tickets:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { status, timeSpent } = req.body
+    // Sans validation, n'importe quelle chaîne était écrite dans `status` : filtres, compteurs
+    // et calcul de SLA cassaient sur un statut que l'application ne connaît pas.
+    const { status, timeSpent } = z.object({
+      status: z.enum(TICKET_STATUS),
+      timeSpent: z.number().int().min(0).optional(),
+    }).parse(req.body)
     const data: Record<string, unknown> = { status }
     if (timeSpent !== undefined) data.timeSpent = timeSpent
     if (status === 'RESOLVED') data.resolvedAt = new Date()
@@ -247,7 +256,9 @@ router.post('/:id/comments', requirePermission('tickets:update'), async (req: Au
 
 router.patch('/:id/time', requirePermission('tickets:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { minutes } = req.body
+    // `increment` sans validation acceptait une valeur négative (qui décrémente le temps passé)
+    // ou une chaîne (erreur Prisma en 500).
+    const { minutes } = z.object({ minutes: z.number().int().min(0) }).parse(req.body)
     const ticket = await prisma.ticket.update({ where: { id: req.params.id }, data: { timeSpent: { increment: minutes } } })
     res.json({ success: true, data: ticket })
   } catch (err) { handleRouteError(err, res) }

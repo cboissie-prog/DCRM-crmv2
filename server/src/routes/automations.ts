@@ -77,7 +77,9 @@ router.put('/:id', requirePermission('automation:update'), async (req: AuthReque
 // PATCH /automations/:id (toggle active)
 router.patch('/:id', requirePermission('automation:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { isActive } = req.body
+    // Sans validation, `isActive: undefined` passait silencieusement (aucune modification, mais
+    // réponse 200) et une valeur non booléenne remontait en 500 Prisma.
+    const { isActive } = z.object({ isActive: z.boolean() }).parse(req.body)
     const automation = await prisma.automation.update({ where: { id: req.params.id }, data: { isActive } })
     res.json({ success: true, data: automation })
   } catch (err) { handleRouteError(err, res) }

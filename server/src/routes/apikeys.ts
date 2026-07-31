@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import crypto from 'crypto'
+import { z } from 'zod'
 import prisma from '../prisma/client'
 import type { AuthRequest } from '../middleware/auth'
 import { requirePermission } from '../middleware/auth'
@@ -42,12 +43,19 @@ router.get('/', requirePermission('apikeys:manage'), async (req: AuthRequest, re
 
 // POST /api/apikeys — génère une nouvelle clé
 router.post('/', requirePermission('apikeys:manage'), async (req: AuthRequest, res) => {
-  const { name, expiresAt } = req.body
-  if (!name || typeof name !== 'string' || name.trim().length === 0) {
-    res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Le nom est requis' } })
-    return
-  }
+  // Parsing dans le try : hors du bloc, toute exception devenait un rejet non géré au lieu
+  // d'une réponse d'erreur. `expiresAt` non validé produisait par ailleurs une Invalid Date
+  // transmise à Prisma.
   try {
+    const { name, expiresAt } = z.object({
+      name: z.string().trim().min(1, 'Le nom est requis'),
+      // Le formulaire envoie un <input type="date"> ("YYYY-MM-DD"), pas un ISO 8601 complet :
+      // on vérifie simplement que la valeur donne une date valide.
+      expiresAt: z.string()
+        .refine(v => !isNaN(new Date(v).getTime()), 'Date d\'expiration invalide')
+        .optional()
+        .nullable(),
+    }).parse(req.body)
     const { key, prefix, hash } = generateApiKey()
     const record = await prisma.apiKey.create({
       data: {

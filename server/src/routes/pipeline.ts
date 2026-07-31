@@ -278,8 +278,33 @@ router.put('/opportunities/:id', requirePermission('pipeline:update'), async (re
 
 router.patch('/opportunities/:id/stage', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { stage, lostReason } = req.body
-    const previous = await prisma.opportunity.findUnique({ where: { id: req.params.id }, select: { stage: true, title: true, value: true, companyId: true, assignedToId: true } })
+    const { stage, lostReason } = z.object({
+      stage: z.string().min(1),
+      lostReason: z.string().optional(),
+    }).parse(req.body)
+    const previous = await prisma.opportunity.findUnique({ where: { id: req.params.id }, select: { stage: true, title: true, value: true, companyId: true, assignedToId: true, pipelineId: true } })
+    if (!previous) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Opportunité introuvable' } }); return }
+
+    // La clé d'étape doit correspondre à une étape réelle. Sans ce contrôle, une valeur
+    // arbitraire était écrite telle quelle : l'opportunité disparaissait de toutes les colonnes
+    // du Kanban, sortait des statistiques gagné/perdu, devenait irrécupérable depuis l'interface,
+    // et continuait d'alimenter les relances d'inactivité.
+    //
+    // On valide contre l'ensemble des pipelines réels, et non contre le seul pipeline de
+    // l'opportunité, parce que le modèle autorise déjà l'incohérence : `Opportunity.stage` vaut
+    // "NEW" par défaut alors qu'un pipeline créé via l'API ne reçoit que WON et LOST, et
+    // `pipelineId` est nullable (cf. /opportunities/reattach-orphans). Un cadrage strict figerait
+    // ces lignes existantes. Cela bloque bien l'écriture de clés inventées, qui est la faille ;
+    // la cohérence étape↔pipeline reste à traiter côté modèle de données.
+    const stageExists = await prisma.pipelineStage.findFirst({
+      where: { key: stage, pipeline: { isTemplate: false } },
+      select: { id: true },
+    })
+    if (!stageExists) {
+      res.status(400).json({ success: false, error: { code: 'INVALID_STAGE', message: 'Étape inconnue' } })
+      return
+    }
+
     const data: Record<string, unknown> = { stage }
     if (lostReason) data.lostReason = lostReason
     if (previous && previous.stage !== stage) {
