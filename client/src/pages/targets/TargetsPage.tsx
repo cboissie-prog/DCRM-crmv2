@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -325,8 +325,31 @@ function ObjectifsTab({ period, canWrite }: { period: string; canWrite: boolean 
   })
 
   const targets = data?.data ?? []
-  const totalTarget = targets.reduce((s, t) => s + t.target, 0)
-  const totalActual = targets.reduce((s, t) => s + t.computedActual, 0)
+
+  // Regroupement par commercial — sans double comptage : l'objectif global d'un
+  // commercial est son quota de référence, ses objectifs par pipeline en sont la
+  // ventilation. Sans objectif global, le quota effectif = somme des pipelines.
+  interface UserGroup {
+    user:            UserInfo
+    global:          SalesTarget | null
+    byPipeline:      SalesTarget[]
+    effectiveTarget: number
+    effectiveActual: number
+  }
+  const groups: UserGroup[] = []
+  for (const t of targets) {
+    let g = groups.find(x => x.user.id === t.userId)
+    if (!g) { g = { user: t.user, global: null, byPipeline: [], effectiveTarget: 0, effectiveActual: 0 }; groups.push(g) }
+    if (t.pipelineId) g.byPipeline.push(t)
+    else g.global = t
+  }
+  for (const g of groups) {
+    g.effectiveTarget = g.global ? g.global.target         : g.byPipeline.reduce((s, t) => s + t.target, 0)
+    g.effectiveActual = g.global ? g.global.computedActual : g.byPipeline.reduce((s, t) => s + t.computedActual, 0)
+  }
+
+  const totalTarget = groups.reduce((s, g) => s + g.effectiveTarget, 0)
+  const totalActual = groups.reduce((s, g) => s + g.effectiveActual, 0)
   const globalPct   = totalTarget > 0 ? Math.round(totalActual / totalTarget * 100) : 0
   const users       = usersData?.data ?? []
 
@@ -336,12 +359,12 @@ function ObjectifsTab({ period, canWrite }: { period: string; canWrite: boolean 
     <div className="space-y-6">
       {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <StatCard label="Total objectif" value={fmt(totalTarget)} color="text-slate-900" />
+        <StatCard label="Total objectif" value={fmt(totalTarget)} sub="sans double comptage" color="text-slate-900" />
         <StatCard label="Total réalisé"  value={fmt(totalActual)} color={globalPct >= 100 ? 'text-emerald-600' : 'text-indigo-600'} />
         <StatCard label="Atteinte globale" value={`${globalPct}%`}
           sub={globalPct >= 100 ? 'Objectif dépassé !' : undefined}
           color={globalPct >= 100 ? 'text-emerald-600' : globalPct >= 75 ? 'text-amber-600' : 'text-red-500'} />
-        <StatCard label="Commerciaux" value={`${targets.length}`} sub="avec objectif" color="text-slate-900" />
+        <StatCard label="Commerciaux" value={`${groups.length}`} sub="avec objectif" color="text-slate-900" />
       </div>
 
       {/* Actions */}
@@ -373,53 +396,82 @@ function ObjectifsTab({ period, canWrite }: { period: string; canWrite: boolean 
                 {canWrite && <th className="px-5 py-3" />}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
-              {targets.map(t => {
-                const pct   = t.target > 0 ? Math.round(t.computedActual / t.target * 100) : 0
-                const color = pct >= 100 ? 'bg-emerald-500' : pct >= 75 ? 'bg-amber-400' : pct >= 50 ? 'bg-indigo-500' : 'bg-slate-300'
+            <tbody>
+              {groups.map((g, gi) => {
+                const rows = [...(g.global ? [g.global] : []), ...g.byPipeline]
+                const ventilated = g.byPipeline.reduce((s, t) => s + t.target, 0)
+                const showVentilation = g.global !== null && g.byPipeline.length > 0
+                const ventilPct = showVentilation && g.global!.target > 0
+                  ? Math.round(ventilated / g.global!.target * 100) : 0
                 return (
-                  <tr key={t.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
-                        <Avatar firstName={t.user.firstName} lastName={t.user.lastName} src={t.user.avatar} size="sm" />
-                        <div>
-                          <p className="text-sm font-medium text-slate-900">{t.user.firstName} {t.user.lastName}</p>
-                          <p className="text-xs text-slate-400 capitalize">{t.user.role.toLowerCase()}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4">
-                      {t.pipeline ? (
-                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 bg-slate-100 px-2 py-1 rounded-full">
-                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: t.pipeline.color }} />
-                          {t.pipeline.name}
-                        </span>
-                      ) : (
-                        <span className="text-xs font-medium text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full">Global</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4 text-right text-sm font-semibold text-slate-700">{fmt(t.target)}</td>
-                    <td className="px-5 py-4 text-right">
-                      <span className={`text-sm font-bold ${pct >= 100 ? 'text-emerald-600' : 'text-slate-900'}`}>{fmt(t.computedActual)}</span>
-                    </td>
-                    <td className="px-5 py-4">
-                      <ProgressBar value={t.computedActual} max={t.target} color={color} />
-                    </td>
-                    {canWrite && (
-                      <td className="px-5 py-4">
-                        <div className="flex items-center justify-end gap-1">
-                          <button onClick={() => { setEditing(t); setShowModal(true) }}
-                            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-indigo-600 transition-colors">
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => setDeleting(t)}
-                            className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
+                  <Fragment key={g.user.id}>
+                    {rows.map((t, ri) => {
+                      const pct   = t.target > 0 ? Math.round(t.computedActual / t.target * 100) : 0
+                      const color = pct >= 100 ? 'bg-emerald-500' : pct >= 75 ? 'bg-amber-400' : pct >= 50 ? 'bg-indigo-500' : 'bg-slate-300'
+                      return (
+                        <tr
+                          key={t.id}
+                          className={`hover:bg-slate-50 transition-colors ${ri === 0 && gi > 0 ? 'border-t border-slate-200' : ri > 0 ? 'border-t border-slate-50' : ''}`}
+                        >
+                          <td className="px-5 py-4">
+                            {ri === 0 ? (
+                              <div className="flex items-center gap-3">
+                                <Avatar firstName={g.user.firstName} lastName={g.user.lastName} src={g.user.avatar} size="sm" />
+                                <div>
+                                  <p className="text-sm font-medium text-slate-900">{g.user.firstName} {g.user.lastName}</p>
+                                  <p className="text-xs text-slate-400 capitalize">{g.user.role.toLowerCase()}</p>
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="block pl-11 text-slate-300 text-xs">└</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-4">
+                            {t.pipeline ? (
+                              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 bg-slate-100 px-2 py-1 rounded-full">
+                                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: t.pipeline.color }} />
+                                {t.pipeline.name}
+                              </span>
+                            ) : (
+                              <span className="text-xs font-medium text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full">Global</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-4 text-right text-sm font-semibold text-slate-700">{fmt(t.target)}</td>
+                          <td className="px-5 py-4 text-right">
+                            <span className={`text-sm font-bold ${pct >= 100 ? 'text-emerald-600' : 'text-slate-900'}`}>{fmt(t.computedActual)}</span>
+                          </td>
+                          <td className="px-5 py-4">
+                            <ProgressBar value={t.computedActual} max={t.target} color={color} />
+                          </td>
+                          {canWrite && (
+                            <td className="px-5 py-4">
+                              <div className="flex items-center justify-end gap-1">
+                                <button onClick={() => { setEditing(t); setShowModal(true) }}
+                                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-indigo-600 transition-colors">
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button onClick={() => setDeleting(t)}
+                                  className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      )
+                    })}
+                    {showVentilation && (
+                      <tr className="bg-slate-50/60">
+                        <td colSpan={canWrite ? 6 : 5} className="px-5 py-2">
+                          <p className={`text-xs pl-11 ${ventilated > g.global!.target ? 'text-amber-600 font-medium' : 'text-slate-400'}`}>
+                            Ventilation par pipeline : {fmt(ventilated)} sur un objectif global de {fmt(g.global!.target)} ({ventilPct} %)
+                            {ventilated > g.global!.target && ' — la somme des pipelines dépasse l\'objectif global'}
+                            {ventilated < g.global!.target && ` — ${fmt(g.global!.target - ventilated)} non ventilés`}
+                          </p>
+                        </td>
+                      </tr>
                     )}
-                  </tr>
+                  </Fragment>
                 )
               })}
             </tbody>
