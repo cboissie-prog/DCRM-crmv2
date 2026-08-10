@@ -202,11 +202,14 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
           // l'échelle du compte : même appelant + même sens, dans la fenêtre de
           // fusion pour l'entrant (segments d'une file d'attente), à la seconde
           // exacte pour le sortant (deux appels sortants proches sont distincts).
+          // La comparaison d'appelant se fait sur numéros NORMALISÉS (les segments
+          // peuvent écrire 0033… / +33… / 06…), et un segment re-présenté portant un
+          // numéro INTERNE du compte comme appelant (le standard) est fusionné avec
+          // l'unique appel de la fenêtre s'il n'y a pas d'ambiguïté.
           const isInbound = call.direction === 'INBOUND'
-          const sameCall = await prisma.call.findFirst({
+          const candidates = await prisma.call.findMany({
             where: {
               externalId: { startsWith: `ovh:${ba}:` },
-              callerNumber: call.callerNumber,
               direction: call.direction,
               startedAt: isInbound
                 ? {
@@ -216,8 +219,22 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
                 : call.startedAt,
             },
             orderBy: { startedAt: 'asc' },
-            select: { id: true, contactId: true, status: true, duration: true, startedAt: true },
+            select: { id: true, contactId: true, status: true, duration: true, startedAt: true, callerNumber: true },
           })
+          const internalNumbers = new Set((servicesByBa.get(ba) ?? []).map(s => normalizePhone(s) ?? s))
+          const legCaller = normalizePhone(call.callerNumber)
+          const legCallerIsInternal = legCaller !== null && internalNumbers.has(legCaller)
+          let sameCall = candidates.find(c => {
+            const n = normalizePhone(c.callerNumber)
+            return n !== null && n === legCaller
+          }) ?? null
+          if (!sameCall && isInbound && candidates.length === 1) {
+            const candidateCallerNorm = normalizePhone(candidates[0].callerNumber)
+            const candidateIsInternal = candidateCallerNorm !== null && internalNumbers.has(candidateCallerNorm)
+            // Fusion « joker » : l'un des deux côtés porte un numéro interne (segment
+            // re-présenté par le standard) et il n'y a qu'un seul appel dans la fenêtre.
+            if (legCallerIsInternal || candidateIsInternal) sameCall = candidates[0]
+          }
           if (sameCall) {
             mergedConsumptionIds.add(candidateId)
             // Le segment répondu l'emporte sur les sonneries sans réponse ;
@@ -227,12 +244,18 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
             // Le début de l'appel = la première sonnerie observée
             const earlier = call.startedAt < sameCall.startedAt
             const linkContact = sameCall.contactId === null && contact !== null
-            if (better || earlier || linkContact) {
+            // La fiche portait un numéro interne comme appelant (segment du standard
+            // arrivé en premier) : le vrai appelant de ce segment la corrige
+            const sameCallCallerNorm = normalizePhone(sameCall.callerNumber)
+            const fixCaller = isInbound && !legCallerIsInternal && legCaller !== null &&
+              sameCallCallerNorm !== null && internalNumbers.has(sameCallCallerNorm)
+            if (better || earlier || linkContact || fixCaller) {
               await prisma.call.update({
                 where: { id: sameCall.id },
                 data: {
                   ...(better ? { status: call.status, duration: call.duration, answeredAt: call.answeredAt, endedAt: call.endedAt } : {}),
                   ...(earlier ? { startedAt: call.startedAt } : {}),
+                  ...(fixCaller ? { callerNumber: call.callerNumber } : {}),
                   // Lie le contact si la fiche ne l'était pas encore (jamais d'écrasement)
                   ...(linkContact ? { contactId: contact!.id, companyId: contact!.companyId ?? undefined } : {}),
                 },

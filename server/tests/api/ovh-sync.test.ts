@@ -159,6 +159,42 @@ describe('Sync OVH — déduplication', () => {
     expect(rows[0].startedAt.getTime()).toBe(t0.getTime()) // début = première sonnerie
   })
 
+  it('fusionne même si les segments écrivent l\'appelant dans des formats différents', async () => {
+    await prisma.call.deleteMany({ where: { externalId: { startsWith: BA_PREFIX } } })
+    const t0 = new Date(Date.now() - 40 * 60 * 1000)
+    const t1 = new Date(t0.getTime() + 15 * 1000)
+    stubOvhApi({
+      [LINE]:  { id: 801, detail: { creationDatetime: t0.toISOString(), calling: CALLER, called: LINE, duration: 0, wayType: 'transfer' } },
+      [LINE2]: { id: 802, detail: { creationDatetime: t1.toISOString(), calling: '+33 6 88 77 66 55', called: LINE2, duration: 40, wayType: 'incoming' } },
+    })
+
+    const run = await runOvhVoipSync()
+    expect(run.imported).toBe(1)
+    expect(await prisma.call.count({ where: { externalId: { startsWith: BA_PREFIX } } })).toBe(1)
+  })
+
+  it('fusionne un segment portant le numéro du standard comme appelant, et rétablit le vrai appelant', async () => {
+    await prisma.call.deleteMany({ where: { externalId: { startsWith: BA_PREFIX } } })
+    const STANDARD = '0033972999900'
+    const t0 = new Date(Date.now() - 20 * 60 * 1000)
+    const t1 = new Date(t0.getTime() + 10 * 1000)
+    // Le segment re-présenté par le standard arrive en premier (appelant = standard),
+    // puis un segment de sonnerie porte le vrai numéro du client
+    stubOvhApi({
+      [STANDARD]: { id: null, detail: {} },
+      [LINE]:     { id: 901, detail: { creationDatetime: t0.toISOString(), calling: STANDARD, called: LINE, duration: 30, wayType: 'transfer' } },
+      [LINE2]:    { id: 902, detail: { creationDatetime: t1.toISOString(), calling: CALLER, called: LINE2, duration: 0, wayType: 'incoming' } },
+    })
+
+    const run = await runOvhVoipSync()
+    expect(run.imported).toBe(1)
+
+    const rows = await prisma.call.findMany({ where: { externalId: { startsWith: BA_PREFIX } } })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].status).toBe('ANSWERED')      // le segment répondu est conservé
+    expect(rows[0].callerNumber).toBe(CALLER)    // le vrai appelant remplace le numéro du standard
+  })
+
   it('OVH_SERVICE_NAME restreint l\'import aux lignes listées (tous formats tolérés)', async () => {
     await prisma.call.deleteMany({ where: { externalId: { startsWith: BA_PREFIX } } })
     const started = new Date(Date.now() - 10 * 60 * 1000).toISOString()
