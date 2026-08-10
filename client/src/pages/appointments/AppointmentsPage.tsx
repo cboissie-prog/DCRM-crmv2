@@ -273,8 +273,9 @@ export function AppointmentsPage() {
 
   // ── View state ─────────────────────────────────────────────────────────────
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
-  const today = new Date()
-  const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(today))
+  const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()))
+  // `now` sert aussi de « aujourd'hui » : rafraîchi chaque minute, il reste
+  // juste après minuit et garde une référence stable entre deux ticks.
   const [now, setNow] = useState(new Date())
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60_000)
@@ -473,7 +474,7 @@ export function AppointmentsPage() {
   })
 
   const openCreate = useCallback((prefilled?: string) => {
-    const start = prefilled || dateToInputValue(today)
+    const start = prefilled || dateToInputValue(now)
     const endD  = new Date(start)
     endD.setHours(endD.getHours() + 1)
     const end   = toLocalDatetimeInput(endD.toISOString())
@@ -485,7 +486,7 @@ export function AppointmentsPage() {
     })
     setPrefilledDate(prefilled ?? '')
     setShowCreate(true)
-  }, [createForm, today, user])
+  }, [createForm, now, user])
 
   const openEdit = useCallback((appt: Appointment) => {
     editForm.reset({
@@ -507,7 +508,7 @@ export function AppointmentsPage() {
   // ── Navigation semaine ─────────────────────────────────────────────────────
   const prevWeek = () => setWeekStart(ws => { const d = new Date(ws); d.setDate(d.getDate() - 7); return d })
   const nextWeek = () => setWeekStart(ws => { const d = new Date(ws); d.setDate(d.getDate() + 7); return d })
-  const goToday  = () => setWeekStart(getWeekStart(today))
+  const goToday  = () => setWeekStart(getWeekStart(now))
 
   // ── Semaine courante ────────────────────────────────────────────────────────
   const weekDays = getWeekDays(weekStart)
@@ -668,7 +669,7 @@ export function AppointmentsPage() {
               <div className="grid border-b border-slate-100" style={{ gridTemplateColumns: '52px repeat(7, 1fr)' }}>
                 <div /> {/* spacer for hours column */}
                 {weekDays.map((day, i) => {
-                  const isToday = isSameDay(day, today)
+                  const isToday = isSameDay(day, now)
                   return (
                     <div key={i} className={cn('py-2 text-center border-l border-slate-100', isToday && 'bg-primary-50')}>
                       <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{FRENCH_DAYS[i]}</p>
@@ -698,7 +699,7 @@ export function AppointmentsPage() {
 
                   {/* Day columns */}
                   {weekDays.map((day, di) => {
-                    const isToday = isSameDay(day, today)
+                    const isToday = isSameDay(day, now)
                     const dayAppts = getApptsByDay(day)
 
                     return (

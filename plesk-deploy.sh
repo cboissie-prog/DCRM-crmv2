@@ -18,6 +18,8 @@ npm run db:schema:postgres
 ./node_modules/.bin/prisma generate --schema=src/prisma/schema.postgres.prisma
 npm run build
 ./node_modules/.bin/prisma migrate deploy --schema=src/prisma/schema.postgres.prisma
+# Seed idempotent : synchronise permissions + rôles (n'écrase jamais l'admin existant)
+npm run db:seed
 
 echo "── Front : install + build"
 cd ../client
