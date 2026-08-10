@@ -10,7 +10,8 @@
  * une fuite ne permet aucune modification de la ligne.
  *
  * Variables d'env : OVH_APP_KEY, OVH_APP_SECRET, OVH_CONSUMER_KEY,
- * OVH_ENDPOINT (défaut ovh-eu), OVH_SERVICE_NAME (optionnel : restreint à une ligne).
+ * OVH_ENDPOINT (défaut ovh-eu), OVH_SERVICE_NAME (optionnel : restreint aux lignes
+ * listées, séparées par des virgules — ex: 0033972000001,0033972000002).
  */
 import crypto from 'crypto'
 import prisma from '../prisma/client'
@@ -109,6 +110,16 @@ export function mapConsumptionToCall(billingAccount: string, serviceName: string
   }
 }
 
+// Ids de consommation déjà résolus vers une fiche existante (fusion inter-lignes) :
+// évite de re-télécharger leur détail à chaque passage. Réinitialisé au restart du
+// process — au pire un re-fetch de détail par appel de la fenêtre, puis re-caché.
+const mergedConsumptionIds = new Set<string>()
+
+/** Réservé aux tests : vide le cache de fusion. */
+export function _clearOvhSyncCache(): void {
+  mergedConsumptionIds.clear()
+}
+
 /**
  * Parcourt les comptes de facturation et lignes OVH, importe les appels
  * de la fenêtre récente absents de la base. Idempotent.
@@ -116,7 +127,7 @@ export function mapConsumptionToCall(billingAccount: string, serviceName: string
 export async function runOvhVoipSync(): Promise<{ imported: number; updated: number; skipped: number }> {
   if (!isOvhConfigured()) return { imported: 0, updated: 0, skipped: 0 }
 
-  const restrictService = process.env.OVH_SERVICE_NAME
+  const restrictServices = (process.env.OVH_SERVICE_NAME ?? '').split(',').map(s => s.trim()).filter(Boolean)
   const from = new Date(Date.now() - IMPORT_MAX_AGE_MS).toISOString()
   let imported = 0
   let updated = 0
@@ -125,7 +136,7 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
   const billingAccounts = await ovhGet<string[]>('/telephony')
   for (const ba of billingAccounts) {
     let services = await ovhGet<string[]>(`/telephony/${encodeURIComponent(ba)}/service`)
-    if (restrictService) services = services.filter(s => s === restrictService)
+    if (restrictServices.length > 0) services = services.filter(s => restrictServices.includes(s))
 
     for (const service of services) {
       const basePath = `/telephony/${encodeURIComponent(ba)}/service/${encodeURIComponent(service)}`
@@ -148,7 +159,8 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
       const known = new Set(existing.map(e => e.externalId))
 
       for (const id of ids) {
-        if (known.has(`ovh:${ba}:${service}:${id}`)) { skipped++; continue }
+        const candidateId = `ovh:${ba}:${service}:${id}`
+        if (known.has(candidateId) || mergedConsumptionIds.has(candidateId)) { skipped++; continue }
         try {
           const detail = await ovhGet<OvhVoiceConsumption>(`${basePath}/voiceConsumption/${id}`)
           const { call, externalParty } = mapConsumptionToCall(ba, service, { ...detail, consumptionId: id })
@@ -162,37 +174,42 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
               })
             : null
 
-          // Les CDR OVH d'un appel récent peuvent être réémis sous un NOUVEL id
-          // (appel en cours finalisé, re-tarification). L'id seul ne suffit donc pas
-          // à dédupliquer : on rattache par empreinte naturelle — même ligne, même
-          // seconde de début, même appelant, même sens ne peuvent être qu'un seul
-          // appel. Si trouvé, on met à jour la fiche (statut/durée/nouvel id) au
-          // lieu d'en créer une deuxième.
+          // L'id de consommation ne suffit pas à dédupliquer : un appel de GROUPE
+          // sonne sur plusieurs lignes et produit un CDR par ligne, et un CDR récent
+          // peut être réémis sous un nouvel id (finalisation, re-tarification).
+          // Empreinte naturelle à l'échelle du compte : même seconde de début, même
+          // appelant, même sens = un seul et même appel → on met à jour la fiche
+          // existante au lieu d'en créer une deuxième. externalId garde le premier
+          // id rencontré ; les ids fusionnés sont cachés pour éviter les re-fetch.
           const sameCall = await prisma.call.findFirst({
             where: {
-              externalId: { startsWith: `ovh:${ba}:${service}:` },
+              externalId: { startsWith: `ovh:${ba}:` },
               startedAt: call.startedAt,
               callerNumber: call.callerNumber,
               direction: call.direction,
             },
-            select: { id: true, contactId: true },
+            select: { id: true, contactId: true, status: true, duration: true },
           })
           if (sameCall) {
-            await prisma.call.update({
-              where: { id: sameCall.id },
-              data: {
-                externalId: call.externalId,
-                status: call.status,
-                duration: call.duration,
-                answeredAt: call.answeredAt,
-                endedAt: call.endedAt,
-                // Lie le contact si la fiche ne l'était pas encore (jamais d'écrasement)
-                ...(sameCall.contactId === null && contact
-                  ? { contactId: contact.id, companyId: contact.companyId ?? undefined }
-                  : {}),
-              },
-            })
-            updated++
+            mergedConsumptionIds.add(candidateId)
+            const changed = sameCall.status !== call.status || sameCall.duration !== call.duration
+            const linkContact = sameCall.contactId === null && contact !== null
+            if (changed || linkContact) {
+              await prisma.call.update({
+                where: { id: sameCall.id },
+                data: {
+                  status: call.status,
+                  duration: call.duration,
+                  answeredAt: call.answeredAt,
+                  endedAt: call.endedAt,
+                  // Lie le contact si la fiche ne l'était pas encore (jamais d'écrasement)
+                  ...(linkContact ? { contactId: contact!.id, companyId: contact!.companyId ?? undefined } : {}),
+                },
+              })
+              updated++
+            } else {
+              skipped++
+            }
             continue
           }
 
