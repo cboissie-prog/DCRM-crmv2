@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '../../lib/api'
 import { useUsersList } from '../../hooks/useApi'
@@ -15,7 +16,7 @@ import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
 import {
   Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed,
-  Plus, Search, X, Edit2, Trash2, ArrowLeft,
+  Plus, Search, X, Edit2, Trash2, ArrowLeft, RefreshCw,
   Upload, FileText, Ticket, TrendingUp,
   Download, Clock, Building2, User, ChevronDown,
 } from 'lucide-react'
@@ -75,6 +76,23 @@ export function CallsPage() {
     onError: () => toast.error('Erreur lors de la suppression'),
   })
 
+  const syncOvhMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post('/calls/sync-ovh')
+      return data.data as { imported: number; skipped: number }
+    },
+    onSuccess: (stats) => {
+      qc.invalidateQueries({ queryKey: ['calls'] })
+      toast.success(stats.imported > 0
+        ? `${stats.imported} appel(s) importé(s) depuis OVH`
+        : 'Aucun nouvel appel côté OVH')
+    },
+    onError: (err: unknown) => {
+      const message = isAxiosError(err) ? err.response?.data?.error?.message : null
+      toast.error(message ?? 'Échec de la synchronisation OVH')
+    },
+  })
+
   const hasFilters = !!(search || dirFilter || statusFilter || catFilter || dateFrom || dateTo)
 
   const resetFilters = () => {
@@ -93,11 +111,24 @@ export function CallsPage() {
             <p className="page-subtitle">{data?.meta.total ?? 0} appels</p>
           </div>
         </div>
-        <CanDo permission="calls:create">
-          <button className="btn-primary" onClick={() => setShowCreate(true)}>
-            <Plus className="w-4 h-4" /> Nouvel appel
-          </button>
-        </CanDo>
+        <div className="flex items-center gap-2">
+          <CanDo permission="calls:create">
+            <button
+              className="btn-secondary"
+              onClick={() => syncOvhMutation.mutate()}
+              disabled={syncOvhMutation.isPending}
+              title="Importer maintenant les appels de la ligne OVH (sinon automatique toutes les 5 min)"
+            >
+              <RefreshCw className={`w-4 h-4 ${syncOvhMutation.isPending ? 'animate-spin' : ''}`} />
+              {syncOvhMutation.isPending ? 'Import en cours…' : 'Importer OVH'}
+            </button>
+          </CanDo>
+          <CanDo permission="calls:create">
+            <button className="btn-primary" onClick={() => setShowCreate(true)}>
+              <Plus className="w-4 h-4" /> Nouvel appel
+            </button>
+          </CanDo>
+        </div>
       </div>
 
       {/* Filtres */}

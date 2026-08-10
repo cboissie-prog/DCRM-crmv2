@@ -10,6 +10,7 @@ import { handleRouteError } from '../middleware/errorHandler'
 import { ciContains } from '../lib/query'
 import { normalizePhone } from '../lib/phone'
 import { audit } from '../lib/audit'
+import { runOvhVoipSync, isOvhConfigured } from '../services/ovh-voip'
 
 const router = Router()
 
@@ -159,6 +160,23 @@ router.post('/webhook', async (req: Request, res: Response): Promise<void> => {
 
 // ─── Auth sur toutes les routes suivantes ────────────────
 router.use(authenticate)
+
+// ─── Sync manuelle OVH VoIP ──────────────────────────────
+// Le scheduler tourne toutes les 5 min ; ce bouton force un passage immédiat.
+router.post('/sync-ovh', requirePermission('calls:create'), async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!isOvhConfigured()) {
+    res.status(503).json({ success: false, error: { code: 'OVH_DISABLED', message: 'Clés API OVH non configurées sur le serveur (OVH_APP_KEY / OVH_APP_SECRET / OVH_CONSUMER_KEY)' } })
+    return
+  }
+  try {
+    const stats = await runOvhVoipSync()
+    audit(req, 'OVH_VOIP_SYNC', 'Call', undefined, stats)
+    res.json({ success: true, data: stats })
+  } catch (err) {
+    // Erreur côté API OVH (clés invalides, réseau…) : on remonte un message actionnable
+    res.status(502).json({ success: false, error: { code: 'OVH_SYNC_FAILED', message: err instanceof Error ? err.message : 'Échec de la synchronisation OVH' } })
+  }
+})
 
 // ─── Liste ───────────────────────────────────────────────
 router.get('/', requirePermission('calls:read'), async (req: AuthRequest, res: Response): Promise<void> => {
