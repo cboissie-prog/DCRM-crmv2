@@ -4,6 +4,7 @@ import prisma from './prisma/client'
 import logger from './lib/logger'
 import { runOverdueTickets, runOpportunityInactive, runContractExpiring } from './automation-engine'
 import { runCalendarSync, renewExpiringChannels } from './services/google-calendar'
+import { runOvhVoipSync, isOvhConfigured } from './services/ovh-voip'
 
 // ─── Helper : lire un setting entier depuis la DB ─────────────────────────────
 
@@ -97,6 +98,7 @@ let currentTask: ScheduledTask | null = null
 let reminderTask: ScheduledTask | null = null
 let automationTask: ScheduledTask | null = null
 let calendarSyncTask: ScheduledTask | null = null
+let voipSyncTask: ScheduledTask | null = null
 
 function parseCronTime(hhmm: string): string {
   const [h, m] = hhmm.split(':').map(Number)
@@ -113,6 +115,7 @@ export async function startScheduler() {
   if (reminderTask) { reminderTask.stop(); reminderTask = null }
   if (automationTask) { automationTask.stop(); automationTask = null }
   if (calendarSyncTask) { calendarSyncTask.stop(); calendarSyncTask = null }
+  if (voipSyncTask) { voipSyncTask.stop(); voipSyncTask = null }
 
   if (enabled !== 'true') {
     logger.info('  ⏸  Scheduler désactivé (paramètre schedulerEnabled=false)')
@@ -208,6 +211,21 @@ export async function startScheduler() {
       logger.error({ err }, '  ❌ Erreur scheduler Google Calendar sync')
     }
   }, { timezone: 'Europe/Paris' })
+
+  // Import des appels VoIP OVH toutes les 5 minutes (seulement si les clés API sont posées)
+  if (isOvhConfigured()) {
+    logger.info('  ☎️  Sync appels OVH VoIP planifiée (toutes les 5 min)')
+    voipSyncTask = cron.schedule('*/5 * * * *', async () => {
+      try {
+        const stats = await runOvhVoipSync()
+        if (stats.imported > 0) {
+          logger.info(`☎️  OVH VoIP : ${stats.imported} appel(s) importé(s)`)
+        }
+      } catch (err) {
+        logger.error({ err }, '  ❌ Erreur scheduler sync OVH VoIP')
+      }
+    }, { timezone: 'Europe/Paris' })
+  }
 
   // Automatisations planifiées toutes les heures + renouvellement des canaux watch Google
   automationTask = cron.schedule('0 * * * *', async () => {
