@@ -23,29 +23,37 @@ const LINE2 = '0033972999998'
 const CALLER = '0033688776655'
 const BA_PREFIX = `ovh:${BA}:`
 
+type StubLine = { id: number | null; detail: Record<string, unknown> }
+
 /**
- * Simule l'API OVH. `lines` : pour chaque ligne, l'id de consommation listé
- * (null = aucun appel sur cette ligne) et le détail du CDR correspondant.
+ * Simule l'API OVH multi-comptes. `accounts` : compte de facturation → lignes →
+ * id de consommation listé (null = aucun appel) et détail du CDR correspondant.
  */
-function stubOvhApi(lines: Record<string, { id: number | null; detail: Record<string, unknown> }>) {
+function stubOvhApiMulti(accounts: Record<string, Record<string, StubLine>>) {
   vi.stubGlobal('fetch', vi.fn(async (url: unknown) => {
     const u = String(url)
     const json = (data: unknown) => ({ ok: true, text: async () => JSON.stringify(data), json: async () => data })
     if (u.endsWith('/auth/time')) return { ok: true, text: async () => String(Math.floor(Date.now() / 1000)), json: async () => 0 }
-    if (u.endsWith('/1.0/telephony')) return json([BA])
-    if (u.endsWith('/service')) return json(Object.keys(lines))
-    const m = u.match(/\/service\/([^/]+)\/voiceConsumption/)
-    if (m) {
-      const line = lines[decodeURIComponent(m[1])]
-      if (!line) throw new Error(`Ligne inconnue dans le stub : ${m[1]}`)
+    if (u.endsWith('/1.0/telephony')) return json(Object.keys(accounts))
+    const mc = u.match(/\/telephony\/([^/]+)\/service\/([^/]+)\/voiceConsumption/)
+    if (mc) {
+      const line = accounts[decodeURIComponent(mc[1])]?.[decodeURIComponent(mc[2])]
+      if (!line) throw new Error(`Ligne inconnue dans le stub : ${mc[1]}/${mc[2]}`)
       return u.includes('voiceConsumption?') ? json(line.id === null ? [] : [line.id]) : json(line.detail)
     }
+    const ms = u.match(/\/telephony\/([^/]+)\/service$/)
+    if (ms) return json(Object.keys(accounts[decodeURIComponent(ms[1])] ?? {}))
     throw new Error(`URL OVH inattendue dans le test : ${u}`)
   }))
 }
 
+/** Variante mono-compte (compat tests existants). */
+function stubOvhApi(lines: Record<string, StubLine>) {
+  stubOvhApiMulti({ [BA]: lines })
+}
+
 async function purge() {
-  await prisma.call.deleteMany({ where: { externalId: { startsWith: BA_PREFIX } } })
+  await prisma.call.deleteMany({ where: { externalId: { startsWith: 'ovh:' } } })
   await prisma.call.deleteMany({ where: { callerNumber: CALLER } })
   await prisma.contact.deleteMany({ where: { email: 'ovh-link-test@test.local' } })
 }
@@ -195,6 +203,25 @@ describe('Sync OVH — déduplication', () => {
     expect(rows[0].callerNumber).toBe(CALLER)    // le vrai appelant remplace le numéro du standard
   })
 
+  it('fusionne les segments répartis sur des comptes de facturation DIFFÉRENTS (cas prod)', async () => {
+    // Scénario réel constaté : chaque poste de la file est sur son propre compte
+    // de facturation OVH — la fusion doit voir tous les comptes, pas un seul.
+    await prisma.call.deleteMany({ where: { externalId: { startsWith: 'ovh:' } } })
+    const t0 = new Date(Date.now() - 8 * 60 * 1000).toISOString()
+    stubOvhApiMulti({
+      'bc-test-2': { '0033482533263': { id: 2001, detail: { creationDatetime: t0, calling: CALLER, called: '0033482533263', duration: 0, wayType: 'incoming' } } },
+      'bc-test-3': { '0033482533264': { id: 2002, detail: { creationDatetime: t0, calling: CALLER, called: '0033482533264', duration: 63, wayType: 'incoming' } } },
+    })
+
+    const run = await runOvhVoipSync()
+    expect(run.imported).toBe(1)
+
+    const rows = await prisma.call.findMany({ where: { externalId: { startsWith: 'ovh:bc-test' } } })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].status).toBe('ANSWERED') // le segment répondu (poste 264) l'emporte
+    expect(rows[0].duration).toBe(63)
+  })
+
   it('ignore les segments de redirection interne (sortant vers une ligne du compte)', async () => {
     await prisma.call.deleteMany({ where: { externalId: { startsWith: BA_PREFIX } } })
     const t0 = new Date(Date.now() - 5 * 60 * 1000)
@@ -260,7 +287,7 @@ describe('Sync OVH — déduplication', () => {
 describe('Rattachement rétroactif des appels orphelins', () => {
   it('créer un contact avec un numéro correspondant lie ses appels passés', async () => {
     // Isolation : retire les fiches créées par la suite de dédup (même numéro appelant)
-    await prisma.call.deleteMany({ where: { externalId: { startsWith: BA_PREFIX } } })
+    await prisma.call.deleteMany({ where: { externalId: { startsWith: 'ovh:' } } })
 
     // Un appel orphelin importé avant que le contact existe (numéro au format OVH 0033…)
     const orphan = await prisma.call.create({

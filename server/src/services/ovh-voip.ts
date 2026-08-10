@@ -40,7 +40,7 @@ const LEG_MERGE_WINDOW_MS = 10 * 60 * 1000
 
 // Incrémenté à chaque évolution du sync — renvoyé par le diagnostic pour vérifier
 // que la prod exécute bien la dernière version déployée.
-export const OVH_SYNC_VERSION = '2026-08-10.7'
+export const OVH_SYNC_VERSION = '2026-08-10.8'
 
 export function isOvhConfigured(): boolean {
   return Boolean(process.env.OVH_APP_KEY && process.env.OVH_APP_SECRET && process.env.OVH_CONSUMER_KEY)
@@ -206,10 +206,21 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
   const servicesByBa = new Map<string, string[]>()
 
   const billingAccounts = await ovhGet<string[]>('/telephony')
+
+  // Phase 1 : inventaire des lignes de TOUS les comptes de facturation AVANT tout
+  // import. Indispensable : les lignes d'un même standard peuvent être réparties
+  // sur plusieurs comptes (constaté en prod — une ligne par compte), et la fusion
+  // des segments comme la détection des numéros internes doivent voir l'ensemble.
   for (const ba of billingAccounts) {
-    let services = await ovhGet<string[]>(`/telephony/${encodeURIComponent(ba)}/service`)
-    allServices.push(...services)
-    servicesByBa.set(ba, services)
+    const baServices = await ovhGet<string[]>(`/telephony/${encodeURIComponent(ba)}/service`)
+    allServices.push(...baServices)
+    servicesByBa.set(ba, baServices)
+  }
+  const internalNumbers = new Set(allServices.map(s => normalizePhone(s) ?? s))
+
+  // Phase 2 : import des CDR
+  for (const [ba, baServices] of servicesByBa) {
+    let services = baServices
     if (restrict.length > 0) services = services.filter(s => restrict.includes(normalizePhone(s) ?? s))
     matchedServices += services.length
     matchedNames.push(...services)
@@ -261,19 +272,21 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
           // numéro INTERNE du compte comme appelant (le standard) est fusionné avec
           // l'unique appel de la fenêtre s'il n'y a pas d'ambiguïté.
           const isInbound = call.direction === 'INBOUND'
-          const internalNumbersEarly = new Set((servicesByBa.get(ba) ?? []).map(s => normalizePhone(s) ?? s))
           const receiverNorm = normalizePhone(call.receiverNumber ?? '')
           // Segment de REDIRECTION interne : la ligne "appelle" un autre numéro du
           // compte pour lui transmettre l'appel → CDR sortant purement technique,
           // le vrai appel est déjà tracé côté entrant. Jamais une fiche CRM.
-          if (!isInbound && receiverNorm !== null && internalNumbersEarly.has(receiverNorm)) {
+          if (!isInbound && receiverNorm !== null && internalNumbers.has(receiverNorm)) {
             mergedConsumptionIds.add(candidateId)
             skipped++
             continue
           }
+          // Fusion à l'échelle de TOUS les imports OVH (préfixe 'ovh:'), pas d'un
+          // seul compte de facturation : les postes d'une même file peuvent être
+          // facturés sur des comptes distincts.
           const candidates = await prisma.call.findMany({
             where: {
-              externalId: { startsWith: `ovh:${ba}:` },
+              externalId: { startsWith: 'ovh:' },
               direction: call.direction,
               startedAt: isInbound
                 ? {
@@ -285,7 +298,6 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
             orderBy: { startedAt: 'asc' },
             select: { id: true, contactId: true, status: true, duration: true, startedAt: true, callerNumber: true },
           })
-          const internalNumbers = internalNumbersEarly
           const legCaller = normalizePhone(call.callerNumber)
           const legCallerIsInternal = legCaller !== null && internalNumbers.has(legCaller)
           let sameCall = candidates.find(c => {
