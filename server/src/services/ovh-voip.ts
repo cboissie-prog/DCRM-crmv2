@@ -113,12 +113,13 @@ export function mapConsumptionToCall(billingAccount: string, serviceName: string
  * Parcourt les comptes de facturation et lignes OVH, importe les appels
  * de la fenêtre récente absents de la base. Idempotent.
  */
-export async function runOvhVoipSync(): Promise<{ imported: number; skipped: number }> {
-  if (!isOvhConfigured()) return { imported: 0, skipped: 0 }
+export async function runOvhVoipSync(): Promise<{ imported: number; updated: number; skipped: number }> {
+  if (!isOvhConfigured()) return { imported: 0, updated: 0, skipped: 0 }
 
   const restrictService = process.env.OVH_SERVICE_NAME
   const from = new Date(Date.now() - IMPORT_MAX_AGE_MS).toISOString()
   let imported = 0
+  let updated = 0
   let skipped = 0
 
   const billingAccounts = await ovhGet<string[]>('/telephony')
@@ -161,6 +162,40 @@ export async function runOvhVoipSync(): Promise<{ imported: number; skipped: num
               })
             : null
 
+          // Les CDR OVH d'un appel récent peuvent être réémis sous un NOUVEL id
+          // (appel en cours finalisé, re-tarification). L'id seul ne suffit donc pas
+          // à dédupliquer : on rattache par empreinte naturelle — même ligne, même
+          // seconde de début, même appelant, même sens ne peuvent être qu'un seul
+          // appel. Si trouvé, on met à jour la fiche (statut/durée/nouvel id) au
+          // lieu d'en créer une deuxième.
+          const sameCall = await prisma.call.findFirst({
+            where: {
+              externalId: { startsWith: `ovh:${ba}:${service}:` },
+              startedAt: call.startedAt,
+              callerNumber: call.callerNumber,
+              direction: call.direction,
+            },
+            select: { id: true, contactId: true },
+          })
+          if (sameCall) {
+            await prisma.call.update({
+              where: { id: sameCall.id },
+              data: {
+                externalId: call.externalId,
+                status: call.status,
+                duration: call.duration,
+                answeredAt: call.answeredAt,
+                endedAt: call.endedAt,
+                // Lie le contact si la fiche ne l'était pas encore (jamais d'écrasement)
+                ...(sameCall.contactId === null && contact
+                  ? { contactId: contact.id, companyId: contact.companyId ?? undefined }
+                  : {}),
+              },
+            })
+            updated++
+            continue
+          }
+
           await prisma.call.create({
             data: { ...call, contactId: contact?.id, companyId: contact?.companyId },
           })
@@ -172,5 +207,5 @@ export async function runOvhVoipSync(): Promise<{ imported: number; skipped: num
       }
     }
   }
-  return { imported, skipped }
+  return { imported, updated, skipped }
 }

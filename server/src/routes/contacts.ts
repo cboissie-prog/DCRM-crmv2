@@ -6,6 +6,7 @@ import { handleRouteError } from '../middleware/errorHandler'
 import { ciContains } from '../lib/query'
 import { csvEscape } from '../lib/csv'
 import { normalizePhone } from '../lib/phone'
+import { linkOrphanCallsInBackground } from '../lib/call-linking'
 
 const router = Router()
 router.use(authenticate)
@@ -69,6 +70,8 @@ router.post('/', requirePermission('contacts:create'), async (req: AuthRequest, 
       },
       include: { company: { select: { id: true, name: true } } },
     })
+    // Rattache les appels passés non liés dont le numéro correspond (best-effort)
+    linkOrphanCallsInBackground(contact)
     res.status(201).json({ success: true, data: contact })
   } catch (err) { handleRouteError(err, res) }
 })
@@ -221,6 +224,8 @@ router.put('/:id', requirePermission('contacts:update'), async (req: AuthRequest
       data: updateData,
       include: { company: { select: { id: true, name: true } } },
     })
+    // Numéro ajouté/modifié → rattache les appels passés non liés (best-effort)
+    if ('phone' in body || 'mobile' in body) linkOrphanCallsInBackground(contact)
     res.json({ success: true, data: contact })
   } catch (err) { handleRouteError(err, res) }
 })
