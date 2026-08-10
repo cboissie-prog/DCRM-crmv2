@@ -26,7 +26,17 @@ const ENDPOINTS: Record<string, string> = {
 
 // Fenêtre d'import : on ne remonte jamais plus loin (même logique que l'import
 // Google Calendar). La dédup par externalId rend les passages suivants idempotents.
+// NB : voiceConsumption ne couvre que la période de facturation courante ; au
+// changement de période, les tout derniers appels peuvent basculer dans
+// previousVoiceConsumption (trou de quelques jours maximum, assumé).
 const IMPORT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000
+
+// Fenêtre de fusion des segments d'un même appel ENTRANT : une file d'attente fait
+// sonner plusieurs postes successivement, chaque sonnerie produit un CDR daté de sa
+// présentation (pas du début de l'appel). Même appelant à <10 min d'écart = un seul
+// appel. Compromis assumé : un client qui rappelle dans les 10 min fusionne avec sa
+// tentative précédente (le segment répondu l'emporte, donc rien n'est perdu).
+const LEG_MERGE_WINDOW_MS = 10 * 60 * 1000
 
 export function isOvhConfigured(): boolean {
   return Boolean(process.env.OVH_APP_KEY && process.env.OVH_APP_SECRET && process.env.OVH_CONSUMER_KEY)
@@ -187,33 +197,42 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
             : null
 
           // L'id de consommation ne suffit pas à dédupliquer : un appel de GROUPE
-          // sonne sur plusieurs lignes et produit un CDR par ligne, et un CDR récent
-          // peut être réémis sous un nouvel id (finalisation, re-tarification).
-          // Empreinte naturelle à l'échelle du compte : même seconde de début, même
-          // appelant, même sens = un seul et même appel → on met à jour la fiche
-          // existante au lieu d'en créer une deuxième. externalId garde le premier
-          // id rencontré ; les ids fusionnés sont cachés pour éviter les re-fetch.
+          // produit un CDR par poste sonné (dates de présentation différentes), et
+          // un CDR récent peut être réémis sous un nouvel id. Empreinte naturelle à
+          // l'échelle du compte : même appelant + même sens, dans la fenêtre de
+          // fusion pour l'entrant (segments d'une file d'attente), à la seconde
+          // exacte pour le sortant (deux appels sortants proches sont distincts).
+          const isInbound = call.direction === 'INBOUND'
           const sameCall = await prisma.call.findFirst({
             where: {
               externalId: { startsWith: `ovh:${ba}:` },
-              startedAt: call.startedAt,
               callerNumber: call.callerNumber,
               direction: call.direction,
+              startedAt: isInbound
+                ? {
+                    gte: new Date(call.startedAt.getTime() - LEG_MERGE_WINDOW_MS),
+                    lte: new Date(call.startedAt.getTime() + LEG_MERGE_WINDOW_MS),
+                  }
+                : call.startedAt,
             },
-            select: { id: true, contactId: true, status: true, duration: true },
+            orderBy: { startedAt: 'asc' },
+            select: { id: true, contactId: true, status: true, duration: true, startedAt: true },
           })
           if (sameCall) {
             mergedConsumptionIds.add(candidateId)
-            const changed = sameCall.status !== call.status || sameCall.duration !== call.duration
+            // Le segment répondu l'emporte sur les sonneries sans réponse ;
+            // à statut égal, on garde la durée la plus longue (transfert entre postes)
+            const better = call.status === 'ANSWERED' &&
+              (sameCall.status !== 'ANSWERED' || (call.duration ?? 0) > (sameCall.duration ?? 0))
+            // Le début de l'appel = la première sonnerie observée
+            const earlier = call.startedAt < sameCall.startedAt
             const linkContact = sameCall.contactId === null && contact !== null
-            if (changed || linkContact) {
+            if (better || earlier || linkContact) {
               await prisma.call.update({
                 where: { id: sameCall.id },
                 data: {
-                  status: call.status,
-                  duration: call.duration,
-                  answeredAt: call.answeredAt,
-                  endedAt: call.endedAt,
+                  ...(better ? { status: call.status, duration: call.duration, answeredAt: call.answeredAt, endedAt: call.endedAt } : {}),
+                  ...(earlier ? { startedAt: call.startedAt } : {}),
                   // Lie le contact si la fiche ne l'était pas encore (jamais d'écrasement)
                   ...(linkContact ? { contactId: contact!.id, companyId: contact!.companyId ?? undefined } : {}),
                 },

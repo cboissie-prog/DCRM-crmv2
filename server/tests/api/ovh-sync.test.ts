@@ -137,6 +137,28 @@ describe('Sync OVH — déduplication', () => {
     expect(await prisma.call.count({ where: { externalId: { startsWith: BA_PREFIX } } })).toBe(1)
   })
 
+  it('les sonneries successives d\'une file d\'attente fusionnent en une seule fiche', async () => {
+    await prisma.call.deleteMany({ where: { externalId: { startsWith: BA_PREFIX } } })
+    // Un client appelle le standard : la file fait sonner le poste 1 (sans réponse),
+    // puis le poste 2 décroche 20 s plus tard → 2 CDR à des secondes différentes.
+    const t0 = new Date(Date.now() - 50 * 60 * 1000)
+    const t1 = new Date(t0.getTime() + 20 * 1000)
+    stubOvhApi({
+      [LINE]:  { id: 701, detail: { creationDatetime: t0.toISOString(), calling: CALLER, called: LINE, duration: 0, wayType: 'transfer' } },
+      [LINE2]: { id: 702, detail: { creationDatetime: t1.toISOString(), calling: CALLER, called: LINE2, duration: 55, wayType: 'incoming' } },
+    })
+
+    const run = await runOvhVoipSync()
+    expect(run.imported).toBe(1)
+    expect(run.updated).toBe(1) // le segment répondu met à jour la fiche créée par la sonnerie
+
+    const rows = await prisma.call.findMany({ where: { externalId: { startsWith: BA_PREFIX } } })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].status).toBe('ANSWERED')       // le poste 2 a décroché
+    expect(rows[0].duration).toBe(55)
+    expect(rows[0].startedAt.getTime()).toBe(t0.getTime()) // début = première sonnerie
+  })
+
   it('OVH_SERVICE_NAME restreint l\'import aux lignes listées (tous formats tolérés)', async () => {
     await prisma.call.deleteMany({ where: { externalId: { startsWith: BA_PREFIX } } })
     const started = new Date(Date.now() - 10 * 60 * 1000).toISOString()
