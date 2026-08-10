@@ -25,9 +25,9 @@ const BA_PREFIX = `ovh:${BA}:`
 
 /**
  * Simule l'API OVH. `lines` : pour chaque ligne, l'id de consommation listé
- * et le détail du CDR correspondant.
+ * (null = aucun appel sur cette ligne) et le détail du CDR correspondant.
  */
-function stubOvhApi(lines: Record<string, { id: number; detail: Record<string, unknown> }>) {
+function stubOvhApi(lines: Record<string, { id: number | null; detail: Record<string, unknown> }>) {
   vi.stubGlobal('fetch', vi.fn(async (url: unknown) => {
     const u = String(url)
     const json = (data: unknown) => ({ ok: true, text: async () => JSON.stringify(data), json: async () => data })
@@ -38,7 +38,7 @@ function stubOvhApi(lines: Record<string, { id: number; detail: Record<string, u
     if (m) {
       const line = lines[decodeURIComponent(m[1])]
       if (!line) throw new Error(`Ligne inconnue dans le stub : ${m[1]}`)
-      return u.includes('voiceConsumption?') ? json([line.id]) : json(line.detail)
+      return u.includes('voiceConsumption?') ? json(line.id === null ? [] : [line.id]) : json(line.detail)
     }
     throw new Error(`URL OVH inattendue dans le test : ${u}`)
   }))
@@ -165,6 +165,21 @@ describe('Sync OVH — déduplication', () => {
     expect(run.warning).toBeDefined()
     expect(run.warning).toContain('0033100000000')
     expect(run.warning).toContain(LINE) // liste les lignes réellement disponibles
+  })
+
+  it('avertit quand les lignes filtrées n\'ont aucun appel et indique où sont les CDR', async () => {
+    await prisma.call.deleteMany({ where: { externalId: { startsWith: BA_PREFIX } } })
+    // Le filtre matche LINE… mais les CDR des appels du groupe sont sur LINE2
+    process.env.OVH_SERVICE_NAME = LINE
+    stubOvhApi({
+      [LINE]:  { id: null, detail: {} },
+      [LINE2]: { id: 601, detail: inboundDetail({ called: LINE2 }) },
+    })
+
+    const run = await runOvhVoipSync()
+    expect(run.imported).toBe(0)
+    expect(run.warning).toBeDefined()
+    expect(run.warning).toContain(LINE2) // pointe la ligne qui porte réellement les appels
   })
 })
 

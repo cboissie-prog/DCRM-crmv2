@@ -138,12 +138,17 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
   const allServices: string[] = []
   let matchedServices = 0
 
+  const matchedNames: string[] = []
+  const servicesByBa = new Map<string, string[]>()
+
   const billingAccounts = await ovhGet<string[]>('/telephony')
   for (const ba of billingAccounts) {
     let services = await ovhGet<string[]>(`/telephony/${encodeURIComponent(ba)}/service`)
     allServices.push(...services)
+    servicesByBa.set(ba, services)
     if (restrict.length > 0) services = services.filter(s => restrict.includes(normalizePhone(s) ?? s))
     matchedServices += services.length
+    matchedNames.push(...services)
 
     for (const service of services) {
       const basePath = `/telephony/${encodeURIComponent(ba)}/service/${encodeURIComponent(service)}`
@@ -237,6 +242,28 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
   if (restrict.length > 0 && matchedServices === 0) {
     const warning = `Aucune ligne OVH ne correspond à OVH_SERVICE_NAME (${restrictRaw.join(', ')}). Lignes disponibles sur le compte : ${allServices.join(', ') || 'aucune'}`
     logger.warn({ restrictRaw, allServices }, `[OVH VOIP] ${warning}`)
+    return { imported, updated, skipped, warning }
+  }
+
+  // Filtre posé, lignes reconnues, mais AUCUN CDR vu dessus : avec un groupe d'appel,
+  // OVH peut enregistrer les relevés sur d'autres services (numéro principal du groupe).
+  // On diagnostique où se trouvent réellement les appels récents pour guider la config.
+  if (restrict.length > 0 && imported + updated + skipped === 0) {
+    const withCalls: string[] = []
+    for (const [ba, services] of servicesByBa) {
+      for (const s of services) {
+        if (matchedNames.includes(s)) continue
+        try {
+          const ids = await ovhGet<number[]>(`/telephony/${encodeURIComponent(ba)}/service/${encodeURIComponent(s)}/voiceConsumption?creationDatetime.from=${encodeURIComponent(from)}`)
+          if (ids.length > 0) withCalls.push(`${s} (${ids.length} appel${ids.length > 1 ? 's' : ''})`)
+        } catch { /* service sans relevé voix */ }
+      }
+    }
+    const warning = `Aucun appel récent sur les lignes filtrées (${matchedNames.join(', ')}). ` +
+      (withCalls.length > 0
+        ? `Les appels récents sont enregistrés sur : ${withCalls.join(', ')} — ajoutez ce(s) numéro(s) à OVH_SERVICE_NAME.`
+        : 'Aucun appel récent sur les autres lignes non plus (fenêtre de 3 jours).')
+    logger.warn({ matchedNames, withCalls }, `[OVH VOIP] ${warning}`)
     return { imported, updated, skipped, warning }
   }
   return { imported, updated, skipped }
