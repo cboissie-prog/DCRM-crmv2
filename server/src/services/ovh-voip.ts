@@ -124,19 +124,26 @@ export function _clearOvhSyncCache(): void {
  * Parcourt les comptes de facturation et lignes OVH, importe les appels
  * de la fenêtre récente absents de la base. Idempotent.
  */
-export async function runOvhVoipSync(): Promise<{ imported: number; updated: number; skipped: number }> {
+export async function runOvhVoipSync(): Promise<{ imported: number; updated: number; skipped: number; warning?: string }> {
   if (!isOvhConfigured()) return { imported: 0, updated: 0, skipped: 0 }
 
-  const restrictServices = (process.env.OVH_SERVICE_NAME ?? '').split(',').map(s => s.trim()).filter(Boolean)
+  // Filtre de lignes : comparaison sur numéros NORMALISÉS pour tolérer tous les
+  // formats de saisie (0033972…, +33 9 72…, 09 72…) face aux noms de service OVH.
+  const restrictRaw = (process.env.OVH_SERVICE_NAME ?? '').split(',').map(s => s.trim()).filter(Boolean)
+  const restrict = restrictRaw.map(s => normalizePhone(s) ?? s)
   const from = new Date(Date.now() - IMPORT_MAX_AGE_MS).toISOString()
   let imported = 0
   let updated = 0
   let skipped = 0
+  const allServices: string[] = []
+  let matchedServices = 0
 
   const billingAccounts = await ovhGet<string[]>('/telephony')
   for (const ba of billingAccounts) {
     let services = await ovhGet<string[]>(`/telephony/${encodeURIComponent(ba)}/service`)
-    if (restrictServices.length > 0) services = services.filter(s => restrictServices.includes(s))
+    allServices.push(...services)
+    if (restrict.length > 0) services = services.filter(s => restrict.includes(normalizePhone(s) ?? s))
+    matchedServices += services.length
 
     for (const service of services) {
       const basePath = `/telephony/${encodeURIComponent(ba)}/service/${encodeURIComponent(service)}`
@@ -223,6 +230,14 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
         }
       }
     }
+  }
+
+  // Filtre posé mais aucune ligne ne correspond : plus AUCUN appel ne serait importé
+  // silencieusement — on le dit explicitement, avec les lignes réellement disponibles.
+  if (restrict.length > 0 && matchedServices === 0) {
+    const warning = `Aucune ligne OVH ne correspond à OVH_SERVICE_NAME (${restrictRaw.join(', ')}). Lignes disponibles sur le compte : ${allServices.join(', ') || 'aucune'}`
+    logger.warn({ restrictRaw, allServices }, `[OVH VOIP] ${warning}`)
+    return { imported, updated, skipped, warning }
   }
   return { imported, updated, skipped }
 }

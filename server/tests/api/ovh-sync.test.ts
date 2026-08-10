@@ -137,11 +137,12 @@ describe('Sync OVH — déduplication', () => {
     expect(await prisma.call.count({ where: { externalId: { startsWith: BA_PREFIX } } })).toBe(1)
   })
 
-  it('OVH_SERVICE_NAME restreint l\'import aux lignes listées', async () => {
+  it('OVH_SERVICE_NAME restreint l\'import aux lignes listées (tous formats tolérés)', async () => {
     await prisma.call.deleteMany({ where: { externalId: { startsWith: BA_PREFIX } } })
     const started = new Date(Date.now() - 10 * 60 * 1000).toISOString()
 
-    process.env.OVH_SERVICE_NAME = ` ${LINE} , 0033999000000 `
+    // Saisi au format national avec espaces — le service OVH est nommé 0033972999999
+    process.env.OVH_SERVICE_NAME = ` 09 72 99 99 99 , +33 9 99 00 00 00 `
     // Deux appels distincts, un par ligne — seule LINE est dans la liste autorisée
     stubOvhApi({
       [LINE]:  { id: 401, detail: inboundDetail({ creationDatetime: started, calling: '0033611110001' }) },
@@ -153,6 +154,17 @@ describe('Sync OVH — déduplication', () => {
     const rows = await prisma.call.findMany({ where: { externalId: { startsWith: BA_PREFIX } } })
     expect(rows).toHaveLength(1)
     expect(rows[0].externalId).toBe(`${BA_PREFIX}${LINE}:401`)
+  })
+
+  it('avertit quand OVH_SERVICE_NAME ne correspond à aucune ligne (au lieu d\'échouer en silence)', async () => {
+    process.env.OVH_SERVICE_NAME = '0033100000000'
+    stubOvhApi({ [LINE]: { id: 501, detail: inboundDetail() } })
+
+    const run = await runOvhVoipSync()
+    expect(run.imported).toBe(0)
+    expect(run.warning).toBeDefined()
+    expect(run.warning).toContain('0033100000000')
+    expect(run.warning).toContain(LINE) // liste les lignes réellement disponibles
   })
 })
 
