@@ -14,6 +14,8 @@
  * listées, séparées par des virgules — ex: 0033972000001,0033972000002).
  */
 import crypto from 'crypto'
+import fs from 'fs'
+import path from 'path'
 import prisma from '../prisma/client'
 import logger from '../lib/logger'
 import { normalizePhone } from '../lib/phone'
@@ -40,7 +42,7 @@ const LEG_MERGE_WINDOW_MS = 10 * 60 * 1000
 
 // Incrémenté à chaque évolution du sync — renvoyé par le diagnostic pour vérifier
 // que la prod exécute bien la dernière version déployée.
-export const OVH_SYNC_VERSION = '2026-08-10.8'
+export const OVH_SYNC_VERSION = '2026-08-10.9'
 
 export function isOvhConfigured(): boolean {
   return Boolean(process.env.OVH_APP_KEY && process.env.OVH_APP_SECRET && process.env.OVH_CONSUMER_KEY)
@@ -128,10 +130,103 @@ export function mapConsumptionToCall(billingAccount: string, serviceName: string
 // évite de re-télécharger leur détail à chaque passage. Réinitialisé au restart du
 // process — au pire un re-fetch de détail par appel de la fenêtre, puis re-caché.
 const mergedConsumptionIds = new Set<string>()
+// Enregistrements de file déjà traités (téléchargés ou hors fenêtre)
+const processedRecordIds = new Set<string>()
 
-/** Réservé aux tests : vide le cache de fusion. */
+/** Réservé aux tests : vide les caches. */
 export function _clearOvhSyncCache(): void {
   mergedConsumptionIds.clear()
+  processedRecordIds.clear()
+}
+
+// Types de services PABX qui hébergent les files d'attente (et leurs enregistrements)
+const HUNTING_KINDS = ['easyHunting', 'ovhPabx'] as const
+
+interface OvhHuntingRecord {
+  id: number
+  callStart: string
+  callEnd: string
+  callerIdNumber: string
+  destinationNumber: string
+  duration: number
+  fileUrl: string
+  agent: string
+}
+
+/**
+ * Importe les enregistrements d'appels des files d'attente (easyHunting / ovhPabx)
+ * et les rattache aux fiches Appels par empreinte (appelant normalisé + fenêtre de
+ * temps). Le fichier audio est téléchargé localement (fileUrl OVH est temporaire)
+ * dans uploads/recordings — même dossier que les uploads manuels, donc couvert par
+ * le lecteur intégré et la purge RGPD existants.
+ */
+async function importQueueRecordings(billingAccounts: string[], since: Date): Promise<number> {
+  let attached = 0
+  const uploadsDir = path.join(process.cwd(), 'uploads', 'recordings')
+
+  for (const ba of billingAccounts) {
+    for (const kind of HUNTING_KINDS) {
+      let services: string[]
+      try {
+        services = await ovhGet<string[]>(`/telephony/${encodeURIComponent(ba)}/${kind}`)
+      } catch { continue }
+
+      for (const svc of services) {
+        const recordsPath = `/telephony/${encodeURIComponent(ba)}/${kind}/${encodeURIComponent(svc)}/records`
+        let recordIds: number[]
+        try {
+          recordIds = await ovhGet<number[]>(recordsPath)
+        } catch { continue }
+
+        for (const recordId of recordIds) {
+          const cacheKey = `${ba}:${kind}:${svc}:${recordId}`
+          if (processedRecordIds.has(cacheKey)) continue
+          try {
+            const rec = await ovhGet<OvhHuntingRecord>(`${recordsPath}/${recordId}`)
+            const callStart = new Date(rec.callStart)
+            if (callStart < since) { processedRecordIds.add(cacheKey); continue }
+
+            const callerNorm = normalizePhone(rec.callerIdNumber)
+            if (!callerNorm) { processedRecordIds.add(cacheKey); continue }
+
+            // Fiche correspondante : même appelant, entrant, sans enregistrement déjà posé
+            const candidates = await prisma.call.findMany({
+              where: {
+                externalId: { startsWith: 'ovh:' },
+                direction: 'INBOUND',
+                recordingPath: null,
+                recordingUrl: null,
+                startedAt: {
+                  gte: new Date(callStart.getTime() - LEG_MERGE_WINDOW_MS),
+                  lte: new Date(callStart.getTime() + LEG_MERGE_WINDOW_MS),
+                },
+              },
+              select: { id: true, callerNumber: true },
+            })
+            const fiche = candidates.find(c => normalizePhone(c.callerNumber) === callerNorm)
+            // Pas encore de fiche (le CDR peut arriver après l'enregistrement) :
+            // on ne cache pas, l'enregistrement sera retenté au prochain passage
+            if (!fiche) continue
+
+            const dl = await fetch(rec.fileUrl)
+            if (!dl.ok) throw new Error(`téléchargement de l'enregistrement : HTTP ${dl.status}`)
+            const buf = Buffer.from(await dl.arrayBuffer())
+            if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
+            const ext = (rec.fileUrl.split('?')[0].match(/\.(wav|mp3|ogg|m4a)$/i)?.[0] ?? '.wav').toLowerCase()
+            const filePath = path.join(uploadsDir, `ovh-${recordId}${ext}`)
+            fs.writeFileSync(filePath, buf)
+
+            await prisma.call.update({ where: { id: fiche.id }, data: { recordingPath: filePath } })
+            processedRecordIds.add(cacheKey)
+            attached++
+          } catch (err) {
+            logger.error({ err, ba, kind, svc, recordId }, '[OVH VOIP] Échec import d\'un enregistrement')
+          }
+        }
+      }
+    }
+  }
+  return attached
 }
 
 /**
@@ -143,21 +238,59 @@ export async function getOvhDebugReport(): Promise<{
   version: string
   configured: boolean
   filter: string
+  topology: Array<Record<string, unknown>>
+  huntings: Array<Record<string, unknown>>
   cdrs: Array<Record<string, unknown>>
   fiches: Array<Record<string, unknown>>
 }> {
   const version = OVH_SYNC_VERSION
   const filter = process.env.OVH_SERVICE_NAME ?? ''
-  if (!isOvhConfigured()) return { version, configured: false, filter, cdrs: [], fiches: [] }
+  if (!isOvhConfigured()) return { version, configured: false, filter, topology: [], huntings: [], cdrs: [], fiches: [] }
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000)
   const from = since.toISOString()
   const cdrs: Array<Record<string, unknown>> = []
+  const topology: Array<Record<string, unknown>> = []
+  const huntings: Array<Record<string, unknown>> = []
 
   const billingAccounts = await ovhGet<string[]>('/telephony')
+
+  // Files d'attente (easyHunting / ovhPabx) : option d'enregistrement + enregistrements récents
+  for (const ba of billingAccounts) {
+    for (const kind of HUNTING_KINDS) {
+      let hs: string[]
+      try { hs = await ovhGet<string[]>(`/telephony/${encodeURIComponent(ba)}/${kind}`) } catch { continue }
+      for (const svc of hs) {
+        const base = `/telephony/${encodeURIComponent(ba)}/${kind}/${encodeURIComponent(svc)}`
+        const entry: Record<string, unknown> = { billingAccount: ba, kind, service: svc }
+        try {
+          const queueIds = await ovhGet<number[]>(`${base}/hunting/queue`)
+          entry.queues = await Promise.all(queueIds.map(async qid => {
+            try {
+              const q = await ovhGet<Record<string, unknown>>(`${base}/hunting/queue/${qid}`)
+              return { queueId: qid, record: q.record, strategy: q.strategy }
+            } catch { return { queueId: qid } }
+          }))
+        } catch { /* pas de files */ }
+        try {
+          const recordIds = await ovhGet<number[]>(`${base}/records`)
+          entry.recordCount = recordIds.length
+          entry.lastRecords = await Promise.all(recordIds.slice(-5).map(async rid => {
+            try { return await ovhGet<Record<string, unknown>>(`${base}/records/${rid}`) } catch { return { id: rid } }
+          }))
+        } catch { entry.recordCount = 'indisponible' }
+        huntings.push(entry)
+      }
+    }
+  }
+
   for (const ba of billingAccounts) {
     const services = await ovhGet<string[]>(`/telephony/${encodeURIComponent(ba)}/service`)
     for (const service of services) {
+      try {
+        const info = await ovhGet<{ featureType?: string; serviceType?: string; description?: string }>(`/telephony/${encodeURIComponent(ba)}/service/${encodeURIComponent(service)}`)
+        topology.push({ billingAccount: ba, service, featureType: info.featureType, serviceType: info.serviceType, description: info.description })
+      } catch { topology.push({ billingAccount: ba, service }) }
       const basePath = `/telephony/${encodeURIComponent(ba)}/service/${encodeURIComponent(service)}`
       let ids: number[]
       try {
@@ -181,15 +314,15 @@ export async function getOvhDebugReport(): Promise<{
       receiverNumber: true, startedAt: true, duration: true, contactId: true,
     },
   })
-  return { version, configured: true, filter, cdrs, fiches }
+  return { version, configured: true, filter, topology, huntings, cdrs, fiches }
 }
 
 /**
  * Parcourt les comptes de facturation et lignes OVH, importe les appels
  * de la fenêtre récente absents de la base. Idempotent.
  */
-export async function runOvhVoipSync(): Promise<{ imported: number; updated: number; skipped: number; warning?: string }> {
-  if (!isOvhConfigured()) return { imported: 0, updated: 0, skipped: 0 }
+export async function runOvhVoipSync(): Promise<{ imported: number; updated: number; skipped: number; recordings: number; warning?: string }> {
+  if (!isOvhConfigured()) return { imported: 0, updated: 0, skipped: 0, recordings: 0 }
 
   // Filtre de lignes : comparaison sur numéros NORMALISÉS pour tolérer tous les
   // formats de saisie (0033972…, +33 9 72…, 09 72…) face aux noms de service OVH.
@@ -355,12 +488,21 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
     }
   }
 
+  // Enregistrements des files d'attente (si l'option est activée côté OVH) —
+  // best-effort : un échec n'affecte pas l'import des appels
+  let recordings = 0
+  try {
+    recordings = await importQueueRecordings(billingAccounts, new Date(Date.now() - IMPORT_MAX_AGE_MS))
+  } catch (err) {
+    logger.error({ err }, '[OVH VOIP] Échec de l\'import des enregistrements')
+  }
+
   // Filtre posé mais aucune ligne ne correspond : plus AUCUN appel ne serait importé
   // silencieusement — on le dit explicitement, avec les lignes réellement disponibles.
   if (restrict.length > 0 && matchedServices === 0) {
     const warning = `Aucune ligne OVH ne correspond à OVH_SERVICE_NAME (${restrictRaw.join(', ')}). Lignes disponibles sur le compte : ${allServices.join(', ') || 'aucune'}`
     logger.warn({ restrictRaw, allServices }, `[OVH VOIP] ${warning}`)
-    return { imported, updated, skipped, warning }
+    return { imported, updated, skipped, recordings, warning }
   }
 
   // Filtre posé, lignes reconnues, mais AUCUN CDR vu dessus : avec un groupe d'appel,
@@ -382,7 +524,7 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
         ? `Les appels récents sont enregistrés sur : ${withCalls.join(', ')} — ajoutez ce(s) numéro(s) à OVH_SERVICE_NAME.`
         : 'Aucun appel récent sur les autres lignes non plus (fenêtre de 3 jours).')
     logger.warn({ matchedNames, withCalls }, `[OVH VOIP] ${warning}`)
-    return { imported, updated, skipped, warning }
+    return { imported, updated, skipped, recordings, warning }
   }
-  return { imported, updated, skipped }
+  return { imported, updated, skipped, recordings }
 }

@@ -81,16 +81,17 @@ export function CallsPage() {
   const syncOvhMutation = useMutation({
     mutationFn: async () => {
       const { data } = await api.post('/calls/sync-ovh')
-      return data.data as { imported: number; updated: number; skipped: number; warning?: string }
+      return data.data as { imported: number; updated: number; skipped: number; recordings?: number; warning?: string }
     },
     onSuccess: (stats) => {
       qc.invalidateQueries({ queryKey: ['calls'] })
       if (stats.warning) {
         toast.error(stats.warning)
-      } else if (stats.imported > 0 || stats.updated > 0) {
+      } else if (stats.imported > 0 || stats.updated > 0 || (stats.recordings ?? 0) > 0) {
         const parts = []
         if (stats.imported > 0) parts.push(`${stats.imported} appel(s) importé(s)`)
         if (stats.updated > 0) parts.push(`${stats.updated} mis à jour`)
+        if ((stats.recordings ?? 0) > 0) parts.push(`${stats.recordings} enregistrement(s)`)
         toast.success(parts.join(', ') + ' depuis OVH')
       } else {
         toast.success('Aucun nouvel appel côté OVH')

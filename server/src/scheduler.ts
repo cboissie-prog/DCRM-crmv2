@@ -218,8 +218,8 @@ export async function startScheduler() {
     voipSyncTask = cron.schedule('*/5 * * * *', async () => {
       try {
         const stats = await runOvhVoipSync()
-        if (stats.imported > 0 || stats.updated > 0) {
-          logger.info(`☎️  OVH VoIP : ${stats.imported} appel(s) importé(s), ${stats.updated} mis à jour`)
+        if (stats.imported > 0 || stats.updated > 0 || stats.recordings > 0) {
+          logger.info(`☎️  OVH VoIP : ${stats.imported} appel(s) importé(s), ${stats.updated} mis à jour, ${stats.recordings} enregistrement(s)`)
         }
       } catch (err) {
         logger.error({ err }, '  ❌ Erreur scheduler sync OVH VoIP')

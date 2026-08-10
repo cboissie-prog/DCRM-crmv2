@@ -11,6 +11,7 @@
  *    appels orphelins doit les lier.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest'
+import fs from 'fs'
 import { PrismaClient } from '@prisma/client'
 import { runOvhVoipSync, _clearOvhSyncCache } from '../../src/services/ovh-voip'
 import { linkOrphanCallsToContact } from '../../src/lib/call-linking'
@@ -281,6 +282,40 @@ describe('Sync OVH — déduplication', () => {
     expect(run.imported).toBe(0)
     expect(run.warning).toBeDefined()
     expect(run.warning).toContain(LINE2) // pointe la ligne qui porte réellement les appels
+  })
+})
+
+describe('Enregistrements de file d\'attente', () => {
+  it('télécharge l\'enregistrement et le rattache à la fiche de l\'appel', async () => {
+    await prisma.call.deleteMany({ where: { externalId: { startsWith: 'ovh:' } } })
+    const t0 = new Date(Date.now() - 6 * 60 * 1000).toISOString()
+    const audio = new TextEncoder().encode('RIFF-fake-wav')
+
+    vi.stubGlobal('fetch', vi.fn(async (url: unknown) => {
+      const u = String(url)
+      const json = (d: unknown) => ({ ok: true, text: async () => JSON.stringify(d), json: async () => d })
+      if (u.endsWith('/auth/time')) return { ok: true, text: async () => String(Math.floor(Date.now() / 1000)), json: async () => 0 }
+      if (u === 'https://rec.test/77.wav') return { ok: true, arrayBuffer: async () => audio.buffer }
+      if (u.endsWith('/1.0/telephony')) return json([BA])
+      if (u.includes('/voiceConsumption?')) return json([3001])
+      if (u.includes('/voiceConsumption/')) return json({ creationDatetime: t0, calling: CALLER, called: LINE, duration: 30, wayType: 'incoming' })
+      if (u.endsWith(`/${BA}/service`)) return json([LINE])
+      if (u.endsWith(`/${BA}/easyHunting`)) return json(['queue-svc'])
+      if (u.endsWith(`/${BA}/ovhPabx`)) return json([])
+      if (u.endsWith('/queue-svc/records')) return json([77])
+      if (u.endsWith('/records/77')) return json({ id: 77, callStart: t0, callEnd: t0, callerIdNumber: CALLER, destinationNumber: LINE, duration: 30, fileUrl: 'https://rec.test/77.wav', agent: LINE2 })
+      throw new Error(`URL inattendue dans le test : ${u}`)
+    }))
+
+    const run = await runOvhVoipSync()
+    expect(run.imported).toBe(1)
+    expect(run.recordings).toBe(1)
+
+    const row = await prisma.call.findFirst({ where: { externalId: { startsWith: 'ovh:' } } })
+    expect(row?.recordingPath).toBeTruthy()
+    expect(fs.existsSync(row!.recordingPath!)).toBe(true)
+    // Nettoyage du fichier téléchargé par le test
+    fs.unlinkSync(row!.recordingPath!)
   })
 })
 
