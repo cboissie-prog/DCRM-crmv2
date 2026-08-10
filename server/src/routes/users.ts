@@ -195,9 +195,12 @@ router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
     }
 
     const { role: _role, ...restBody } = body
+    // Changement de rôle ou d'isActive : tokenVersion++ pour invalider immédiatement les
+    // access tokens émis avec les anciennes permissions (le refresh en réémettra un à jour).
+    const invalidateTokens = body.role !== undefined || body.isActive !== undefined
     const user = await prisma.user.update({
       where: { id: req.params.id as string },
-      data: { ...restBody, ...roleFields },
+      data: { ...restBody, ...roleFields, ...(invalidateTokens ? { tokenVersion: { increment: 1 } } : {}) },
       select: { id: true, email: true, firstName: true, lastName: true, phone: true, role: true, isActive: true },
     })
     const metaChanged: Record<string, unknown> = {}
@@ -212,7 +215,8 @@ router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
 router.delete('/:id', requirePermission('users:delete'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     if (req.params.id === req.userId) { res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Impossible de se désactiver soi-même' } }); return }
-    await prisma.user.update({ where: { id: req.params.id }, data: { isActive: false } })
+    // tokenVersion++ : invalide immédiatement les access tokens déjà émis (pas seulement les refresh)
+    await prisma.user.update({ where: { id: req.params.id }, data: { isActive: false, tokenVersion: { increment: 1 } } })
     // Révoque immédiatement toutes les sessions du compte désactivé (cohérent avec reset/change password)
     await prisma.refreshToken.deleteMany({ where: { userId: req.params.id } })
     audit(req, 'USER_DEACTIVATED', 'User', req.params.id)
@@ -267,7 +271,8 @@ router.patch('/:id/password', async (req: AuthRequest, res: Response): Promise<v
     }
 
     const hashedPassword = await bcrypt.hash(body.newPassword, 12)
-    await prisma.user.update({ where: { id: req.params.id }, data: { password: hashedPassword } })
+    // tokenVersion++ : invalide immédiatement les access tokens déjà émis (pas seulement les refresh)
+    await prisma.user.update({ where: { id: req.params.id }, data: { password: hashedPassword, tokenVersion: { increment: 1 } } })
     // Révoque toutes les sessions de l'utilisateur concerné (comme reset-password)
     await prisma.refreshToken.deleteMany({ where: { userId: req.params.id } })
     audit(req, 'PASSWORD_CHANGED', 'User', req.params.id)

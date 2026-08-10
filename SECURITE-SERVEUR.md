@@ -147,14 +147,16 @@ automatiquement** car ils touchent la base de données ou l'infra et demandent t
   réel dedans (vérifié), mais infos d'architecture. Si le repo doit rester public, purger
   l'historique avec `git filter-repo`.
 
-### À planifier (nécessite une migration Prisma — SQLite + PostgreSQL)
-- **Verrouillage de compte** après N échecs de connexion (colonnes `failedLoginAttempts` +
-  `lockedUntil` sur `User`). Le rate limiting par IP existe déjà (20 essais/15 min) ; le
-  lockout par compte protège en plus contre une attaque distribuée sur plusieurs IP. MOYEN.
-- **Invalidation immédiate des access tokens** à la désactivation d'un user ou au changement
-  de rôle (colonne `tokenVersion` sur `User`, vérifiée dans le middleware auth). Aujourd'hui
-  un token déjà émis reste valide jusqu'à 15 min. Les refresh tokens, eux, sont bien révoqués
-  immédiatement (corrigé). MOYEN.
+### ~~À planifier~~ — FAIT le 10/08/2026 (migration `20260810_account_lockout_token_version`)
+- ✅ **Verrouillage de compte** : 5 échecs de connexion → verrou 15 min (colonnes
+  `failedLoginAttempts` + `lockedUntil` sur `User`, réponse 423 `ACCOUNT_LOCKED`, audit).
+  Le login réussi ou l'expiration du verrou remet le compteur à zéro ; le reset par email
+  déverrouille aussi. Complète le rate limiting par IP contre les attaques distribuées.
+- ✅ **Invalidation immédiate des access tokens** : colonne `tokenVersion` sur `User`,
+  embarquée dans le JWT et vérifiée en base par `authenticate` à chaque requête. Incrémentée
+  à la désactivation, au changement de rôle/isActive et au changement/reset de mot de passe.
+  Coût : une requête DB par requête authentifiée (assumé pour un CRM interne).
+  Tests de régression : `server/tests/api/account-lockout.test.ts` (8 tests).
 
 ### Dépendance runtime
 - **Node.js** : passer la prod sur Node **24 LTS** (ou 22 LTS). Node 25 est EOL depuis le

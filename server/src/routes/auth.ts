@@ -38,8 +38,13 @@ const loginSchema = z.object({
   password: z.string().min(1),
 })
 
-function generateTokens(userId: string, role: string, permissions: string[]) {
-  const accessToken = jwt.sign({ userId, role, permissions }, process.env.JWT_SECRET!, {
+// Verrouillage de compte : complète le rate limiting par IP (20 essais/15 min) contre
+// une attaque distribuée sur plusieurs IP ciblant un même compte.
+const MAX_FAILED_LOGIN_ATTEMPTS = 5
+const ACCOUNT_LOCK_DURATION_MS = 15 * 60 * 1000 // 15 minutes
+
+function generateTokens(userId: string, role: string, permissions: string[], tokenVersion: number) {
+  const accessToken = jwt.sign({ userId, role, permissions, tokenVersion }, process.env.JWT_SECRET!, {
     expiresIn: process.env.JWT_EXPIRES_IN || '15m',
   } as jwt.SignOptions)
   const refreshToken = jwt.sign({ userId, role }, process.env.JWT_REFRESH_SECRET!, {
@@ -72,16 +77,46 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       res.status(401).json({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Email ou mot de passe incorrect' } })
       return
     }
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      // Compte verrouillé : consomme quand même un bcrypt pour ne pas créer de canal temporel,
+      // et ne dit pas si le mot de passe soumis était le bon.
+      await bcrypt.compare(body.password, DUMMY_BCRYPT_HASH)
+      const minutes = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60000)
+      res.status(423).json({ success: false, error: { code: 'ACCOUNT_LOCKED', message: `Compte temporairement verrouillé suite à trop de tentatives. Réessayez dans ${minutes} min.` } })
+      return
+    }
     const valid = await bcrypt.compare(body.password, user.password)
     if (!valid) {
+      // Un verrou expiré repart de 1 ; sinon on incrémente. Au seuil, on pose lockedUntil.
+      const lockExpired = user.lockedUntil !== null
+      const attempts = lockExpired ? 1 : user.failedLoginAttempts + 1
+      const locked = attempts >= MAX_FAILED_LOGIN_ATTEMPTS
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          failedLoginAttempts: locked ? 0 : attempts,
+          lockedUntil: locked ? new Date(Date.now() + ACCOUNT_LOCK_DURATION_MS) : null,
+        },
+      })
+      if (locked) {
+        const fakeReq = { userId: user.id } as AuthRequest
+        audit(fakeReq, 'ACCOUNT_LOCKED', 'User', user.id, { email: user.email, attempts })
+        logger.warn({ userId: user.id }, '[SECURITY] Compte verrouillé après échecs de connexion répétés')
+        res.status(423).json({ success: false, error: { code: 'ACCOUNT_LOCKED', message: 'Compte temporairement verrouillé suite à trop de tentatives. Réessayez dans 15 min.' } })
+        return
+      }
       res.status(401).json({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Email ou mot de passe incorrect' } })
       return
+    }
+    // Login réussi : remet le compteur d'échecs à zéro (une seule écriture, seulement si nécessaire)
+    if (user.failedLoginAttempts > 0 || user.lockedUntil) {
+      await prisma.user.update({ where: { id: user.id }, data: { failedLoginAttempts: 0, lockedUntil: null } })
     }
     // Bypass ADMIN : accès total symbolisé par ['*']
     const permissions: string[] = user.role === 'ADMIN'
       ? ['*']
       : (user.roleRef?.permissions.map(rp => rp.permission.key) ?? [])
-    const { accessToken, refreshToken } = generateTokens(user.id, user.role, permissions)
+    const { accessToken, refreshToken } = generateTokens(user.id, user.role, permissions, user.tokenVersion)
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
     // Stocke le hash SHA-256 — le token en clair reste uniquement dans le cookie httpOnly.
     // Upsert : évite le P2002 si deux logins consécutifs génèrent le même token JWT
@@ -166,7 +201,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
       : (userWithPermissions.roleRef?.permissions.map(rp => rp.permission.key) ?? [])
 
     // 4. Rotation : supprime l'ancien token, crée le nouveau (stocke le hash)
-    const { accessToken, refreshToken: newRefreshToken } = generateTokens(userWithPermissions.id, userWithPermissions.role, permissions)
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens(userWithPermissions.id, userWithPermissions.role, permissions, userWithPermissions.tokenVersion)
     await prisma.refreshToken.deleteMany({ where: { token: tokenHash } })
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
     await prisma.refreshToken.create({ data: { token: hashToken(newRefreshToken), userId: userWithPermissions.id, expiresAt } })
@@ -234,7 +269,12 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
       return
     }
     const hashedPassword = await bcrypt.hash(password, 12)
-    await prisma.user.update({ where: { id: resetToken.userId }, data: { password: hashedPassword } })
+    // tokenVersion++ : invalide immédiatement les access tokens déjà émis (pas seulement les refresh)
+    // Déverrouille aussi le compte : le reset par email prouve le contrôle de la boîte mail.
+    await prisma.user.update({
+      where: { id: resetToken.userId },
+      data: { password: hashedPassword, tokenVersion: { increment: 1 }, failedLoginAttempts: 0, lockedUntil: null },
+    })
     await prisma.passwordResetToken.delete({ where: { id: resetToken.id } })
     await prisma.refreshToken.deleteMany({ where: { userId: resetToken.userId } })
     const fakeReq = { userId: resetToken.userId } as AuthRequest
@@ -456,7 +496,7 @@ router.get('/google/callback', async (req: Request, res: Response): Promise<void
       ? ['*']
       : (user.roleRef?.permissions.map(rp => rp.permission.key) ?? [])
 
-    const { accessToken, refreshToken } = generateTokens(user.id, user.role, permissions)
+    const { accessToken, refreshToken } = generateTokens(user.id, user.role, permissions, user.tokenVersion)
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
 
     await prisma.refreshToken.upsert({

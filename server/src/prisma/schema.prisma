@@ -23,6 +23,12 @@ model User {
   role          String   @default("COMMERCIAL")
   isActive      Boolean  @default(true)
   googleId      String?  @unique
+  // Verrouillage de compte après échecs de connexion répétés (complète le rate limiting IP)
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  // Incrémenté à chaque désactivation / changement de rôle / changement de mot de passe :
+  // invalide immédiatement tous les access tokens déjà émis (vérifié dans authenticate)
+  tokenVersion        Int       @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

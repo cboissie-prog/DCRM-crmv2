@@ -72,11 +72,22 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
   }
   const token = authHeader.split(' ')[1]
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET!, { algorithms: ['HS256'] }) as { userId: string; role: string; permissions?: string[]; typ?: string }
+    const payload = jwt.verify(token, process.env.JWT_SECRET!, { algorithms: ['HS256'] }) as { userId: string; role: string; permissions?: string[]; tokenVersion?: number; typ?: string }
     // Les jetons d'accès n'ont pas de claim `typ`. Tout jeton typé est un jeton à usage
     // spécifique (state OAuth, etc.) et ne doit jamais authentifier une requête, même s'il
     // se trouvait signé avec ce secret.
     if (payload.typ !== undefined) {
+      res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Token invalide ou expiré' } })
+      return
+    }
+    // tokenVersion : invalidation immédiate des access tokens à la désactivation, au changement
+    // de rôle ou de mot de passe (sinon un token déjà émis restait valide jusqu'à 15 min).
+    // `?? 0` : les tokens émis avant l'introduction du claim restent valides (version initiale 0).
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: { isActive: true, tokenVersion: true },
+    })
+    if (!user || !user.isActive || (payload.tokenVersion ?? 0) !== user.tokenVersion) {
       res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Token invalide ou expiré' } })
       return
     }

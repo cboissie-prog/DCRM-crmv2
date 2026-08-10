@@ -3,6 +3,7 @@ import { Navigate, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { isAxiosError } from 'axios'
 import { useAuthStore } from '../../store/authStore'
 import { Spinner } from '../../components/ui/Spinner'
 import { Monitor, Mail, Lock, AlertCircle } from 'lucide-react'
@@ -46,8 +47,14 @@ export function LoginPage() {
     try {
       await login(data.email, data.password)
       navigate('/', { replace: true })
-    } catch {
-      setError('Email ou mot de passe incorrect')
+    } catch (err) {
+      // Compte verrouillé (423) : affiche le message serveur (durée restante) plutôt
+      // que le générique — l'utilisateur saurait sinon jamais pourquoi ça échoue.
+      if (isAxiosError(err) && err.response?.status === 423) {
+        setError(err.response.data?.error?.message ?? 'Compte temporairement verrouillé. Réessayez plus tard.')
+      } else {
+        setError('Email ou mot de passe incorrect')
+      }
     }
   }
 
