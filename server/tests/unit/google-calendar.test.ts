@@ -243,14 +243,18 @@ describe('google-calendar service — tests unitaires', () => {
 
     it('c3) événement inconnu → RDV CRM créé avec sourceGoogle=true et user participant', async () => {
       const newGoogleEventId = 'g-event-brand-new'
+      // Dates relatives (demain) : l'import ignore les événements plus vieux que
+      // MAX_AGE_MS — une date codée en dur finirait par sortir de la fenêtre.
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
+      const tomorrowPlus1h = new Date(tomorrow.getTime() + 60 * 60 * 1000)
       const newEvent = {
         id:      newGoogleEventId,
         etag:    'etag-new-import',
         status:  'confirmed',
         summary: 'Réunion importée depuis Google',
         updated: new Date().toISOString(),
-        start:   { dateTime: new Date('2025-08-01T14:00:00Z').toISOString() },
-        end:     { dateTime: new Date('2025-08-01T15:00:00Z').toISOString() },
+        start:   { dateTime: tomorrow.toISOString() },
+        end:     { dateTime: tomorrowPlus1h.toISOString() },
         extendedProperties: { private: {} },
       }
 
