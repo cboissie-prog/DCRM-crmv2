@@ -289,13 +289,14 @@ describe('Enregistrements de file d\'attente', () => {
   it('télécharge l\'enregistrement et le rattache à la fiche de l\'appel', async () => {
     await prisma.call.deleteMany({ where: { externalId: { startsWith: 'ovh:' } } })
     const t0 = new Date(Date.now() - 6 * 60 * 1000).toISOString()
-    const audio = new TextEncoder().encode('RIFF-fake-wav')
+    // ≥128 octets et ne commence ni par '{' ni par '<' (garde-fou anti page d'erreur)
+    const audio = new TextEncoder().encode('RIFF' + 'x'.repeat(300))
 
     vi.stubGlobal('fetch', vi.fn(async (url: unknown) => {
       const u = String(url)
       const json = (d: unknown) => ({ ok: true, text: async () => JSON.stringify(d), json: async () => d })
       if (u.endsWith('/auth/time')) return { ok: true, text: async () => String(Math.floor(Date.now() / 1000)), json: async () => 0 }
-      if (u === 'https://rec.test/77.wav') return { ok: true, arrayBuffer: async () => audio.buffer }
+      if (u === 'https://rec.test/77.wav') return { ok: true, headers: { get: () => 'audio/wav' }, arrayBuffer: async () => audio.buffer }
       if (u.endsWith('/1.0/telephony')) return json([BA])
       if (u.includes('/voiceConsumption?')) return json([3001])
       if (u.includes('/voiceConsumption/')) return json({ creationDatetime: t0, calling: CALLER, called: LINE, duration: 30, wayType: 'incoming' })

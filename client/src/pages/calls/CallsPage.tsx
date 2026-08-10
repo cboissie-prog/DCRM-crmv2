@@ -758,13 +758,42 @@ function NotesEditor({ call, onUpdated }: { call: Call; onUpdated: () => void })
 
 // ─── Recording panel ──────────────────────────────────────────────────────────
 
+const AUDIO_EXT_BY_MIME: Record<string, string> = {
+  'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav',
+  'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/webm': 'webm',
+}
+
 function RecordingPanel({ call, onUploaded }: { call: Call; onUploaded: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [blobExt, setBlobExt] = useState('mp3')
+  const [loadError, setLoadError] = useState(false)
   const hasRecording = !!(call.recordingPath || call.recordingUrl)
-  const streamUrl = call.recordingPath
-    ? `${import.meta.env.VITE_API_URL ?? ''}/api/calls/${call.id}/recording/stream`
-    : call.recordingUrl ?? undefined
+
+  // Le flux audio est protégé par l'API (Bearer token) : une balise <audio src>
+  // directe partirait SANS le token → 401 JSON (lecteur à 0 s, téléchargement
+  // "stream.json"). On récupère donc le fichier via axios (intercepteur auth)
+  // et on le sert au lecteur via une URL de blob locale.
+  useEffect(() => {
+    let objectUrl: string | null = null
+    setBlobUrl(null)
+    setLoadError(false)
+    if (!call.recordingPath) return
+    api.get(`/calls/${call.id}/recording/stream`, { responseType: 'blob' })
+      .then(res => {
+        const blob = res.data as Blob
+        setBlobExt(AUDIO_EXT_BY_MIME[blob.type] ?? 'mp3')
+        objectUrl = URL.createObjectURL(blob)
+        setBlobUrl(objectUrl)
+      })
+      .catch(() => setLoadError(true))
+    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [call.id, call.recordingPath])
+
+  // Fichier local → blob authentifié ; URL externe (webhook) → lecture directe
+  const streamUrl = call.recordingPath ? blobUrl : (call.recordingUrl ?? undefined)
+  const isLoading = !!call.recordingPath && !blobUrl && !loadError
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -787,11 +816,22 @@ function RecordingPanel({ call, onUploaded }: { call: Call; onUploaded: () => vo
   return (
     <div className="card card-body space-y-4">
       <h3 className="text-sm font-semibold text-slate-700">Enregistrement audio</h3>
-      {hasRecording && streamUrl ? (
+      {hasRecording && isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-slate-500 py-4">
+          <Spinner className="w-4 h-4" /> Chargement de l'enregistrement…
+        </div>
+      ) : hasRecording && loadError ? (
+        <div className="space-y-3">
+          <p className="text-sm text-red-600">Impossible de charger l'enregistrement (fichier absent ou accès refusé).</p>
+          <button className="btn-secondary btn-sm flex items-center gap-1.5" onClick={() => fileRef.current?.click()}>
+            <Upload className="w-3.5 h-3.5" /> Remplacer le fichier
+          </button>
+        </div>
+      ) : hasRecording && streamUrl ? (
         <div className="space-y-3">
           <audio controls className="w-full" src={streamUrl} />
           <div className="flex gap-2">
-            <a href={streamUrl} download className="btn-secondary btn-sm flex items-center gap-1.5">
+            <a href={streamUrl} download={`appel-${call.id}.${blobExt}`} className="btn-secondary btn-sm flex items-center gap-1.5">
               <Download className="w-3.5 h-3.5" /> Télécharger
             </a>
             <button className="btn-secondary btn-sm flex items-center gap-1.5" onClick={() => fileRef.current?.click()}>

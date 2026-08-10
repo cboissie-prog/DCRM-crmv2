@@ -210,9 +210,17 @@ async function importQueueRecordings(billingAccounts: string[], since: Date): Pr
 
             const dl = await fetch(rec.fileUrl)
             if (!dl.ok) throw new Error(`téléchargement de l'enregistrement : HTTP ${dl.status}`)
+            const contentType = (dl.headers.get('content-type') ?? '').toLowerCase()
             const buf = Buffer.from(await dl.arrayBuffer())
+            // Garde-fou : une page d'erreur (JSON/HTML) renvoyée en 200 ne doit pas
+            // être enregistrée comme fichier audio (lecteur cassé silencieusement)
+            const firstChar = buf.subarray(0, 1).toString()
+            if (buf.length < 128 || firstChar === '{' || firstChar === '<' || contentType.includes('json') || contentType.includes('html')) {
+              throw new Error(`le contenu téléchargé n'est pas de l'audio (content-type: ${contentType || 'inconnu'}, ${buf.length} octets)`)
+            }
             if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
-            const ext = (rec.fileUrl.split('?')[0].match(/\.(wav|mp3|ogg|m4a)$/i)?.[0] ?? '.wav').toLowerCase()
+            const extByMime: Record<string, string> = { 'audio/mpeg': '.mp3', 'audio/mp3': '.mp3', 'audio/wav': '.wav', 'audio/x-wav': '.wav', 'audio/ogg': '.ogg', 'audio/mp4': '.m4a' }
+            const ext = (rec.fileUrl.split('?')[0].match(/\.(wav|mp3|ogg|m4a)$/i)?.[0] ?? extByMime[contentType.split(';')[0]] ?? '.wav').toLowerCase()
             const filePath = path.join(uploadsDir, `ovh-${recordId}${ext}`)
             fs.writeFileSync(filePath, buf)
 
