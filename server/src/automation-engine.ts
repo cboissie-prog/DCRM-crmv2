@@ -283,10 +283,14 @@ export async function runOverdueTickets(): Promise<number> {
     const hoursOpen = conditions.hoursOpen ?? 24
     const threshold = new Date(Date.now() - hoursOpen * 60 * 60 * 1000)
 
+    // Un ticket est « en retard » s'il stagne depuis hoursOpen OU si son échéance SLA est dépassée
     const tickets = await prisma.ticket.findMany({
       where: {
         status: { in: ['NEW', 'IN_PROGRESS', 'WAITING_CLIENT'] },
-        updatedAt: { lt: threshold },
+        OR: [
+          { updatedAt: { lt: threshold } },
+          { slaDeadline: { lt: new Date() } },
+        ],
       },
       take: 50,
     })

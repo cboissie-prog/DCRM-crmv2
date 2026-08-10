@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useLocation, useSearchParams } from 'react-router-dom'
 import api from '../../lib/api'
 import { useUsersList } from '../../hooks/useApi'
+import { usePermissions } from '../../hooks/usePermission'
 import {
   formatDate, formatDateTime, formatRelative,
   TICKET_STATUSES, TICKET_PRIORITIES, TICKET_CATEGORIES,
@@ -12,9 +13,11 @@ import { Avatar } from '../../components/ui/Avatar'
 import { PageSpinner, Spinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
+import { SearchSelect } from '../../components/ui/SearchSelect'
 import {
   Plus, Search, ArrowLeft, Clock, MessageSquare,
   ChevronDown, Send, Lock, Unlock, Trash2, Edit2, Timer, Download, X, CalendarPlus, Wrench,
+  List, LayoutGrid, ArrowUp, ArrowDown, ArrowUpDown, Paperclip, Upload, History, Star, PlusCircle,
 } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import { downloadCsv } from '../../lib/exportCsv'
@@ -22,7 +25,7 @@ import { useForm, useWatch, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useAuthStore } from '../../store/authStore'
-import type { Ticket, TicketComment, PaginatedResponse } from '../../types'
+import type { Ticket, TicketDetail, TicketEvent, TicketAttachment, PaginatedResponse } from '../../types'
 
 // ─── Schémas ────────────────────────────────────────────────────────────────
 
@@ -33,8 +36,6 @@ const ticketSchema = z.object({
   priority: z.string().min(1, 'Priorité requise'),
   contactId: z.string().optional(),
   companyId: z.string().optional(),
-  contractId: z.string().optional(),
-  equipmentId: z.string().optional(),
   assignedToId: z.string().optional(),
 })
 type TicketForm = z.infer<typeof ticketSchema>
@@ -51,6 +52,12 @@ const interventionSchema = z.object({
 })
 type InterventionForm = z.infer<typeof interventionSchema>
 
+const timeEntrySchema = z.object({
+  minutes: z.number({ error: 'Durée requise' }).int().min(1, 'Minimum 1 minute').max(1440, 'Maximum 24h'),
+  note: z.string().max(500).optional(),
+})
+type TimeEntryForm = z.infer<typeof timeEntrySchema>
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function formatTime(minutes: number): string {
@@ -60,26 +67,51 @@ function formatTime(minutes: number): string {
   return m > 0 ? `${h}h ${m}min` : `${h}h`
 }
 
-/** Indicateur SLA selon l'âge du ticket */
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} o`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} Ko`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`
+}
+
+/** Libellé français d'un évènement d'historique */
+function eventLabel(e: TicketEvent): string {
+  const s = (k?: string) => (k ? TICKET_STATUSES[k]?.label ?? k : '')
+  const p = (k?: string) => (k ? TICKET_PRIORITIES[k]?.label ?? k : '')
+  switch (e.type) {
+    case 'CREATED': return 'Ticket créé'
+    case 'STATUS_CHANGED': return `Statut : ${s(e.fromValue)} → ${s(e.toValue)}`
+    case 'REOPENED': return `Ticket réouvert (${s(e.fromValue)} → ${s(e.toValue)})`
+    case 'PRIORITY_CHANGED': return `Priorité : ${p(e.fromValue)} → ${p(e.toValue)}`
+    case 'ASSIGNED': return `Assigné à ${e.toValue ?? '?'}`
+    case 'UNASSIGNED': return 'Assignation retirée'
+    case 'TIME_ADDED': return `Temps ajouté : ${formatTime(parseInt(e.toValue ?? '0', 10) || 0)}`
+    case 'ATTACHMENT_ADDED': return `Pièce jointe ajoutée : ${e.toValue ?? ''}`
+    case 'NPS_RECEIVED': return `Avis client reçu : ${e.toValue}/10`
+    default: return e.type
+  }
+}
+
+/** Indicateur SLA : basé sur l'échéance calculée à la création (fallback : âge du ticket) */
 function SlaIndicator({ createdAt, slaDeadline }: { createdAt: string; slaDeadline?: string | null }) {
   // Heure courante lue au render pour un indicateur d'affichage (impureté bénigne, non réactive)
   // eslint-disable-next-line react-hooks/purity
   const now = Date.now()
 
-  // Si un SLA deadline est défini, l'utiliser
   if (slaDeadline) {
     const deadline = new Date(slaDeadline).getTime()
     const remaining = deadline - now
-    if (remaining > 24 * 60 * 60 * 1000) {
-      return <span title="SLA respecté" className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+    if (remaining <= 0) {
+      return <span title="SLA dépassé" className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
     }
-    if (remaining > 0) {
+    // Orange quand il reste moins de 25 % du délai (ou moins d'une heure)
+    const total = deadline - new Date(createdAt).getTime()
+    if (remaining < Math.max(total * 0.25, 60 * 60 * 1000)) {
       return <span title="SLA bientôt dépassé" className="inline-block w-2.5 h-2.5 rounded-full bg-orange-400 shrink-0" />
     }
-    return <span title="SLA dépassé" className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
+    return <span title="SLA respecté" className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
   }
 
-  // Sinon, basé sur l'âge depuis la création
+  // Anciens tickets sans échéance : basé sur l'âge depuis la création
   const age = now - new Date(createdAt).getTime()
   const h24 = 24 * 60 * 60 * 1000
   if (age < h24) {
@@ -89,6 +121,30 @@ function SlaIndicator({ createdAt, slaDeadline }: { createdAt: string; slaDeadli
     return <span title="24h – 48h" className="inline-block w-2.5 h-2.5 rounded-full bg-orange-400 shrink-0" />
   }
   return <span title="Plus de 48h" className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
+}
+
+/** Temps restant avant l'échéance SLA (affichage détail) */
+function slaRemainingLabel(slaDeadline: string): { label: string; className: string } {
+  const remaining = new Date(slaDeadline).getTime() - Date.now()
+  if (remaining <= 0) {
+    const overdue = Math.abs(remaining)
+    return { label: `Dépassé de ${formatTime(Math.max(1, Math.round(overdue / 60000)))}`, className: 'text-red-600' }
+  }
+  return { label: `Reste ${formatTime(Math.max(1, Math.round(remaining / 60000)))}`, className: remaining < 60 * 60 * 1000 ? 'text-orange-500' : 'text-emerald-600' }
+}
+
+// Recherches distantes pour les SearchSelect
+async function searchContacts(q: string) {
+  const { data } = await api.get('/contacts', { params: { search: q || undefined, limit: 20 } })
+  return (data.data as { id: string; firstName: string; lastName: string }[]).map(c => ({
+    id: c.id, label: `${c.firstName} ${c.lastName}`,
+  }))
+}
+async function searchCompanies(q: string) {
+  const { data } = await api.get('/companies', { params: { search: q || undefined, limit: 20 } })
+  return (data.data as { id: string; name: string; city?: string }[]).map(c => ({
+    id: c.id, label: c.name, sublabel: c.city,
+  }))
 }
 
 // ─── Page liste ─────────────────────────────────────────────────────────────
@@ -104,13 +160,31 @@ export function TicketsPage() {
   return <TicketsListView />
 }
 
+type SortState = { by: string; order: 'asc' | 'desc' } | null
+
+function SortableTh({ label, col, sort, onSort }: { label: string; col: string; sort: SortState; onSort: (col: string) => void }) {
+  const active = sort?.by === col
+  return (
+    <th className="cursor-pointer select-none" onClick={() => onSort(col)} title="Trier">
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {active
+          ? (sort!.order === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)
+          : <ArrowUpDown className="w-3 h-3 opacity-30" />}
+      </span>
+    </th>
+  )
+}
+
 export function TicketsListView() {
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const { user } = useAuthStore()
   const [searchParams] = useSearchParams()
+  const perms = usePermissions(['tickets:export', 'tickets:delete', 'tickets:assign', 'tickets:update'])
 
-  const [search, setSearch] = useState(searchParams.get('search') ?? '')
+  const [searchInput, setSearchInput] = useState(searchParams.get('search') ?? '')
+  const [search, setSearch] = useState(searchInput)
+
   // Multi-statut : tableau de clés
   const initialStatuses = searchParams.getAll('status')
   const [statusFilters, setStatusFilters] = useState<string[]>(initialStatuses)
@@ -122,6 +196,30 @@ export function TicketsListView() {
   const [assignedFilter, setAssignedFilter] = useState(searchParams.get('assignedToId') ?? '')
   const [page, setPage] = useState(1)
   const [showCreate, setShowCreate] = useState(false)
+  const [sort, setSort] = useState<SortState>(null)
+
+  // Recherche debouncée : une requête serveur au plus toutes les 300 ms
+  useEffect(() => {
+    const t = setTimeout(() => { setSearch(searchInput); setPage(1) }, 300)
+    return () => clearTimeout(t)
+  }, [searchInput])
+
+  // Vue liste ou cartes (persistée)
+  const [viewMode, setViewMode] = useState<'list' | 'cards'>(() =>
+    localStorage.getItem('tickets-view-mode') === 'cards' ? 'cards' : 'list')
+  const changeView = (m: 'list' | 'cards') => {
+    setViewMode(m)
+    localStorage.setItem('tickets-view-mode', m)
+  }
+
+  const toggleSort = (col: string) => {
+    setSort(prev => {
+      if (prev?.by !== col) return { by: col, order: col === 'createdAt' || col === 'priority' ? 'desc' : 'asc' }
+      if (prev.order === 'desc') return { by: col, order: 'asc' }
+      return null // 3e clic : retour au tri par défaut (priorité + date)
+    })
+    setPage(1)
+  }
 
   // IDs des tickets avec un timer actif dans localStorage
   const readActiveTimers = () => {
@@ -160,13 +258,15 @@ export function TicketsListView() {
   }
 
   const { data, isLoading } = useQuery<PaginatedResponse<Ticket>>({
-    queryKey: ['tickets', { search, statusFilters, priorityFilter, categoryFilter, assignedFilter, page }],
+    queryKey: ['tickets', { search, statusFilters, priorityFilter, categoryFilter, assignedFilter, page, sort }],
     queryFn: async () => {
       const params: Record<string, unknown> = {
         search: search || undefined,
         priority: priorityFilter || undefined,
         category: categoryFilter || undefined,
         assignedToId: assignedFilter || undefined,
+        sortBy: sort?.by,
+        sortOrder: sort?.order,
         page,
         limit: 25,
       }
@@ -195,7 +295,7 @@ export function TicketsListView() {
     staleTime: 30_000,
   })
 
-  const { data: usersData } = useUsersList()
+  const { data: usersData } = useUsersList({ enabled: perms['tickets:assign'] })
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/tickets/${id}`),
@@ -208,8 +308,6 @@ export function TicketsListView() {
     if (window.confirm('Supprimer ce ticket ?')) deleteMutation.mutate(id)
   }
 
-  const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER'
-
   const hasFilters = search || statusFilters.length > 0 || priorityFilter || categoryFilter || assignedFilter
 
   const statusLabel = statusFilters.length === 0
@@ -217,6 +315,14 @@ export function TicketsListView() {
     : statusFilters.length === 1
       ? TICKET_STATUSES[statusFilters[0]]?.label ?? statusFilters[0]
       : `${statusFilters.length} statuts`
+
+  const handleExport = () => downloadCsv('/tickets/export/csv', {
+    search: search || undefined,
+    status: statusFilters.length > 0 ? statusFilters : undefined,
+    priority: priorityFilter || undefined,
+    category: categoryFilter || undefined,
+    assignedToId: assignedFilter || undefined,
+  }, `tickets-${new Date().toISOString().slice(0, 10)}.csv`)
 
   return (
     <div className="space-y-5 fade-in">
@@ -229,13 +335,28 @@ export function TicketsListView() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            className="btn-secondary flex items-center gap-1.5"
-            onClick={() => downloadCsv('/tickets/export/csv', { status: statusFilters[0] || undefined, priority: priorityFilter || undefined, category: categoryFilter || undefined }, `tickets-${new Date().toISOString().slice(0,10)}.csv`)}
-            title="Exporter en CSV"
-          >
-            <Download className="w-4 h-4" /> CSV
-          </button>
+          {/* Bascule liste / cartes */}
+          <div className="flex items-center bg-white border border-slate-200 rounded-lg p-0.5">
+            <button
+              className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+              onClick={() => changeView('list')}
+              title="Vue liste"
+            >
+              <List className="w-4 h-4" />
+            </button>
+            <button
+              className={`p-1.5 rounded-md transition-colors ${viewMode === 'cards' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+              onClick={() => changeView('cards')}
+              title="Vue cartes"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+          </div>
+          {perms['tickets:export'] && (
+            <button className="btn-secondary flex items-center gap-1.5" onClick={handleExport} title="Exporter en CSV (filtres actifs)">
+              <Download className="w-4 h-4" /> CSV
+            </button>
+          )}
           <button className="btn-primary" onClick={() => setShowCreate(true)}>
             <Plus className="w-4 h-4" /> Nouveau ticket
           </button>
@@ -249,8 +370,8 @@ export function TicketsListView() {
           <input
             className="input pl-9"
             placeholder="Rechercher..."
-            value={search}
-            onChange={e => { setSearch(e.target.value); setPage(1) }}
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value)}
           />
         </div>
 
@@ -299,7 +420,7 @@ export function TicketsListView() {
           <option value="">Toutes catégories</option>
           {Object.entries(TICKET_CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-        {canManage && usersData && (
+        {perms['tickets:assign'] && usersData && (
           <select className="input w-auto" value={assignedFilter} onChange={e => { setAssignedFilter(e.target.value); setPage(1) }}>
             <option value="">Tous les techniciens</option>
             {usersData.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
@@ -308,29 +429,43 @@ export function TicketsListView() {
         {hasFilters && (
           <button
             className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white hover:bg-slate-50 transition-colors"
-            onClick={() => { setSearch(''); setStatusFilters([]); setPriorityFilter(''); setCategoryFilter(''); setAssignedFilter(''); setPage(1) }}
+            onClick={() => { setSearchInput(''); setSearch(''); setStatusFilters([]); setPriorityFilter(''); setCategoryFilter(''); setAssignedFilter(''); setPage(1) }}
           >
             <X className="w-3 h-3" /> Réinitialiser
           </button>
         )}
       </div>
 
-      {/* Table */}
-      {isLoading ? <PageSpinner /> : (
+      {/* Contenu : table ou cartes */}
+      {isLoading ? <PageSpinner /> : viewMode === 'cards' ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+          {data?.data.length === 0 ? (
+            <div className="col-span-full text-center py-12 text-slate-400">Aucun ticket trouvé</div>
+          ) : data?.data.map(t => (
+            <TicketCard
+              key={t.id}
+              ticket={t}
+              timerActive={activeTimerIds.has(t.id)}
+              onClick={() => navigate(`/tickets/${t.id}`)}
+              onDelete={perms['tickets:delete'] ? (e) => handleDelete(t.id, e) : undefined}
+            />
+          ))}
+        </div>
+      ) : (
         <div className="table-container">
           <table>
             <thead>
               <tr>
                 {/* Statut en première position */}
-                <th>Statut</th>
-                <th>Référence</th>
+                <SortableTh label="Statut" col="status" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Référence" col="reference" sort={sort} onSort={toggleSort} />
                 <th>Titre</th>
                 <th>Entreprise / Contact</th>
-                <th>Priorité</th>
+                <SortableTh label="Priorité" col="priority" sort={sort} onSort={toggleSort} />
                 <th>SLA</th>
-                <th>Temps</th>
+                <SortableTh label="Temps" col="timeSpent" sort={sort} onSort={toggleSort} />
                 <th>Technicien</th>
-                <th>Créé le</th>
+                <SortableTh label="Créé le" col="createdAt" sort={sort} onSort={toggleSort} />
                 <th></th>
               </tr>
             </thead>
@@ -406,7 +541,7 @@ export function TicketsListView() {
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
-                      {canManage && (
+                      {perms['tickets:delete'] && (
                         <button
                           className="btn-ghost btn-sm p-1.5 rounded-lg text-red-400 hover:text-red-600"
                           onClick={e => handleDelete(t.id, e)}
@@ -445,6 +580,81 @@ export function TicketsListView() {
   )
 }
 
+// ─── Carte ticket (vue cartes) ───────────────────────────────────────────────
+
+function TicketCard({ ticket: t, timerActive, onClick, onDelete }: {
+  ticket: Ticket
+  timerActive: boolean
+  onClick: () => void
+  onDelete?: (e: React.MouseEvent) => void
+}) {
+  return (
+    <div
+      className="card card-body cursor-pointer hover:shadow-md transition-shadow space-y-3 relative group"
+      onClick={onClick}
+    >
+      <div className="flex items-center gap-2 flex-wrap">
+        <Badge variant={TICKET_STATUSES[t.status]?.color || 'badge-gray'}>
+          {TICKET_STATUSES[t.status]?.label || t.status}
+        </Badge>
+        <Badge variant={TICKET_PRIORITIES[t.priority]?.color || 'badge-gray'}>
+          {TICKET_PRIORITIES[t.priority]?.label || t.priority}
+        </Badge>
+        {t.status !== 'RESOLVED' && t.status !== 'CLOSED' && (
+          <SlaIndicator createdAt={t.createdAt} slaDeadline={t.slaDeadline} />
+        )}
+        <span className="font-mono text-[11px] text-slate-400 ml-auto">{t.reference}</span>
+      </div>
+
+      <div>
+        <p className="font-medium text-slate-900 line-clamp-2">{t.title}</p>
+        <p className="text-xs text-slate-400 mt-0.5">{TICKET_CATEGORIES[t.category] || t.category}</p>
+      </div>
+
+      {(t.company || t.contact) && (
+        <div className="text-sm">
+          {t.company && <p className="text-slate-700">{t.company.name}</p>}
+          {t.contact && <p className="text-xs text-slate-400">{t.contact.firstName} {t.contact.lastName}</p>}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs text-slate-400">
+        <div className="flex items-center gap-3">
+          {t.assignedTo ? (
+            <span className="flex items-center gap-1.5">
+              <Avatar firstName={t.assignedTo.firstName} lastName={t.assignedTo.lastName} size="sm" />
+              <span className="text-slate-600">{t.assignedTo.firstName}</span>
+            </span>
+          ) : <span className="text-slate-300">Non assigné</span>}
+          {timerActive ? (
+            <span className="flex items-center gap-1 text-amber-600">
+              <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              {t.timeSpent > 0 ? formatTime(t.timeSpent) : 'En cours'}
+            </span>
+          ) : t.timeSpent > 0 && (
+            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{formatTime(t.timeSpent)}</span>
+          )}
+          {(t._count?.comments ?? 0) > 0 && (
+            <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3" />{t._count?.comments}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <span>{formatDate(t.createdAt)}</span>
+          {onDelete && (
+            <button
+              className="btn-ghost btn-sm p-1 rounded-lg text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={onDelete}
+              title="Supprimer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Page détail ─────────────────────────────────────────────────────────────
 
 export function TicketDetailPage() {
@@ -452,6 +662,7 @@ export function TicketDetailPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { user } = useAuthStore()
+  const perms = usePermissions(['tickets:update', 'tickets:delete', 'tickets:assign'])
 
   const [showEdit, setShowEdit] = useState(false)
   const [showStatusMenu, setShowStatusMenu] = useState(false)
@@ -459,12 +670,18 @@ export function TicketDetailPage() {
   const [timerSeconds, setTimerSeconds] = useState(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [showIntervention, setShowIntervention] = useState(false)
+  const [showTimeEntry, setShowTimeEntry] = useState(false)
 
   const { data: ticket, isLoading } = useQuery({
     queryKey: ['ticket', id],
-    queryFn: async () => { const { data } = await api.get(`/tickets/${id}`); return data.data as Ticket & { comments: TicketComment[] } },
+    queryFn: async () => { const { data } = await api.get(`/tickets/${id}`); return data.data as TicketDetail },
     enabled: !!id,
   })
+
+  const invalidateTicket = () => {
+    qc.invalidateQueries({ queryKey: ['ticket', id] })
+    qc.invalidateQueries({ queryKey: ['tickets'] })
+  }
 
   // Restaurer le timer depuis localStorage au chargement
   useEffect(() => {
@@ -473,7 +690,6 @@ export function TicketDetailPage() {
     if (saved) {
       const elapsed = Math.floor((Date.now() - parseInt(saved)) / 1000)
       // Restauration ponctuelle de l'état timer depuis localStorage au montage
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTimerSeconds(elapsed)
       setTimerRunning(true)
     }
@@ -491,13 +707,13 @@ export function TicketDetailPage() {
 
   const statusMutation = useMutation({
     mutationFn: (status: string) => api.patch(`/tickets/${id}/status`, { status }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ticket', id] }); qc.invalidateQueries({ queryKey: ['tickets'] }); setShowStatusMenu(false); toast.success('Statut mis à jour') },
+    onSuccess: () => { invalidateTicket(); setShowStatusMenu(false); toast.success('Statut mis à jour') },
     onError: () => toast.error('Erreur lors de la mise à jour'),
   })
 
   const timeMutation = useMutation({
-    mutationFn: (minutes: number) => api.patch(`/tickets/${id}/time`, { minutes }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ticket', id] }); toast.success('Temps enregistré') },
+    mutationFn: (payload: { minutes: number; note?: string }) => api.patch(`/tickets/${id}/time`, payload),
+    onSuccess: () => { invalidateTicket(); toast.success('Temps enregistré') },
     onError: () => toast.error('Erreur lors de l\'enregistrement du temps'),
   })
 
@@ -517,7 +733,7 @@ export function TicketDetailPage() {
     localStorage.removeItem(`ticket-timer-${id}`)
     const minutes = Math.round(timerSeconds / 60)
     if (minutes > 0) {
-      timeMutation.mutate(minutes)
+      timeMutation.mutate({ minutes, note: 'Chronomètre' })
     }
     setTimerSeconds(0)
   }
@@ -534,12 +750,15 @@ export function TicketDetailPage() {
     onError: () => toast.error('Erreur lors de l\'ajout du commentaire'),
   })
 
-  const canManage = user?.role === 'ADMIN' || user?.role === 'MANAGER'
-
   if (isLoading) return <PageSpinner />
   if (!ticket) return <div className="p-8 text-center text-slate-500">Ticket introuvable</div>
 
   const timerDisplay = `${String(Math.floor(timerSeconds / 3600)).padStart(2, '0')}:${String(Math.floor((timerSeconds % 3600) / 60)).padStart(2, '0')}:${String(timerSeconds % 60).padStart(2, '0')}`
+  const isOpen = ticket.status !== 'RESOLVED' && ticket.status !== 'CLOSED'
+  // Heure courante lue au render pour des libellés d'affichage (impureté bénigne, non réactive)
+  // eslint-disable-next-line react-hooks/purity
+  const nowTs = Date.now()
+  const sla = ticket.slaDeadline && isOpen ? slaRemainingLabel(ticket.slaDeadline) : null
 
   return (
     <div className="space-y-5 fade-in">
@@ -558,62 +777,66 @@ export function TicketDetailPage() {
           <h1 className="page-title">{ticket.title}</h1>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          {/* Chronomètre */}
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-            <Timer className="w-4 h-4 text-slate-400" />
-            <span className="font-mono text-sm text-slate-700">{timerDisplay}</span>
-            {!timerRunning ? (
-              <button
-                className="btn-primary btn-sm text-xs px-2 py-1"
-                onClick={handleStartTimer}
-              >
-                Démarrer
-              </button>
-            ) : (
-              <button
-                className="btn-sm bg-red-50 text-red-600 border border-red-200 rounded-lg text-xs px-2 py-1 hover:bg-red-100"
-                onClick={handleStopTimer}
-              >
-                Arrêter
-              </button>
-            )}
-          </div>
-          {/* Planifier intervention */}
-          <button
-            className="btn-secondary flex items-center gap-2"
-            onClick={() => setShowIntervention(true)}
-          >
-            <CalendarPlus className="w-4 h-4" /> Planifier intervention
-          </button>
-          {/* Changer statut */}
-          <div className="relative">
-            <button
-              className="btn-secondary flex items-center gap-2"
-              onClick={() => setShowStatusMenu(s => !s)}
-            >
-              <Badge variant={TICKET_STATUSES[ticket.status]?.color || 'badge-gray'}>
-                {TICKET_STATUSES[ticket.status]?.label || ticket.status}
-              </Badge>
-              <ChevronDown className="w-4 h-4" />
-            </button>
-            {showStatusMenu && (
-              <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-slate-100 py-1 z-10 min-w-48">
-                {Object.entries(TICKET_STATUSES).map(([k, v]) => (
+          {perms['tickets:update'] && (
+            <>
+              {/* Chronomètre */}
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+                <Timer className="w-4 h-4 text-slate-400" />
+                <span className="font-mono text-sm text-slate-700">{timerDisplay}</span>
+                {!timerRunning ? (
                   <button
-                    key={k}
-                    className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center gap-2"
-                    onClick={() => statusMutation.mutate(k)}
+                    className="btn-primary btn-sm text-xs px-2 py-1"
+                    onClick={handleStartTimer}
                   >
-                    <Badge variant={v.color}>{v.label}</Badge>
+                    Démarrer
                   </button>
-                ))}
+                ) : (
+                  <button
+                    className="btn-sm bg-red-50 text-red-600 border border-red-200 rounded-lg text-xs px-2 py-1 hover:bg-red-100"
+                    onClick={handleStopTimer}
+                  >
+                    Arrêter
+                  </button>
+                )}
               </div>
-            )}
-          </div>
-          <button className="btn-secondary" onClick={() => setShowEdit(true)}>
-            <Edit2 className="w-4 h-4" /> Modifier
-          </button>
-          {canManage && (
+              {/* Planifier intervention */}
+              <button
+                className="btn-secondary flex items-center gap-2"
+                onClick={() => setShowIntervention(true)}
+              >
+                <CalendarPlus className="w-4 h-4" /> Planifier intervention
+              </button>
+              {/* Changer statut */}
+              <div className="relative">
+                <button
+                  className="btn-secondary flex items-center gap-2"
+                  onClick={() => setShowStatusMenu(s => !s)}
+                >
+                  <Badge variant={TICKET_STATUSES[ticket.status]?.color || 'badge-gray'}>
+                    {TICKET_STATUSES[ticket.status]?.label || ticket.status}
+                  </Badge>
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+                {showStatusMenu && (
+                  <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-slate-100 py-1 z-10 min-w-48">
+                    {Object.entries(TICKET_STATUSES).map(([k, v]) => (
+                      <button
+                        key={k}
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center gap-2"
+                        onClick={() => statusMutation.mutate(k)}
+                      >
+                        <Badge variant={v.color}>{v.label}</Badge>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button className="btn-secondary" onClick={() => setShowEdit(true)}>
+                <Edit2 className="w-4 h-4" /> Modifier
+              </button>
+            </>
+          )}
+          {perms['tickets:delete'] && (
             <button
               className="btn-ghost text-red-400 hover:text-red-600 p-2 rounded-lg"
               onClick={() => { if (window.confirm('Supprimer ce ticket ?')) deleteMutation.mutate() }}
@@ -671,29 +894,105 @@ export function TicketDetailPage() {
                 </div>
               )}
               {ticket.slaDeadline && (
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="text-slate-500">SLA</span>
-                  <span className="text-slate-800 font-medium">{formatDateTime(ticket.slaDeadline)}</span>
+                  <div className="text-right">
+                    <span className="text-slate-800 font-medium block">{formatDateTime(ticket.slaDeadline)}</span>
+                    {sla && <span className={`text-xs font-medium ${sla.className}`}>{sla.label}</span>}
+                  </div>
                 </div>
               )}
-              <div className="flex justify-between">
-                <span className="text-slate-500">Temps passé</span>
-                <div className="flex items-center gap-1 text-slate-800 font-medium">
-                  <Clock className="w-3.5 h-3.5 text-slate-400" />
-                  {formatTime(ticket.timeSpent)}
-                </div>
-              </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Créé le</span>
                 <span className="text-slate-800">{formatDate(ticket.createdAt)}</span>
               </div>
+              {ticket.createdBy && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Créé par</span>
+                  <span className="text-slate-800">{ticket.createdBy.firstName} {ticket.createdBy.lastName}</span>
+                </div>
+              )}
               {ticket.resolvedAt && (
                 <div className="flex justify-between">
                   <span className="text-slate-500">Résolu le</span>
                   <span className="text-slate-800">{formatDate(ticket.resolvedAt)}</span>
                 </div>
               )}
+              {ticket.npsResponse && (
+                <div className="flex justify-between items-center pt-2 border-t border-slate-100">
+                  <span className="text-slate-500 flex items-center gap-1"><Star className="w-3.5 h-3.5 text-amber-400" /> Avis client</span>
+                  <span className={`font-semibold ${ticket.npsResponse.score >= 9 ? 'text-emerald-600' : ticket.npsResponse.score >= 7 ? 'text-amber-500' : 'text-red-500'}`}>
+                    {ticket.npsResponse.score}/10
+                  </span>
+                </div>
+              )}
+              {ticket.npsResponse?.comment && (
+                <p className="text-xs text-slate-500 italic bg-slate-50 rounded-lg px-3 py-2">« {ticket.npsResponse.comment} »</p>
+              )}
             </div>
+          </div>
+
+          {/* Temps passé */}
+          <div className="card card-body">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-slate-400" /> Temps passé
+              </h3>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-slate-800">{formatTime(ticket.timeSpent)}</span>
+                {perms['tickets:update'] && (
+                  <button className="btn-ghost btn-sm p-1 rounded-lg text-indigo-500 hover:text-indigo-700" onClick={() => setShowTimeEntry(true)} title="Ajouter du temps">
+                    <PlusCircle className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+            {ticket.timeEntries.length === 0 ? (
+              <p className="text-xs text-slate-400">Aucune entrée de temps</p>
+            ) : (
+              <div className="space-y-2">
+                {ticket.timeEntries.map(e => (
+                  <div key={e.id} className="flex items-start justify-between gap-2 text-xs border-b border-slate-50 last:border-b-0 pb-2 last:pb-0">
+                    <div className="min-w-0">
+                      <span className="text-slate-700 font-medium">
+                        {e.user ? `${e.user.firstName} ${e.user.lastName}` : 'Inconnu'}
+                      </span>
+                      {e.note && <p className="text-slate-400 truncate">{e.note}</p>}
+                      <p className="text-slate-300">{formatRelative(e.createdAt)}</p>
+                    </div>
+                    <span className="text-slate-600 font-medium whitespace-nowrap">{formatTime(e.minutes)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Historique */}
+          <div className="card card-body">
+            <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-1.5">
+              <History className="w-4 h-4 text-slate-400" /> Historique
+            </h3>
+            {ticket.events.length === 0 ? (
+              <p className="text-xs text-slate-400">Aucun évènement</p>
+            ) : (
+              <div className="relative space-y-3">
+                {ticket.events.map(e => (
+                  <div key={e.id} className="flex gap-2.5 text-xs">
+                    <span className={`mt-1 inline-block w-2 h-2 rounded-full shrink-0 ${
+                      e.type === 'REOPENED' ? 'bg-orange-400'
+                      : e.type === 'NPS_RECEIVED' ? 'bg-amber-400'
+                      : e.type === 'CREATED' ? 'bg-indigo-400'
+                      : 'bg-slate-300'}`} />
+                    <div className="min-w-0">
+                      <p className="text-slate-700">{eventLabel(e)}</p>
+                      <p className="text-slate-400">
+                        {e.author ? `${e.author.firstName} ${e.author.lastName} · ` : ''}{formatRelative(e.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -713,21 +1012,55 @@ export function TicketDetailPage() {
             )}
           </div>
 
+          {/* Pièces jointes */}
+          <AttachmentsCard ticket={ticket} canEdit={perms['tickets:update']} onChanged={invalidateTicket} />
+
+          {/* Interventions liées */}
+          <div className="card">
+            <div className="card-header flex items-center justify-between">
+              <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+                <CalendarPlus className="w-4 h-4" />
+                Interventions
+                <span className="text-xs text-slate-400">({ticket.appointments.length})</span>
+              </h3>
+            </div>
+            {ticket.appointments.length === 0 ? (
+              <div className="py-6 text-center text-sm text-slate-400">Aucune intervention planifiée</div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {ticket.appointments.map(a => (
+                  <div key={a.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-800 truncate">{a.title}</p>
+                      <p className="text-xs text-slate-400">
+                        {formatDateTime(a.startAt)}
+                        {a.users && a.users.length > 0 && ` · ${a.users.map(u => `${u.user.firstName} ${u.user.lastName}`).join(', ')}`}
+                      </p>
+                    </div>
+                    <span className={`text-xs whitespace-nowrap ${new Date(a.startAt).getTime() > nowTs ? 'text-indigo-500' : 'text-slate-400'}`}>
+                      {new Date(a.startAt).getTime() > nowTs ? 'À venir' : 'Passée'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Commentaires */}
           <div className="card">
             <div className="card-header">
               <h3 className="font-semibold text-slate-800 flex items-center gap-2">
                 <MessageSquare className="w-4 h-4" />
                 Commentaires
-                {'_count' in ticket && <span className="text-xs text-slate-400">({(ticket as Ticket & { comments: TicketComment[] }).comments?.length ?? 0})</span>}
+                <span className="text-xs text-slate-400">({ticket.comments?.length ?? 0})</span>
               </h3>
             </div>
 
             {/* Liste commentaires */}
             <div className="divide-y divide-slate-100">
-              {(ticket as Ticket & { comments: TicketComment[] }).comments?.length === 0 ? (
+              {ticket.comments?.length === 0 ? (
                 <div className="py-8 text-center text-sm text-slate-400">Aucun commentaire</div>
-              ) : (ticket as Ticket & { comments: TicketComment[] }).comments?.map(c => (
+              ) : ticket.comments?.map(c => (
                 <div key={c.id} className={`px-4 py-3 ${c.isInternal ? 'bg-amber-50/60' : ''}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2">
@@ -746,29 +1079,31 @@ export function TicketDetailPage() {
             </div>
 
             {/* Ajouter commentaire */}
-            <div className="p-4 border-t border-slate-100">
-              <form onSubmit={handleComment((v: CommentForm) => addCommentMutation.mutate(v))} className="space-y-3">
-                <textarea
-                  {...regComment('content')}
-                  className="input resize-none"
-                  rows={3}
-                  placeholder="Ajouter un commentaire..."
-                />
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" {...regComment('isInternal')} className="rounded" />
-                    <span className="text-sm text-slate-600 flex items-center gap-1">
-                      {isInternalComment ? <Lock className="w-3.5 h-3.5 text-amber-500" /> : <Unlock className="w-3.5 h-3.5 text-slate-400" />}
-                      Commentaire interne
-                    </span>
-                  </label>
-                  <button type="submit" className="btn-primary btn-sm" disabled={submittingComment || addCommentMutation.isPending}>
-                    {(submittingComment || addCommentMutation.isPending) ? <Spinner className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
-                    Envoyer
-                  </button>
-                </div>
-              </form>
-            </div>
+            {perms['tickets:update'] && (
+              <div className="p-4 border-t border-slate-100">
+                <form onSubmit={handleComment((v: CommentForm) => addCommentMutation.mutate(v))} className="space-y-3">
+                  <textarea
+                    {...regComment('content')}
+                    className="input resize-none"
+                    rows={3}
+                    placeholder="Ajouter un commentaire..."
+                  />
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" {...regComment('isInternal')} className="rounded" />
+                      <span className="text-sm text-slate-600 flex items-center gap-1">
+                        {isInternalComment ? <Lock className="w-3.5 h-3.5 text-amber-500" /> : <Unlock className="w-3.5 h-3.5 text-slate-400" />}
+                        Commentaire interne
+                      </span>
+                    </label>
+                    <button type="submit" className="btn-primary btn-sm" disabled={submittingComment || addCommentMutation.isPending}>
+                      {(submittingComment || addCommentMutation.isPending) ? <Spinner className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
+                      Envoyer
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -778,7 +1113,7 @@ export function TicketDetailPage() {
         open={showEdit}
         onClose={() => setShowEdit(false)}
         ticket={ticket}
-        onSuccess={() => { qc.invalidateQueries({ queryKey: ['ticket', id] }); qc.invalidateQueries({ queryKey: ['tickets'] }); setShowEdit(false) }}
+        onSuccess={() => { invalidateTicket(); setShowEdit(false) }}
       />
 
       {/* Modal intervention */}
@@ -787,7 +1122,138 @@ export function TicketDetailPage() {
         onClose={() => setShowIntervention(false)}
         ticket={ticket}
         currentUserId={user?.id}
+        onSuccess={invalidateTicket}
       />
+
+      {/* Modal ajout de temps */}
+      <TimeEntryModal
+        open={showTimeEntry}
+        onClose={() => setShowTimeEntry(false)}
+        onSubmit={(v) => { timeMutation.mutate(v); setShowTimeEntry(false) }}
+      />
+    </div>
+  )
+}
+
+// ─── Pièces jointes ──────────────────────────────────────────────────────────
+
+function AttachmentsCard({ ticket, canEdit, onChanged }: { ticket: TicketDetail; canEdit: boolean; onChanged: () => void }) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+
+  const handleUpload = async (file: File) => {
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      await api.post(`/tickets/${ticket.id}/attachments`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      toast.success('Pièce jointe ajoutée')
+      onChanged()
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
+      toast.error(message ?? 'Erreur lors de l\'upload')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const handleDownload = async (a: TicketAttachment) => {
+    try {
+      const response = await api.get(`/tickets/attachments/${a.id}/download`, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = a.filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Erreur lors du téléchargement')
+    }
+  }
+
+  const handleDelete = async (a: TicketAttachment) => {
+    if (!window.confirm(`Supprimer « ${a.filename} » ?`)) return
+    try {
+      await api.delete(`/tickets/attachments/${a.id}`)
+      toast.success('Pièce jointe supprimée')
+      onChanged()
+    } catch {
+      toast.error('Erreur lors de la suppression')
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="card-header flex items-center justify-between">
+        <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+          <Paperclip className="w-4 h-4" />
+          Pièces jointes
+          <span className="text-xs text-slate-400">({ticket.attachments.length})</span>
+        </h3>
+        {canEdit && (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.txt,.csv,.log,.doc,.docx,.xls,.xlsx,.zip"
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f) }}
+            />
+            <button
+              className="btn-secondary btn-sm flex items-center gap-1.5"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              {uploading ? <Spinner className="w-3.5 h-3.5" /> : <Upload className="w-3.5 h-3.5" />}
+              Ajouter
+            </button>
+          </>
+        )}
+      </div>
+      {ticket.attachments.length === 0 ? (
+        <div className="py-6 text-center text-sm text-slate-400">Aucune pièce jointe (10 Mo max — images, PDF, documents)</div>
+      ) : (
+        <div className="divide-y divide-slate-100">
+          {ticket.attachments.map(a => (
+            <div key={a.id} className="px-4 py-2.5 flex items-center gap-3">
+              <Paperclip className="w-4 h-4 text-slate-300 shrink-0" />
+              <button
+                className="flex-1 min-w-0 text-left group"
+                onClick={() => handleDownload(a)}
+                title="Télécharger"
+              >
+                <p className="text-sm text-slate-800 truncate group-hover:text-indigo-600 group-hover:underline">{a.filename}</p>
+                <p className="text-xs text-slate-400">
+                  {formatFileSize(a.size)}
+                  {a.uploadedBy && ` · ${a.uploadedBy.firstName} ${a.uploadedBy.lastName}`}
+                  {` · ${formatRelative(a.createdAt)}`}
+                </p>
+              </button>
+              <button
+                className="btn-ghost btn-sm p-1.5 rounded-lg text-slate-400 hover:text-indigo-600"
+                onClick={() => handleDownload(a)}
+                title="Télécharger"
+              >
+                <Download className="w-3.5 h-3.5" />
+              </button>
+              {canEdit && (
+                <button
+                  className="btn-ghost btn-sm p-1.5 rounded-lg text-red-300 hover:text-red-600"
+                  onClick={() => handleDelete(a)}
+                  title="Supprimer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -802,66 +1268,59 @@ interface TicketFormModalProps {
 }
 
 function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalProps) {
-  const { user } = useAuthStore()
-  const canAssign = user?.role === 'ADMIN' || user?.role === 'MANAGER'
+  const perms = usePermissions(['tickets:assign'])
+  const canAssign = perms['tickets:assign']
 
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<TicketForm>({
+  const defaults = (t?: Ticket): TicketForm => t ? {
+    title: t.title,
+    description: t.description,
+    category: t.category,
+    priority: t.priority,
+    contactId: t.contactId || '',
+    companyId: t.companyId || '',
+    assignedToId: t.assignedToId || '',
+  } : { title: '', description: '', priority: 'NORMAL', category: 'OTHER', contactId: '', companyId: '', assignedToId: '' }
+
+  const { register, handleSubmit, reset, setValue, control, formState: { errors, isSubmitting } } = useForm<TicketForm>({
     resolver: zodResolver(ticketSchema),
-    defaultValues: ticket ? {
-      title: ticket.title,
-      description: ticket.description,
-      category: ticket.category,
-      priority: ticket.priority,
-      contactId: ticket.contactId || '',
-      companyId: ticket.companyId || '',
-      contractId: ticket.contractId || '',
-      equipmentId: ticket.equipmentId || '',
-      assignedToId: ticket.assignedToId || '',
-    } : { priority: 'NORMAL', category: 'OTHER' },
+    defaultValues: defaults(ticket),
   })
+  const contactId = useWatch({ control, name: 'contactId' })
+  const companyId = useWatch({ control, name: 'companyId' })
+
+  // Libellés des sélections : dérivés du ticket édité ou de la dernière option choisie
+  const [pickedContact, setPickedContact] = useState<{ id: string; label: string } | null>(null)
+  const [pickedCompany, setPickedCompany] = useState<{ id: string; label: string } | null>(null)
+  const contactLabel = contactId
+    ? pickedContact?.id === contactId
+      ? pickedContact.label
+      : ticket?.contactId === contactId && ticket?.contact
+        ? `${ticket.contact.firstName} ${ticket.contact.lastName}`
+        : undefined
+    : undefined
+  const companyLabel = companyId
+    ? pickedCompany?.id === companyId
+      ? pickedCompany.label
+      : ticket?.companyId === companyId
+        ? ticket?.company?.name
+        : undefined
+    : undefined
 
   // Reset quand la modal s'ouvre
   useEffect(() => {
-    if (open) {
-      reset(ticket ? {
-        title: ticket.title,
-        description: ticket.description,
-        category: ticket.category,
-        priority: ticket.priority,
-        contactId: ticket.contactId || '',
-        companyId: ticket.companyId || '',
-        contractId: ticket.contractId || '',
-        equipmentId: ticket.equipmentId || '',
-        assignedToId: ticket.assignedToId || '',
-      } : { priority: 'NORMAL', category: 'OTHER' })
-    }
+    if (open) reset(defaults(ticket))
   }, [open, ticket, reset])
-
-  const { data: contactsData } = useQuery({
-    queryKey: ['contacts-select'],
-    queryFn: async () => { const { data } = await api.get('/contacts', { params: { limit: 100 } }); return data.data as { id: string; firstName: string; lastName: string }[] },
-    staleTime: 60_000,
-    enabled: open,
-  })
-
-  const { data: companiesData } = useQuery({
-    queryKey: ['companies-select'],
-    queryFn: async () => { const { data } = await api.get('/companies', { params: { limit: 100 } }); return data.data as { id: string; name: string }[] },
-    staleTime: 60_000,
-    enabled: open,
-  })
 
   const { data: usersData } = useUsersList({ enabled: open && canAssign })
 
   const mutation = useMutation({
     mutationFn: (values: TicketForm) => {
+      // null (et non undefined) pour vider une relation côté serveur
       const payload = {
         ...values,
-        contactId: values.contactId || undefined,
-        companyId: values.companyId || undefined,
-        contractId: values.contractId || undefined,
-        equipmentId: values.equipmentId || undefined,
-        assignedToId: values.assignedToId || undefined,
+        contactId: values.contactId || null,
+        companyId: values.companyId || null,
+        assignedToId: values.assignedToId || null,
       }
       return ticket ? api.put(`/tickets/${ticket.id}`, payload) : api.post('/tickets', payload)
     },
@@ -905,17 +1364,29 @@ function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalPr
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="form-group">
             <label className="label">Contact</label>
-            <select {...register('contactId')} className="input">
-              <option value="">— Aucun —</option>
-              {contactsData?.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>)}
-            </select>
+            <SearchSelect
+              value={contactId || null}
+              valueLabel={contactLabel}
+              placeholder="Rechercher un contact…"
+              onSearch={searchContacts}
+              onChange={(id, option) => {
+                setValue('contactId', id ?? '')
+                if (id && option) setPickedContact({ id, label: option.label })
+              }}
+            />
           </div>
           <div className="form-group">
             <label className="label">Entreprise</label>
-            <select {...register('companyId')} className="input">
-              <option value="">— Aucune —</option>
-              {companiesData?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <SearchSelect
+              value={companyId || null}
+              valueLabel={companyLabel}
+              placeholder="Rechercher une entreprise…"
+              onSearch={searchCompanies}
+              onChange={(id, option) => {
+                setValue('companyId', id ?? '')
+                if (id && option) setPickedCompany({ id, label: option.label })
+              }}
+            />
           </div>
         </div>
 
@@ -941,13 +1412,64 @@ function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalPr
   )
 }
 
+// ─── Modal Ajout de temps ────────────────────────────────────────────────────
+
+function TimeEntryModal({ open, onClose, onSubmit }: {
+  open: boolean
+  onClose: () => void
+  onSubmit: (values: TimeEntryForm) => void
+}) {
+  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<TimeEntryForm>({
+    resolver: zodResolver(timeEntrySchema),
+    defaultValues: { minutes: 30, note: '' },
+  })
+
+  useEffect(() => {
+    if (open) reset({ minutes: 30, note: '' })
+  }, [open, reset])
+
+  return (
+    <Modal open={open} onClose={onClose} title="Ajouter du temps" size="sm">
+      <form onSubmit={handleSubmit(v => { onSubmit(v); onClose() })} className="space-y-4">
+        <div className="form-group">
+          <label className="label">Durée (minutes) *</label>
+          <input
+            type="number"
+            min={1}
+            max={1440}
+            {...register('minutes', { valueAsNumber: true })}
+            className={`input ${errors.minutes ? 'input-error' : ''}`}
+          />
+          {errors.minutes && <p className="form-error">{errors.minutes.message}</p>}
+        </div>
+        <div className="form-group">
+          <label className="label">Note</label>
+          <input
+            {...register('note')}
+            className="input"
+            placeholder="Ex : diagnostic sur site, remplacement disque…"
+            maxLength={500}
+          />
+        </div>
+        <div className="flex justify-end gap-3 pt-2">
+          <button type="button" className="btn-secondary" onClick={onClose}>Annuler</button>
+          <button type="submit" className="btn-primary" disabled={isSubmitting}>
+            <Clock className="w-4 h-4" /> Enregistrer
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
 // ─── Modal Intervention ──────────────────────────────────────────────────────
 
 interface InterventionModalProps {
   open: boolean
   onClose: () => void
-  ticket: Ticket & { comments: TicketComment[] }
+  ticket: TicketDetail
   currentUserId?: string
+  onSuccess?: () => void
 }
 
 const DURATION_OPTIONS = [
@@ -957,7 +1479,7 @@ const DURATION_OPTIONS = [
   { value: 240, label: '4h' },
 ]
 
-function InterventionModal({ open, onClose, ticket, currentUserId }: InterventionModalProps) {
+function InterventionModal({ open, onClose, ticket, currentUserId, onSuccess }: InterventionModalProps) {
   const { register, handleSubmit, reset, formState: { isSubmitting, errors } } = useForm<InterventionForm>({
     resolver: zodResolver(interventionSchema),
     defaultValues: { durationMinutes: 60 },
@@ -995,6 +1517,7 @@ function InterventionModal({ open, onClose, ticket, currentUserId }: Interventio
     },
     onSuccess: () => {
       toast.success('Intervention planifiée')
+      onSuccess?.()
       onClose()
     },
     onError: () => toast.error('Erreur lors de la création du rendez-vous'),

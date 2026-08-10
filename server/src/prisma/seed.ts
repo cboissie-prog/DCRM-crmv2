@@ -29,6 +29,7 @@ const PERMISSIONS = [
   { key: 'tickets:create', label: 'Créer un ticket', category: 'Tickets' },
   { key: 'tickets:update', label: 'Modifier un ticket', category: 'Tickets' },
   { key: 'tickets:delete', label: 'Supprimer un ticket', category: 'Tickets' },
+  { key: 'tickets:assign', label: 'Assigner un ticket à un autre utilisateur', category: 'Tickets' },
   { key: 'tickets:export', label: 'Exporter les tickets (CSV)', category: 'Tickets' },
   // Pipeline / Leads
   { key: 'pipeline:read', label: 'Voir le pipeline', category: 'Pipeline' },

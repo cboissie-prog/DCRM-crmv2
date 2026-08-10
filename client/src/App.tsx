@@ -98,6 +98,9 @@ const CallDetailPage = lazy(() =>
 const GoogleCallbackPage = lazy(() =>
   import('./pages/auth/GoogleCallbackPage').then(m => ({ default: m.GoogleCallbackPage }))
 )
+const NpsSurveyPage = lazy(() =>
+  import('./pages/nps/NpsSurveyPage').then(m => ({ default: m.NpsSurveyPage }))
+)
 
 // ── Query client ─────────────────────────────────────────────────────────────
 const queryClient = new QueryClient({
@@ -131,6 +134,8 @@ export default function App() {
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/auth/google/success" element={<GoogleCallbackPage />} />
+            {/* Enquête NPS publique (lien signé envoyé par email de clôture) */}
+            <Route path="/nps/:token" element={<NpsSurveyPage />} />
 
             {/* Protected routes — Layout handles auth check and redirect */}
             <Route element={<Layout />}>

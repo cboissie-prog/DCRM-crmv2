@@ -13,6 +13,7 @@ import companiesRoutes from './routes/companies'
 import pipelineRoutes from './routes/pipeline'
 import productsRoutes from './routes/products'
 import ticketsRoutes from './routes/tickets'
+import npsRoutes from './routes/nps'
 import contractsRoutes from './routes/contracts'
 import equipmentRoutes from './routes/equipment'
 import licensesRoutes from './routes/licenses'
@@ -96,6 +97,10 @@ export function createApp(opts: CreateAppOptions = {}): express.Express {
     // Limiter dédié pour les notifications push Google Calendar (généreux — Google peut envoyer ~1/s)
     const googleNotifLimiter = rateLimit({ windowMs: 60 * 1000, max: 300, message: 'Trop de notifications Google, réessayez plus tard.' })
     app.use('/api/google/notifications', googleNotifLimiter)
+
+    // Enquête NPS publique (sans auth, protégée par jeton signé) : limite stricte
+    const npsLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: 'Trop de requêtes, réessayez plus tard.' })
+    app.use('/api/nps', npsLimiter)
   }
 
   app.use('/api/auth', authRoutes)
@@ -105,6 +110,7 @@ export function createApp(opts: CreateAppOptions = {}): express.Express {
   app.use('/api/pipeline', pipelineRoutes)
   app.use('/api/products', productsRoutes)
   app.use('/api/tickets', ticketsRoutes)
+  app.use('/api/nps', npsRoutes)
   app.use('/api/contracts', contractsRoutes)
   app.use('/api/equipment', equipmentRoutes)
   app.use('/api/licenses', licensesRoutes)

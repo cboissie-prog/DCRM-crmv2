@@ -89,6 +89,12 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
   }
 }
 
+/** Vérification de permission en dehors d'un middleware (checks conditionnels dans une route). */
+export function hasPermission(req: AuthRequest, permission: string): boolean {
+  if (req.permissions?.includes('*')) return true
+  return req.permissions?.includes(permission) ?? false
+}
+
 export const requirePermission = (permission: string) => {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
     // ADMIN via API key a '*' comme permissions (bypass total)

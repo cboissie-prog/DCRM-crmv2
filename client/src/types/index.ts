@@ -140,6 +140,7 @@ export interface Ticket {
   description: string
   category: string
   priority: string
+  priorityOrder: number
   status: string
   contactId?: string
   contact?: { id: string; firstName: string; lastName: string }
@@ -157,7 +158,7 @@ export interface Ticket {
   notes?: string
   createdAt: string
   updatedAt: string
-  _count?: { comments: number }
+  _count?: { comments: number; attachments?: number }
 }
 
 export interface TicketComment {
@@ -165,8 +166,58 @@ export interface TicketComment {
   ticketId: string
   content: string
   isInternal: boolean
+  authorId?: string
   authorName: string
   createdAt: string
+}
+
+export interface TicketEvent {
+  id: string
+  ticketId: string
+  type: string
+  author?: { id: string; firstName: string; lastName: string }
+  fromValue?: string
+  toValue?: string
+  createdAt: string
+}
+
+export interface TicketTimeEntry {
+  id: string
+  ticketId: string
+  user?: { id: string; firstName: string; lastName: string }
+  minutes: number
+  note?: string
+  createdAt: string
+}
+
+export interface TicketAttachment {
+  id: string
+  ticketId: string
+  filename: string
+  mimeType: string
+  size: number
+  uploadedBy?: { id: string; firstName: string; lastName: string }
+  createdAt: string
+}
+
+export interface TicketAppointment {
+  id: string
+  title: string
+  type: string
+  startAt: string
+  endAt: string
+  users?: { user: { id: string; firstName: string; lastName: string } }[]
+}
+
+/** Détail complet d'un ticket (GET /tickets/:id) */
+export interface TicketDetail extends Ticket {
+  comments: TicketComment[]
+  events: TicketEvent[]
+  timeEntries: TicketTimeEntry[]
+  attachments: TicketAttachment[]
+  appointments: TicketAppointment[]
+  npsResponse?: { id: string; score: number; comment?: string; createdAt: string }
+  createdBy?: { id: string; firstName: string; lastName: string }
 }
 
 export interface Equipment {

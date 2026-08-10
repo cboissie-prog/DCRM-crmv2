@@ -47,6 +47,10 @@ model User {
   assignedCalls       Call[]
   pipelines           Pipeline[]
   googleCredential    GoogleCredential?
+  ticketComments      TicketComment[]
+  ticketEvents        TicketEvent[]
+  ticketTimeEntries   TicketTimeEntry[]
+  ticketAttachments   TicketAttachment[]
 }
 
 model RefreshToken {
@@ -318,6 +322,9 @@ model Ticket {
   description  String
   category     String
   priority     String   @default("NORMAL")
+  // Poids numérique du champ `priority` (LOW=0, NORMAL=1, HIGH=2, CRITICAL=3) :
+  // `priority` est un String, un orderBy dessus trie alphabétiquement (NORMAL avant CRITICAL).
+  priorityOrder Int     @default(1)
   status       String   @default("NEW")
   contactId    String?
   contact      Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
@@ -343,6 +350,16 @@ model Ticket {
 
   comments    TicketComment[]
   npsResponse NpsResponse?
+  events      TicketEvent[]
+  timeEntries TicketTimeEntry[]
+  attachments TicketAttachment[]
+
+  @@index([status])
+  @@index([assignedToId])
+  @@index([companyId])
+  @@index([createdAt])
+  @@index([priorityOrder])
+  @@index([slaDeadline])
 }
 
 model TicketComment {
@@ -351,8 +368,57 @@ model TicketComment {
   ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   content    String
   isInternal Boolean  @default(false)
+  authorId   String?
+  author     User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
   authorName String
   createdAt  DateTime @default(now())
+
+  @@index([ticketId])
+}
+
+// ─── HISTORIQUE TICKET ──────────────────────────────────
+// type: CREATED | STATUS_CHANGED | PRIORITY_CHANGED | ASSIGNED | UNASSIGNED | REOPENED | TIME_ADDED | ATTACHMENT_ADDED | NPS_RECEIVED
+
+model TicketEvent {
+  id        String   @id @default(uuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  type      String
+  authorId  String?
+  author    User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  fromValue String?
+  toValue   String?
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+}
+
+model TicketTimeEntry {
+  id        String   @id @default(uuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  minutes   Int
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+}
+
+model TicketAttachment {
+  id           String   @id @default(uuid())
+  ticketId     String
+  ticket       Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  filename     String   // nom original du fichier
+  storedName   String   @unique // nom sur le disque (aléatoire)
+  mimeType     String
+  size         Int
+  uploadedById String?
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+
+  @@index([ticketId])
 }
 
 // ─── PARC INFORMATIQUE ──────────────────────────────────

@@ -22,6 +22,10 @@ const DEFAULTS: Record<string, { value: string; label: string }> = {
   companySiret:             { value: '',        label: 'SIRET' },
   companyVatNumber:         { value: '',        label: 'N° TVA' },
   callRecordingRetentionDays: { value: '180',  label: 'Rétention des enregistrements d\'appels (jours)' },
+  slaHoursCritical:         { value: '4',       label: 'SLA tickets — priorité critique (heures)' },
+  slaHoursHigh:             { value: '8',       label: 'SLA tickets — priorité élevée (heures)' },
+  slaHoursNormal:           { value: '24',      label: 'SLA tickets — priorité normale (heures)' },
+  slaHoursLow:              { value: '72',      label: 'SLA tickets — priorité faible (heures)' },
   googleAllowedDomain:        { value: 'dcb-technologies.fr', label: 'Domaine email autorisé pour l\'auto-création via Google OAuth' },
   googleAutoCreateRole:       { value: 'COMMERCIAL', label: 'Rôle attribué lors de l\'auto-création d\'un compte via Google OAuth' },
 }
