@@ -49,6 +49,8 @@ export function CallsPage() {
   const [dateTo, setDateTo]       = useState('')
   const [page, setPage]           = useState(1)
   const [showCreate, setShowCreate] = useState(false)
+  const [diagReport, setDiagReport] = useState<string | null>(null)
+  const { user } = useAuthStore()
 
   const { data, isLoading } = useQuery<PaginatedResponse<Call>>({
     queryKey: ['calls', { search, dirFilter, statusFilter, catFilter, dateFrom, dateTo, page }],
@@ -100,6 +102,18 @@ export function CallsPage() {
     },
   })
 
+  const diagMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.get('/calls/sync-ovh/debug')
+      return data.data as Record<string, unknown>
+    },
+    onSuccess: (report) => setDiagReport(JSON.stringify(report, null, 2)),
+    onError: (err: unknown) => {
+      const message = isAxiosError(err) ? err.response?.data?.error?.message : null
+      toast.error(message ?? 'Échec du diagnostic OVH')
+    },
+  })
+
   const hasFilters = !!(search || dirFilter || statusFilter || catFilter || dateFrom || dateTo)
 
   const resetFilters = () => {
@@ -119,6 +133,16 @@ export function CallsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {user?.role === 'ADMIN' && (
+            <button
+              className="btn-secondary"
+              onClick={() => diagMutation.mutate()}
+              disabled={diagMutation.isPending}
+              title="Afficher les relevés bruts OVH des dernières 24 h (diagnostic)"
+            >
+              {diagMutation.isPending ? 'Analyse…' : 'Diagnostic'}
+            </button>
+          )}
           <CanDo permission="calls:create">
             <button
               className="btn-secondary"
@@ -311,6 +335,25 @@ export function CallsPage() {
         onClose={() => setShowCreate(false)}
         onSuccess={() => { qc.invalidateQueries({ queryKey: ['calls'] }); setShowCreate(false) }}
       />
+
+      <Modal open={diagReport !== null} onClose={() => setDiagReport(null)} title="Diagnostic OVH — relevés bruts (24 h)" size="lg">
+        <div className="space-y-3">
+          <p className="text-sm text-slate-500">
+            Relevés d'appels bruts renvoyés par l'API OVH et fiches correspondantes en base.
+            Copiez ce rapport pour l'analyse.
+          </p>
+          <pre className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs overflow-auto max-h-96 whitespace-pre-wrap">{diagReport}</pre>
+          <div className="flex justify-end gap-2">
+            <button
+              className="btn-secondary"
+              onClick={() => { navigator.clipboard.writeText(diagReport ?? ''); toast.success('Rapport copié') }}
+            >
+              Copier le rapport
+            </button>
+            <button className="btn-primary" onClick={() => setDiagReport(null)}>Fermer</button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

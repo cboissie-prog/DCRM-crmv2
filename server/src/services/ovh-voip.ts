@@ -38,6 +38,10 @@ const IMPORT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000
 // tentative précédente (le segment répondu l'emporte, donc rien n'est perdu).
 const LEG_MERGE_WINDOW_MS = 10 * 60 * 1000
 
+// Incrémenté à chaque évolution du sync — renvoyé par le diagnostic pour vérifier
+// que la prod exécute bien la dernière version déployée.
+export const OVH_SYNC_VERSION = '2026-08-10.7'
+
 export function isOvhConfigured(): boolean {
   return Boolean(process.env.OVH_APP_KEY && process.env.OVH_APP_SECRET && process.env.OVH_CONSUMER_KEY)
 }
@@ -131,6 +135,56 @@ export function _clearOvhSyncCache(): void {
 }
 
 /**
+ * Rapport de diagnostic : les CDR BRUTS renvoyés par OVH sur les dernières 24 h
+ * (toutes lignes, tous champs) et les fiches Appels correspondantes en base.
+ * Sert à comprendre la topologie réelle (files, redirections) sans deviner.
+ */
+export async function getOvhDebugReport(): Promise<{
+  version: string
+  configured: boolean
+  filter: string
+  cdrs: Array<Record<string, unknown>>
+  fiches: Array<Record<string, unknown>>
+}> {
+  const version = OVH_SYNC_VERSION
+  const filter = process.env.OVH_SERVICE_NAME ?? ''
+  if (!isOvhConfigured()) return { version, configured: false, filter, cdrs: [], fiches: [] }
+
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000)
+  const from = since.toISOString()
+  const cdrs: Array<Record<string, unknown>> = []
+
+  const billingAccounts = await ovhGet<string[]>('/telephony')
+  for (const ba of billingAccounts) {
+    const services = await ovhGet<string[]>(`/telephony/${encodeURIComponent(ba)}/service`)
+    for (const service of services) {
+      const basePath = `/telephony/${encodeURIComponent(ba)}/service/${encodeURIComponent(service)}`
+      let ids: number[]
+      try {
+        ids = await ovhGet<number[]>(`${basePath}/voiceConsumption?creationDatetime.from=${encodeURIComponent(from)}`)
+      } catch { continue }
+      for (const id of ids.slice(0, 25)) {
+        try {
+          const detail = await ovhGet<Record<string, unknown>>(`${basePath}/voiceConsumption/${id}`)
+          cdrs.push({ billingAccount: ba, service, consumptionId: id, ...detail })
+        } catch { /* détail indisponible */ }
+      }
+    }
+  }
+
+  const fiches = await prisma.call.findMany({
+    where: { startedAt: { gte: since } },
+    orderBy: { startedAt: 'desc' },
+    take: 50,
+    select: {
+      externalId: true, direction: true, status: true, callerNumber: true,
+      receiverNumber: true, startedAt: true, duration: true, contactId: true,
+    },
+  })
+  return { version, configured: true, filter, cdrs, fiches }
+}
+
+/**
  * Parcourt les comptes de facturation et lignes OVH, importe les appels
  * de la fenêtre récente absents de la base. Idempotent.
  */
@@ -207,6 +261,16 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
           // numéro INTERNE du compte comme appelant (le standard) est fusionné avec
           // l'unique appel de la fenêtre s'il n'y a pas d'ambiguïté.
           const isInbound = call.direction === 'INBOUND'
+          const internalNumbersEarly = new Set((servicesByBa.get(ba) ?? []).map(s => normalizePhone(s) ?? s))
+          const receiverNorm = normalizePhone(call.receiverNumber ?? '')
+          // Segment de REDIRECTION interne : la ligne "appelle" un autre numéro du
+          // compte pour lui transmettre l'appel → CDR sortant purement technique,
+          // le vrai appel est déjà tracé côté entrant. Jamais une fiche CRM.
+          if (!isInbound && receiverNorm !== null && internalNumbersEarly.has(receiverNorm)) {
+            mergedConsumptionIds.add(candidateId)
+            skipped++
+            continue
+          }
           const candidates = await prisma.call.findMany({
             where: {
               externalId: { startsWith: `ovh:${ba}:` },
@@ -221,7 +285,7 @@ export async function runOvhVoipSync(): Promise<{ imported: number; updated: num
             orderBy: { startedAt: 'asc' },
             select: { id: true, contactId: true, status: true, duration: true, startedAt: true, callerNumber: true },
           })
-          const internalNumbers = new Set((servicesByBa.get(ba) ?? []).map(s => normalizePhone(s) ?? s))
+          const internalNumbers = internalNumbersEarly
           const legCaller = normalizePhone(call.callerNumber)
           const legCallerIsInternal = legCaller !== null && internalNumbers.has(legCaller)
           let sameCall = candidates.find(c => {

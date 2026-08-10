@@ -5,12 +5,12 @@ import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
 import prisma from '../prisma/client'
-import { authenticate, requirePermission, AuthRequest } from '../middleware/auth'
+import { authenticate, requirePermission, requireRole, AuthRequest } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
 import { ciContains } from '../lib/query'
 import { normalizePhone } from '../lib/phone'
 import { audit } from '../lib/audit'
-import { runOvhVoipSync, isOvhConfigured } from '../services/ovh-voip'
+import { runOvhVoipSync, isOvhConfigured, getOvhDebugReport } from '../services/ovh-voip'
 
 const router = Router()
 
@@ -175,6 +175,16 @@ router.post('/sync-ovh', requirePermission('calls:create'), async (req: AuthRequ
   } catch (err) {
     // Erreur côté API OVH (clés invalides, réseau…) : on remonte un message actionnable
     res.status(502).json({ success: false, error: { code: 'OVH_SYNC_FAILED', message: err instanceof Error ? err.message : 'Échec de la synchronisation OVH' } })
+  }
+})
+
+// ─── Diagnostic OVH (ADMIN) : CDR bruts des dernières 24 h + fiches en base ──
+router.get('/sync-ovh/debug', requireRole(['ADMIN']), async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const report = await getOvhDebugReport()
+    res.json({ success: true, data: report })
+  } catch (err) {
+    res.status(502).json({ success: false, error: { code: 'OVH_DEBUG_FAILED', message: err instanceof Error ? err.message : 'Échec du diagnostic OVH' } })
   }
 })
 

@@ -195,6 +195,22 @@ describe('Sync OVH — déduplication', () => {
     expect(rows[0].callerNumber).toBe(CALLER)    // le vrai appelant remplace le numéro du standard
   })
 
+  it('ignore les segments de redirection interne (sortant vers une ligne du compte)', async () => {
+    await prisma.call.deleteMany({ where: { externalId: { startsWith: BA_PREFIX } } })
+    const t0 = new Date(Date.now() - 5 * 60 * 1000)
+    // Une redirection d'appel génère un CDR SORTANT de la ligne vers un autre
+    // numéro du compte : segment technique, jamais une fiche CRM
+    stubOvhApi({
+      [LINE]:  { id: 1001, detail: { creationDatetime: t0.toISOString(), calling: LINE, called: LINE2, duration: 12, wayType: 'outgoing' } },
+      [LINE2]: { id: null, detail: {} },
+    })
+
+    const run = await runOvhVoipSync()
+    expect(run.imported).toBe(0)
+    expect(run.skipped).toBe(1)
+    expect(await prisma.call.count({ where: { externalId: { startsWith: BA_PREFIX } } })).toBe(0)
+  })
+
   it('OVH_SERVICE_NAME restreint l\'import aux lignes listées (tous formats tolérés)', async () => {
     await prisma.call.deleteMany({ where: { externalId: { startsWith: BA_PREFIX } } })
     const started = new Date(Date.now() - 10 * 60 * 1000).toISOString()
