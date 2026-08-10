@@ -76,7 +76,7 @@ describe('Escalade de privilège', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
         email: 'escalation-attempt@test.local',
-        password: 'attacker-chosen-pwd-123',
+        password: 'Attacker-chosen-pwd-123',
         firstName: 'Esc',
         lastName: 'Alation',
         role: 'ADMIN',
@@ -97,7 +97,7 @@ describe('Escalade de privilège', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
         email: 'legit-commercial@test.local',
-        password: 'legit-pwd-12345',
+        password: 'Legit-pwd-12345',
         firstName: 'Legit',
         lastName: 'Commercial',
         role: 'COMMERCIAL',
@@ -116,7 +116,7 @@ describe('Escalade de privilège', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .send({
         email: 'legit-admin@test.local',
-        password: 'legit-admin-pwd-123',
+        password: 'Legit-admin-pwd-123',
         firstName: 'Legit',
         lastName: 'Admin',
         role: 'ADMIN',

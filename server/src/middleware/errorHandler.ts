@@ -3,13 +3,29 @@ import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import logger from '../lib/logger'
 
-export const errorHandler = (err: Error, _req: Request, res: Response, _next: NextFunction): void => {
+export const errorHandler = (
+  err: Error & { status?: number; statusCode?: number; type?: string },
+  _req: Request,
+  res: Response,
+  _next: NextFunction
+): void => {
   logger.error({ err }, err.stack)
-  res.status(500).json({
+  // body-parser (413 entity.too.large, 400 JSON malformé) et le callback CORS portent
+  // un status propre — le respecter plutôt que de tout aplatir en 500.
+  const status = err.status ?? err.statusCode ?? 500
+  const code =
+    err.type === 'entity.too.large' ? 'PAYLOAD_TOO_LARGE'
+    : err.message === 'CORS' ? 'CORS_FORBIDDEN'
+    : status === 500 ? 'INTERNAL_ERROR'
+    : 'REQUEST_ERROR'
+  res.status(err.message === 'CORS' ? 403 : status).json({
     success: false,
     error: {
-      code: 'INTERNAL_ERROR',
-      message: process.env.NODE_ENV === 'development' ? err.message : 'Erreur serveur interne',
+      code,
+      message:
+        process.env.NODE_ENV === 'development' ? err.message
+        : status === 500 ? 'Erreur serveur interne'
+        : err.message,
     },
   })
 }

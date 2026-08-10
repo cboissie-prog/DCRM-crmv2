@@ -8,7 +8,7 @@ import { optionalNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
 import api from '../../lib/api'
 import {
-  formatDate, formatCurrency,
+  formatDate, formatCurrency, safeExternalUrl,
   PIPELINE_STAGES, TICKET_STATUSES, TICKET_PRIORITIES,
   CONTRACT_STATUSES, CONTRACT_TYPES, EQUIPMENT_TYPES,
 } from '../../lib/utils'
@@ -324,7 +324,9 @@ function TabInfo({ company }: { company: Record<string, unknown> }) {
     { label: 'N° TVA', value: c.vatNumber || '—' },
     {
       label: 'Site web', value: c.website
-        ? <a href={c.website} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline flex items-center gap-1"><Globe className="w-3.5 h-3.5" />{c.website}</a>
+        ? (safeExternalUrl(c.website)
+            ? <a href={safeExternalUrl(c.website)!} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline flex items-center gap-1"><Globe className="w-3.5 h-3.5" />{c.website}</a>
+            : <span className="flex items-center gap-1"><Globe className="w-3.5 h-3.5" />{c.website}</span>)
         : '—',
     },
     { label: 'Adresse facturation', value: c.billingAddress || '—' },

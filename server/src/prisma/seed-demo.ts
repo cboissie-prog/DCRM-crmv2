@@ -10,6 +10,12 @@ import { seedBase } from './seed'
 
 const prisma = new PrismaClient()
 
+// Garde-fou : ce seed crée des comptes à mot de passe prévisible (password123, etc.).
+// Ne jamais l'exécuter contre une base de production.
+if (process.env.NODE_ENV === 'production') {
+  throw new Error('seed-demo est interdit en production (crée des comptes de démo à mot de passe faible)')
+}
+
 async function main() {
   // ─── BASE (permissions + rôles + admin) ───────────────
   const roleIdByName = await seedBase()

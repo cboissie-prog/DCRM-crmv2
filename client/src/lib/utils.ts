@@ -212,3 +212,19 @@ export function getScoreBg(score: number): string {
   if (score >= 40) return 'bg-amber-100'
   return 'bg-red-100'
 }
+
+/**
+ * Neutralise les URL non navigables (javascript:, data:, vbscript:…) avant de les
+ * poser dans un href. Un champ libre (ex. "site web" d'une société) peut contenir
+ * `javascript:...` : rendu tel quel dans un <a>, il s'exécute au clic (XSS stocké).
+ * Retourne l'URL si elle est http(s), sinon null (→ afficher en texte brut).
+ */
+export function safeExternalUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  const url = raw.trim()
+  // Autorise soit une URL http(s) explicite, soit un domaine nu (on préfixe https://)
+  if (/^https?:\/\//i.test(url)) return url
+  // Rejette tout ce qui ressemble à un autre schéma (javascript:, data:, mailto:, //evil…)
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith('//')) return null
+  return `https://${url}`
+}

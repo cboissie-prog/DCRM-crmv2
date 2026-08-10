@@ -89,6 +89,7 @@ export function createApp(opts: CreateAppOptions = {}): express.Express {
     const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: 'Trop de tentatives, réessayez dans 15 minutes.' })
     app.use('/api/auth/login', authLimiter)
     app.use('/api/auth/forgot-password', authLimiter)
+    app.use('/api/auth/reset-password', authLimiter)
     app.use('/api/auth/google', authLimiter)
 
     const webhookLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 120, message: 'Trop de requêtes webhook, réessayez plus tard.' })
@@ -151,9 +152,17 @@ export function createApp(opts: CreateAppOptions = {}): express.Express {
   if (process.env.NODE_ENV === 'production') {
     const clientDist = path.join(__dirname, '../../client/dist')
     app.use(express.static(clientDist))
-    // SPA fallback — toutes les routes non-API renvoient index.html
+    // SPA fallback — toutes les routes non-API renvoient index.html,
+    // SAUF les scans de bots (.php, .asp, .env, dotfiles…) qui n'ont aucune raison
+    // d'exister dans un SPA React : 404 sec, sans lecture disque. Permet aussi à
+    // fail2ban (côté Plesk) de compter des 404 au lieu de 200.
+    const BOT_SCAN_PATTERN = /\.(php\d?|phtml|asp|aspx|jsp|cgi|env|git|sql|bak|ini|config|yml|yaml)$/i
     app.get('*', (req, res, next) => {
       if (req.path.startsWith('/api')) return next()
+      if (BOT_SCAN_PATTERN.test(req.path) || req.path.includes('/.')) {
+        res.status(404).end()
+        return
+      }
       res.sendFile(path.join(clientDist, 'index.html'))
     })
   }

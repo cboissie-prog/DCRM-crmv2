@@ -20,6 +20,8 @@ client/dist-ssr/
 server/src/prisma/dev.db
 server/src/prisma/dev.db-journal
 server/src/prisma/*.db
+server/dev.db
+server/*.db
 
 # Logs PM2
 server/logs/

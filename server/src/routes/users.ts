@@ -6,6 +6,7 @@ import { authenticate, AuthRequest, requirePermission } from '../middleware/auth
 import { handleRouteError } from '../middleware/errorHandler'
 import { audit } from '../lib/audit'
 import { copyTemplatesToUser } from '../services/pipelineService'
+import { passwordSchema } from '../lib/password'
 import logger from '../lib/logger'
 
 const router = Router()
@@ -14,7 +15,7 @@ router.use(authenticate)
 
 const userSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8, 'Le mot de passe doit contenir au moins 8 caractères'),
+  password: passwordSchema,
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   phone: z.string().optional(),
@@ -212,6 +213,8 @@ router.delete('/:id', requirePermission('users:delete'), async (req: AuthRequest
   try {
     if (req.params.id === req.userId) { res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Impossible de se désactiver soi-même' } }); return }
     await prisma.user.update({ where: { id: req.params.id }, data: { isActive: false } })
+    // Révoque immédiatement toutes les sessions du compte désactivé (cohérent avec reset/change password)
+    await prisma.refreshToken.deleteMany({ where: { userId: req.params.id } })
     audit(req, 'USER_DEACTIVATED', 'User', req.params.id)
     res.json({ success: true, data: { message: 'Utilisateur désactivé' } })
   } catch (err) { handleRouteError(err, res) }
@@ -219,7 +222,7 @@ router.delete('/:id', requirePermission('users:delete'), async (req: AuthRequest
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().optional(),
-  newPassword: z.string().min(8, 'Le mot de passe doit contenir au moins 8 caractères'),
+  newPassword: passwordSchema,
 })
 
 // PATCH /:id/password — changer son propre mot de passe (ou celui d'un tiers pour ADMIN)

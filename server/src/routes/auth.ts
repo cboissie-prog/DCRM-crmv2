@@ -11,6 +11,7 @@ import { sendPasswordResetEmail } from '../services/mailer'
 import logger from '../lib/logger'
 import { audit } from '../lib/audit'
 import { encrypt } from '../lib/crypto'
+import { passwordSchema } from '../lib/password'
 
 /** Retourne le SHA-256 hex d'un token — le token en clair ne touche jamais la DB */
 function hashToken(token: string): string {
@@ -18,6 +19,11 @@ function hashToken(token: string): string {
 }
 
 const router = Router()
+
+// Hash bcrypt bidon (coût 12) calculé une fois au chargement du module.
+// Sert à consommer le même temps CPU qu'un vrai bcrypt.compare quand l'email
+// est inconnu → supprime le canal temporel qui permettrait d'énumérer les comptes.
+const DUMMY_BCRYPT_HASH = bcrypt.hashSync('timing-attack-mitigation-dummy', 12)
 
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
@@ -60,6 +66,9 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       }
     })
     if (!user || !user.isActive) {
+      // Consomme un bcrypt.compare équivalent pour uniformiser le temps de réponse
+      // (sinon un email inconnu répond nettement plus vite → énumération de comptes).
+      await bcrypt.compare(body.password, DUMMY_BCRYPT_HASH)
       res.status(401).json({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Email ou mot de passe incorrect' } })
       return
     }
@@ -107,7 +116,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
     // 1. Vérifie la signature JWT en premier pour pouvoir extraire userId en cas de réutilisation
     let payload: { userId: string; role: string }
     try {
-      payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!) as { userId: string; role: string }
+      payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET!, { algorithms: ['HS256'] }) as { userId: string; role: string }
     } catch {
       res.clearCookie('refreshToken', { path: '/api/auth' })
       res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Token invalide' } })
@@ -214,7 +223,7 @@ router.post('/reset-password', async (req: Request, res: Response): Promise<void
   try {
     const { token, password } = z.object({
       token: z.string().min(1),
-      password: z.string().min(8, 'Le mot de passe doit contenir au moins 8 caractères'),
+      password: passwordSchema,
     }).parse(req.body)
     const resetToken = await prisma.passwordResetToken.findUnique({
       where: { token: hashToken(token) },

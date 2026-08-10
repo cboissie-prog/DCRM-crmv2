@@ -11,6 +11,7 @@
  */
 
 import { Router, Request, Response } from 'express'
+import { timingSafeEqual } from 'crypto'
 import jwt from 'jsonwebtoken'
 import { createHmac } from 'crypto'
 import { google } from 'googleapis'
@@ -127,8 +128,14 @@ router.post('/notifications', async (req: Request, res: Response): Promise<void>
     return
   }
 
-  // 2. Vérifier le token de sécurité par canal
-  if (!channelToken || channelToken !== cred.channelToken) {
+  // 2. Vérifier le token de sécurité par canal (comparaison à temps constant)
+  const tokenOk = Boolean(
+    channelToken &&
+    cred.channelToken &&
+    channelToken.length === cred.channelToken.length &&
+    timingSafeEqual(Buffer.from(channelToken), Buffer.from(cred.channelToken))
+  )
+  if (!tokenOk) {
     logger.warn({ channelId, userId: cred.userId }, '[GCAL] Notification push : token invalide — possible usurpation')
     res.status(403).json({ success: false, error: { code: 'INVALID_CHANNEL_TOKEN', message: 'Token de canal invalide' } })
     return
