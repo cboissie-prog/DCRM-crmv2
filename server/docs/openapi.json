@@ -2045,7 +2045,7 @@
             "description": "Contact créé (avec company)"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; COMPANY_NOT_FOUND si companyId fourni mais introuvable"
           },
           "401": {
             "description": "Non authentifié"
@@ -2274,7 +2274,7 @@
             "description": "Contact mis à jour (avec company)"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; COMPANY_NOT_FOUND si companyId fourni mais introuvable"
           },
           "401": {
             "description": "Non authentifié"
@@ -2994,7 +2994,7 @@
             "description": "Ticket créé"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; CONTACT_NOT_FOUND, COMPANY_NOT_FOUND, CONTRACT_NOT_FOUND, EQUIPMENT_NOT_FOUND, CALL_NOT_FOUND si l'id fourni est introuvable ; CONTRACT_COMPANY_MISMATCH, EQUIPMENT_COMPANY_MISMATCH (cohérence stricte vs companyId) ; CONTACT_COMPANY_MISMATCH (cohérence souple)"
           },
           "401": {
             "description": "Non authentifié"
@@ -3222,7 +3222,7 @@
             "description": "Ticket mis à jour"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; mêmes erreurs de cohérence inter-entités que la création (CONTACT_NOT_FOUND, COMPANY_NOT_FOUND, CONTRACT_NOT_FOUND, EQUIPMENT_NOT_FOUND, CALL_NOT_FOUND, CONTRACT_COMPANY_MISMATCH, EQUIPMENT_COMPANY_MISMATCH, CONTACT_COMPANY_MISMATCH), vérifiées sur la valeur effective de chaque relation"
           },
           "401": {
             "description": "Non authentifié"
@@ -4164,7 +4164,7 @@
             "description": "Équipement créé"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; COMPANY_NOT_FOUND, CONTRACT_NOT_FOUND, PRODUCT_NOT_FOUND si l'id fourni est introuvable ; CONTRACT_COMPANY_MISMATCH si le contrat lié appartient à une autre société"
           },
           "401": {
             "description": "Non authentifié"
@@ -4294,7 +4294,7 @@
             "description": "Équipement mis à jour"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; mêmes erreurs de cohérence que la création (COMPANY_NOT_FOUND, CONTRACT_NOT_FOUND, PRODUCT_NOT_FOUND, CONTRACT_COMPANY_MISMATCH), vérifiées sur la valeur effective"
           },
           "401": {
             "description": "Non authentifié"
@@ -4520,7 +4520,7 @@
             "description": "Licence créée"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; COMPANY_NOT_FOUND, EQUIPMENT_NOT_FOUND, PRODUCT_NOT_FOUND si l'id fourni est introuvable ; EQUIPMENT_COMPANY_MISMATCH si l'équipement lié appartient à une autre société"
           },
           "401": {
             "description": "Non authentifié"
@@ -4611,7 +4611,7 @@
             "description": "Licence mise à jour"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; mêmes erreurs de cohérence que la création (COMPANY_NOT_FOUND, EQUIPMENT_NOT_FOUND, PRODUCT_NOT_FOUND, EQUIPMENT_COMPANY_MISMATCH), vérifiées sur la valeur effective"
           },
           "401": {
             "description": "Non authentifié"
@@ -5483,7 +5483,7 @@
             "description": "Lead créé"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; CONTACT_NOT_FOUND si contactId introuvable"
           },
           "401": {
             "description": "Non authentifié"
@@ -5740,7 +5740,7 @@
             "description": "Opportunité créée depuis le lead"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; PIPELINE_NOT_FOUND si pipelineId fourni mais introuvable"
           },
           "401": {
             "description": "Non authentifié"
@@ -5920,7 +5920,7 @@
             "description": "Opportunité créée"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; CONTACT_NOT_FOUND, COMPANY_NOT_FOUND, LEAD_NOT_FOUND, PIPELINE_NOT_FOUND si l'id fourni est introuvable ; CONTACT_COMPANY_MISMATCH (cohérence souple)"
           },
           "401": {
             "description": "Non authentifié"
@@ -6096,7 +6096,7 @@
             "description": "Opportunité mise à jour"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; mêmes erreurs de cohérence que la création (CONTACT_NOT_FOUND, COMPANY_NOT_FOUND, LEAD_NOT_FOUND, PIPELINE_NOT_FOUND, CONTACT_COMPANY_MISMATCH), vérifiées sur la valeur effective"
           },
           "401": {
             "description": "Non authentifié"
@@ -8467,7 +8467,7 @@
             "description": "Appel créé"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; CONTACT_NOT_FOUND, COMPANY_NOT_FOUND si l'id fourni est introuvable ; CONTACT_COMPANY_MISMATCH (cohérence souple)"
           },
           "401": {
             "description": "UNAUTHORIZED / INVALID_TOKEN"
@@ -8621,7 +8621,7 @@
             "description": "Appel mis à jour"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; mêmes erreurs de cohérence que la création (CONTACT_NOT_FOUND, COMPANY_NOT_FOUND, CONTACT_COMPANY_MISMATCH), vérifiées sur la valeur effective"
           },
           "401": {
             "description": "UNAUTHORIZED / INVALID_TOKEN"
@@ -9386,7 +9386,7 @@
             "description": "Rendez-vous créé (avec users, contacts) ; notifications + push Google fire-and-forget"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; TICKET_NOT_FOUND si ticketId fourni mais introuvable ; USER_NOT_FOUND, CONTACT_NOT_FOUND si un ou plusieurs ids de userIds/contactIds sont introuvables"
           },
           "401": {
             "description": "UNAUTHORIZED / INVALID_TOKEN"
@@ -9519,7 +9519,7 @@
             "description": "Rendez-vous mis à jour (réponse sans include users/contacts)"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; mêmes erreurs de cohérence que la création (TICKET_NOT_FOUND, USER_NOT_FOUND, CONTACT_NOT_FOUND)"
           },
           "401": {
             "description": "UNAUTHORIZED / INVALID_TOKEN"

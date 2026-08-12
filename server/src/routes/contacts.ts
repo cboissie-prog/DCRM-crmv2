@@ -7,6 +7,7 @@ import { ciContains } from '../lib/query'
 import { csvEscape } from '../lib/csv'
 import { normalizePhone } from '../lib/phone'
 import { linkOrphanCallsInBackground } from '../lib/call-linking'
+import { ensureExists } from '../lib/relationChecks'
 
 const router = Router()
 router.use(authenticate)
@@ -62,6 +63,7 @@ router.get('/', requirePermission('contacts:read'), async (req: AuthRequest, res
 router.post('/', requirePermission('contacts:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = contactSchema.parse(req.body)
+    if (!await ensureExists(res, body.companyId, 'COMPANY_NOT_FOUND', 'Entreprise introuvable', id => prisma.company.findUnique({ where: { id }, select: { id: true } }))) return
     const contact = await prisma.contact.create({
       data: {
         ...body,
@@ -216,6 +218,7 @@ router.get('/:id', requirePermission('contacts:read'), async (req: AuthRequest, 
 router.put('/:id', requirePermission('contacts:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = contactSchema.partial().parse(req.body)
+    if (!await ensureExists(res, body.companyId, 'COMPANY_NOT_FOUND', 'Entreprise introuvable', id => prisma.company.findUnique({ where: { id }, select: { id: true } }))) return
     const updateData: typeof body & { phoneNormalized?: string | null; mobileNormalized?: string | null } = { ...body }
     if ('phone'  in body) updateData.phoneNormalized  = normalizePhone(body.phone)
     if ('mobile' in body) updateData.mobileNormalized = normalizePhone(body.mobile)

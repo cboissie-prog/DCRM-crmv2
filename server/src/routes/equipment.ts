@@ -4,6 +4,7 @@ import { optionalDateString } from '../lib/zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { ensureExists, fetchOrFail, ensureCompanyMatch } from '../lib/relationChecks'
 
 const router = Router()
 router.use(authenticate)
@@ -63,6 +64,17 @@ router.post('/', requirePermission('equipment:create'), async (req: AuthRequest,
     // FK optionnelles : une chaîne vide doit devenir NULL (sinon violation de contrainte)
     if (body.productId === '') data.productId = null
     if (body.contractId === '') data.contractId = null
+
+    if (!await ensureExists(res, body.companyId, 'COMPANY_NOT_FOUND', 'Entreprise introuvable', id => prisma.company.findUnique({ where: { id }, select: { id: true } }))) return
+    if (body.contractId) {
+      const contract = await fetchOrFail(res, body.contractId, 'CONTRACT_NOT_FOUND', 'Contrat introuvable', id => prisma.contract.findUnique({ where: { id }, select: { id: true, companyId: true } }))
+      if (contract === null) return
+      if (contract && !ensureCompanyMatch(res, contract.companyId, body.companyId, 'CONTRACT_COMPANY_MISMATCH', 'Ce contrat appartient à une autre entreprise')) return
+    }
+    if (body.productId) {
+      if (!await ensureExists(res, body.productId, 'PRODUCT_NOT_FOUND', 'Produit introuvable', id => prisma.product.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+
     const equipment = await prisma.equipment.create({
       data: data as Parameters<typeof prisma.equipment.create>[0]['data'],
       include: {
@@ -93,12 +105,33 @@ router.get('/:id', requirePermission('equipment:read'), async (req: AuthRequest,
 router.put('/:id', requirePermission('equipment:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = equipmentSchema.partial().parse(req.body)
+    const current = await prisma.equipment.findUnique({ where: { id: req.params.id } })
+    if (!current) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Équipement introuvable' } }); return }
+
     const data: Record<string, unknown> = { ...body }
     if (body.purchaseDate) data.purchaseDate = new Date(body.purchaseDate)
     if (body.warrantyExpiry) data.warrantyExpiry = new Date(body.warrantyExpiry)
     // FK optionnelles : une chaîne vide signifie « retirer le lien » → NULL
     if (body.productId === '') data.productId = null
     if (body.contractId === '') data.contractId = null
+
+    // companyId « effectif » = celui du body s'il est fourni, sinon celui déjà en base
+    const effectiveCompanyId = body.companyId !== undefined ? body.companyId : current.companyId
+    if (body.companyId !== undefined) {
+      if (!await ensureExists(res, body.companyId, 'COMPANY_NOT_FOUND', 'Entreprise introuvable', id => prisma.company.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+    // Re-vérifié même si contractId n'a pas changé : un changement de companyId seul
+    // doit rester cohérent avec le contrat déjà lié.
+    const effectiveContractId = body.contractId !== undefined ? (body.contractId || null) : current.contractId
+    if (effectiveContractId) {
+      const contract = await fetchOrFail(res, effectiveContractId, 'CONTRACT_NOT_FOUND', 'Contrat introuvable', id => prisma.contract.findUnique({ where: { id }, select: { id: true, companyId: true } }))
+      if (contract === null) return
+      if (contract && !ensureCompanyMatch(res, contract.companyId, effectiveCompanyId, 'CONTRACT_COMPANY_MISMATCH', 'Ce contrat appartient à une autre entreprise')) return
+    }
+    if (body.productId !== undefined) {
+      if (!await ensureExists(res, body.productId, 'PRODUCT_NOT_FOUND', 'Produit introuvable', id => prisma.product.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+
     const equipment = await prisma.equipment.update({
       where: { id: req.params.id },
       data: data as Parameters<typeof prisma.equipment.update>[0]['data'],

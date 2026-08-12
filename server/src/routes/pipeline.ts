@@ -5,6 +5,7 @@ import { authenticate, AuthRequest, requirePermission } from '../middleware/auth
 import { handleRouteError } from '../middleware/errorHandler'
 import { fireAutomations } from '../automation-engine'
 import { getWonLostStageKeys } from '../services/pipelineService'
+import { ensureExists, fetchOrFail, ensureCompanyMatch } from '../lib/relationChecks'
 
 const router = Router()
 router.use(authenticate)
@@ -59,6 +60,7 @@ router.get('/leads', requirePermission('pipeline:read'), async (req: AuthRequest
 router.post('/leads', requirePermission('pipeline:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = leadSchema.parse(req.body)
+    if (!await ensureExists(res, body.contactId, 'CONTACT_NOT_FOUND', 'Contact introuvable', id => prisma.contact.findUnique({ where: { id }, select: { id: true } }))) return
     const lead = await prisma.lead.create({ data: body, include: { contact: { include: { company: { select: { id: true, name: true } } } } } })
     if (lead.score > 0) {
       fireAutomations('LEAD_SCORE_THRESHOLD', {
@@ -121,6 +123,12 @@ router.post('/leads/:id/convert', requirePermission('pipeline:update'), async (r
     const pipeline = bodyPipelineId
       ? await prisma.pipeline.findUnique({ where: { id: bodyPipelineId }, include: { stages: { orderBy: { order: 'asc' } } } })
       : await prisma.pipeline.findFirst({ where: { isDefault: true, isActive: true }, include: { stages: { orderBy: { order: 'asc' } } } })
+    // Un pipelineId fourni mais inexistant ne doit pas se retrouver silencieusement écrit
+    // comme `undefined` — l'opportunité créée sans pipeline sortirait de toute colonne du Kanban.
+    if (bodyPipelineId && !pipeline) {
+      res.status(400).json({ success: false, error: { code: 'PIPELINE_NOT_FOUND', message: 'Pipeline introuvable' } })
+      return
+    }
     const firstStage = pipeline?.stages.find(s => !s.isWon && !s.isLost)
     const opportunity = await prisma.opportunity.create({
       data: {
@@ -176,6 +184,25 @@ router.get('/opportunities', requirePermission('pipeline:read'), async (req: Aut
 router.post('/opportunities', requirePermission('pipeline:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = opportunitySchema.parse(req.body)
+
+    // ── Cohérence inter-entités ─────────────────────────────────────────────
+    const effectiveCompanyId = body.companyId || null
+    if (body.contactId) {
+      const contact = await fetchOrFail(res, body.contactId, 'CONTACT_NOT_FOUND', 'Contact introuvable', id => prisma.contact.findUnique({ where: { id }, select: { id: true, companyId: true } }))
+      if (contact === null) return
+      // Cohérence souple : ne bloque que si contact ET opportunité ont chacun une société, et qu'elles diffèrent
+      if (contact && !ensureCompanyMatch(res, contact.companyId, effectiveCompanyId, 'CONTACT_COMPANY_MISMATCH', 'Ce contact appartient à une autre entreprise')) return
+    }
+    if (body.companyId) {
+      if (!await ensureExists(res, body.companyId, 'COMPANY_NOT_FOUND', 'Entreprise introuvable', id => prisma.company.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+    if (body.leadId) {
+      if (!await ensureExists(res, body.leadId, 'LEAD_NOT_FOUND', 'Lead introuvable', id => prisma.lead.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+    if (body.pipelineId) {
+      if (!await ensureExists(res, body.pipelineId, 'PIPELINE_NOT_FOUND', 'Pipeline introuvable', id => prisma.pipeline.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+
     const data: Record<string, unknown> = { ...body }
     if (body.expectedCloseDate) data.expectedCloseDate = new Date(body.expectedCloseDate)
     // Rattacher au pipeline par défaut si non précisé : évite les opportunités « orphelines »
@@ -258,18 +285,36 @@ router.get('/opportunities/:id', requirePermission('pipeline:read'), async (req:
 router.put('/opportunities/:id', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = opportunitySchema.partial().parse(req.body)
+    const current = await prisma.opportunity.findUnique({ where: { id: req.params.id }, select: { stage: true, companyId: true, contactId: true } })
+    if (!current) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Opportunité introuvable' } }); return }
+
+    // ── Cohérence inter-entités ─────────────────────────────────────────────
+    const effectiveCompanyId = body.companyId !== undefined ? (body.companyId || null) : current.companyId
+    const effectiveContactId = body.contactId !== undefined ? (body.contactId || null) : current.contactId
+    if (effectiveContactId) {
+      const contact = await fetchOrFail(res, effectiveContactId, 'CONTACT_NOT_FOUND', 'Contact introuvable', id => prisma.contact.findUnique({ where: { id }, select: { id: true, companyId: true } }))
+      if (contact === null) return
+      if (contact && !ensureCompanyMatch(res, contact.companyId, effectiveCompanyId, 'CONTACT_COMPANY_MISMATCH', 'Ce contact appartient à une autre entreprise')) return
+    }
+    if (body.companyId !== undefined && body.companyId) {
+      if (!await ensureExists(res, body.companyId, 'COMPANY_NOT_FOUND', 'Entreprise introuvable', id => prisma.company.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+    if (body.leadId !== undefined && body.leadId) {
+      if (!await ensureExists(res, body.leadId, 'LEAD_NOT_FOUND', 'Lead introuvable', id => prisma.lead.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+    if (body.pipelineId !== undefined && body.pipelineId) {
+      if (!await ensureExists(res, body.pipelineId, 'PIPELINE_NOT_FOUND', 'Pipeline introuvable', id => prisma.pipeline.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+
     const data: Record<string, unknown> = { ...body }
     if (body.expectedCloseDate) data.expectedCloseDate = new Date(body.expectedCloseDate)
     if (body.remindAt) data.remindAt = new Date(body.remindAt)
     else if (body.remindAt === null) data.remindAt = null
-    if (body.stage) {
+    if (body.stage && current.stage !== body.stage) {
       // Ne toucher closedAt que si l'étape change réellement, pour ne pas re-dater
       // la clôture d'une opportunité déjà gagnée/perdue lors d'une simple édition.
-      const current = await prisma.opportunity.findUnique({ where: { id: req.params.id }, select: { stage: true } })
-      if (current && current.stage !== body.stage) {
-        const { wonKeys, lostKeys } = await getWonLostStageKeys()
-        data.closedAt = wonKeys.includes(body.stage) || lostKeys.includes(body.stage) ? new Date() : null
-      }
+      const { wonKeys, lostKeys } = await getWonLostStageKeys()
+      data.closedAt = wonKeys.includes(body.stage) || lostKeys.includes(body.stage) ? new Date() : null
     }
     const opp = await prisma.opportunity.update({ where: { id: req.params.id }, data: data as Parameters<typeof prisma.opportunity.update>[0]['data'] })
     res.json({ success: true, data: opp })

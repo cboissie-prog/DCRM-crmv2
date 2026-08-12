@@ -134,11 +134,41 @@ function slaRemainingLabel(slaDeadline: string): { label: string; className: str
 }
 
 // Recherches distantes pour les SearchSelect
-async function searchContacts(q: string) {
-  const { data } = await api.get('/contacts', { params: { search: q || undefined, limit: 20 } })
-  return (data.data as { id: string; firstName: string; lastName: string }[]).map(c => ({
-    id: c.id, label: `${c.firstName} ${c.lastName}`,
-  }))
+interface ContactRow { id: string; firstName: string; lastName: string; company?: { id: string; name: string } | null }
+
+/** Métadonnées portées par une option contact : entreprise liée (pour l'auto-remplissage) */
+export interface ContactOptionMeta { companyId: string | null; companyName: string | null }
+
+function toContactOption(c: ContactRow) {
+  return {
+    id: c.id,
+    label: `${c.firstName} ${c.lastName}`,
+    sublabel: c.company?.name,
+    meta: { companyId: c.company?.id ?? null, companyName: c.company?.name ?? null } satisfies ContactOptionMeta,
+  }
+}
+
+/**
+ * Recherche « souple » : si une entreprise est fournie, priorise ses contacts
+ * tout en gardant visibles les contacts sans société (filtre non bloquant).
+ */
+async function searchContacts(q: string, companyId?: string) {
+  const search = q || undefined
+  if (!companyId) {
+    const { data } = await api.get('/contacts', { params: { search, limit: 20 } })
+    return (data.data as ContactRow[]).map(toContactOption)
+  }
+  const [companyRes, generalRes] = await Promise.all([
+    api.get('/contacts', { params: { search, companyId, limit: 15 } }),
+    api.get('/contacts', { params: { search, limit: 30 } }),
+  ])
+  const companyContacts = companyRes.data.data as ContactRow[]
+  const noCompanyContacts = (generalRes.data.data as ContactRow[]).filter(c => !c.company)
+  const merged = [
+    ...companyContacts,
+    ...noCompanyContacts.filter(c => !companyContacts.some(cc => cc.id === c.id)),
+  ].slice(0, 20)
+  return merged.map(toContactOption)
 }
 async function searchCompanies(q: string) {
   const { data } = await api.get('/companies', { params: { search: q || undefined, limit: 20 } })
@@ -1268,8 +1298,10 @@ interface TicketFormModalProps {
 }
 
 function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalProps) {
-  const perms = usePermissions(['tickets:assign'])
+  const perms = usePermissions(['tickets:assign', 'contacts:create', 'companies:create'])
   const canAssign = perms['tickets:assign']
+  const canCreateContact = perms['contacts:create']
+  const canCreateCompany = perms['companies:create']
 
   const defaults = (t?: Ticket): TicketForm => t ? {
     title: t.title,
@@ -1289,7 +1321,9 @@ function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalPr
   const companyId = useWatch({ control, name: 'companyId' })
 
   // Libellés des sélections : dérivés du ticket édité ou de la dernière option choisie
-  const [pickedContact, setPickedContact] = useState<{ id: string; label: string } | null>(null)
+  // companyId : entreprise du contact sélectionné (connue une fois le contact choisi via la recherche),
+  // utilisée pour réinitialiser le contact si l'entreprise est ensuite changée pour une autre incompatible.
+  const [pickedContact, setPickedContact] = useState<{ id: string; label: string; companyId: string | null } | null>(null)
   const [pickedCompany, setPickedCompany] = useState<{ id: string; label: string } | null>(null)
   const contactLabel = contactId
     ? pickedContact?.id === contactId
@@ -1331,6 +1365,46 @@ function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalPr
     onError: () => toast.error('Erreur lors de l\'enregistrement'),
   })
 
+  // Création à la volée : petits formulaires repliables sous les SearchSelect
+  const [showNewContact, setShowNewContact] = useState(false)
+  const [newContact, setNewContact] = useState({ firstName: '', lastName: '' })
+  const [showNewCompany, setShowNewCompany] = useState(false)
+  const [newCompanyName, setNewCompanyName] = useState('')
+
+  const createContactMutation = useMutation({
+    mutationFn: () => api.post('/contacts', {
+      firstName: newContact.firstName.trim(),
+      lastName: newContact.lastName.trim() || '—',
+      companyId: companyId || undefined,
+    }),
+    onSuccess: ({ data }) => {
+      const c = data.data as { id: string; firstName: string; lastName: string; companyId?: string | null; company?: { id: string; name: string } | null }
+      setValue('contactId', c.id)
+      setPickedContact({ id: c.id, label: `${c.firstName} ${c.lastName}`, companyId: c.companyId ?? null })
+      if (c.company && !companyId) {
+        setValue('companyId', c.company.id)
+        setPickedCompany({ id: c.company.id, label: c.company.name })
+      }
+      setShowNewContact(false)
+      setNewContact({ firstName: '', lastName: '' })
+      toast.success('Contact créé')
+    },
+    onError: () => toast.error('Erreur lors de la création du contact'),
+  })
+
+  const createCompanyMutation = useMutation({
+    mutationFn: () => api.post('/companies', { name: newCompanyName.trim() }),
+    onSuccess: ({ data }) => {
+      const c = data.data as { id: string; name: string }
+      setValue('companyId', c.id)
+      setPickedCompany({ id: c.id, label: c.name })
+      setShowNewCompany(false)
+      setNewCompanyName('')
+      toast.success('Entreprise créée')
+    },
+    onError: () => toast.error('Erreur lors de la création de l\'entreprise'),
+  })
+
   return (
     <Modal open={open} onClose={onClose} title={ticket ? 'Modifier le ticket' : 'Nouveau ticket'} size="lg">
       <form onSubmit={handleSubmit(v => mutation.mutate(v))} className="space-y-4">
@@ -1368,12 +1442,58 @@ function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalPr
               value={contactId || null}
               valueLabel={contactLabel}
               placeholder="Rechercher un contact…"
-              onSearch={searchContacts}
+              onSearch={q => searchContacts(q, companyId || undefined)}
               onChange={(id, option) => {
                 setValue('contactId', id ?? '')
-                if (id && option) setPickedContact({ id, label: option.label })
+                if (id && option) {
+                  const meta = option.meta as ContactOptionMeta | undefined
+                  setPickedContact({ id, label: option.label, companyId: meta?.companyId ?? null })
+                  // Auto-remplissage de l'entreprise depuis le contact choisi
+                  if (meta?.companyId) {
+                    setValue('companyId', meta.companyId)
+                    setPickedCompany({ id: meta.companyId, label: meta.companyName || '' })
+                  }
+                } else {
+                  setPickedContact(null)
+                }
               }}
             />
+            {canCreateContact && (
+              showNewContact ? (
+                <div className="mt-2 p-2.5 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      value={newContact.firstName}
+                      onChange={e => setNewContact(v => ({ ...v, firstName: e.target.value }))}
+                      placeholder="Prénom *"
+                      className="input"
+                      autoFocus
+                    />
+                    <input
+                      value={newContact.lastName}
+                      onChange={e => setNewContact(v => ({ ...v, lastName: e.target.value }))}
+                      placeholder="Nom"
+                      className="input"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button type="button" className="btn-secondary text-xs px-2 py-1" onClick={() => setShowNewContact(false)}>Annuler</button>
+                    <button
+                      type="button"
+                      className="btn-primary text-xs px-2 py-1"
+                      disabled={!newContact.firstName.trim() || createContactMutation.isPending}
+                      onClick={() => createContactMutation.mutate()}
+                    >
+                      {createContactMutation.isPending ? <Spinner className="w-3.5 h-3.5" /> : 'Créer'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setShowNewContact(true)} className="mt-1 text-xs text-primary-600 hover:text-primary-700 inline-flex items-center gap-1">
+                  <PlusCircle className="w-3.5 h-3.5" /> Nouveau contact
+                </button>
+              )
+            )}
           </div>
           <div className="form-group">
             <label className="label">Entreprise</label>
@@ -1385,8 +1505,42 @@ function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalPr
               onChange={(id, option) => {
                 setValue('companyId', id ?? '')
                 if (id && option) setPickedCompany({ id, label: option.label })
+                else setPickedCompany(null)
+                // Le contact choisi appartient à une autre entreprise : incohérent, on le réinitialise
+                if (id && pickedContact?.companyId && pickedContact.companyId !== id) {
+                  setValue('contactId', '')
+                  setPickedContact(null)
+                }
               }}
             />
+            {canCreateCompany && (
+              showNewCompany ? (
+                <div className="mt-2 p-2.5 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
+                  <input
+                    value={newCompanyName}
+                    onChange={e => setNewCompanyName(e.target.value)}
+                    placeholder="Nom de l'entreprise *"
+                    className="input"
+                    autoFocus
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button type="button" className="btn-secondary text-xs px-2 py-1" onClick={() => setShowNewCompany(false)}>Annuler</button>
+                    <button
+                      type="button"
+                      className="btn-primary text-xs px-2 py-1"
+                      disabled={!newCompanyName.trim() || createCompanyMutation.isPending}
+                      onClick={() => createCompanyMutation.mutate()}
+                    >
+                      {createCompanyMutation.isPending ? <Spinner className="w-3.5 h-3.5" /> : 'Créer'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setShowNewCompany(true)} className="mt-1 text-xs text-primary-600 hover:text-primary-700 inline-flex items-center gap-1">
+                  <PlusCircle className="w-3.5 h-3.5" /> Nouvelle entreprise
+                </button>
+              )
+            )}
           </div>
         </div>
 

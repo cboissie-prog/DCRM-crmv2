@@ -19,6 +19,7 @@ import {
   priorityOrderOf, computeSlaDeadline, generateTicketRef, statusTransitionData,
   logTicketEvent, notifyUsers, activeManagerIds,
 } from '../lib/ticket-helpers'
+import { ensureExists, fetchOrFail, ensureCompanyMatch } from '../lib/relationChecks'
 
 const router = Router()
 router.use(authenticate)
@@ -166,6 +167,32 @@ router.post('/', requirePermission('tickets:create'), async (req: AuthRequest, r
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Permission tickets:assign requise pour assigner un ticket à un autre utilisateur' } })
       return
     }
+
+    // ── Cohérence inter-entités ─────────────────────────────────────────────
+    const effectiveCompanyId = body.companyId ?? null
+    if (body.contactId) {
+      const contact = await fetchOrFail(res, body.contactId, 'CONTACT_NOT_FOUND', 'Contact introuvable', id => prisma.contact.findUnique({ where: { id }, select: { id: true, companyId: true } }))
+      if (contact === null) return
+      // Cohérence souple : ne bloque que si contact ET ticket ont chacun une société, et qu'elles diffèrent
+      if (contact && !ensureCompanyMatch(res, contact.companyId, effectiveCompanyId, 'CONTACT_COMPANY_MISMATCH', 'Ce contact appartient à une autre entreprise')) return
+    }
+    if (body.companyId) {
+      if (!await ensureExists(res, body.companyId, 'COMPANY_NOT_FOUND', 'Entreprise introuvable', id => prisma.company.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+    if (body.contractId) {
+      const contract = await fetchOrFail(res, body.contractId, 'CONTRACT_NOT_FOUND', 'Contrat introuvable', id => prisma.contract.findUnique({ where: { id }, select: { id: true, companyId: true } }))
+      if (contract === null) return
+      if (contract && !ensureCompanyMatch(res, contract.companyId, effectiveCompanyId, 'CONTRACT_COMPANY_MISMATCH', 'Ce contrat appartient à une autre entreprise')) return
+    }
+    if (body.equipmentId) {
+      const equipment = await fetchOrFail(res, body.equipmentId, 'EQUIPMENT_NOT_FOUND', 'Équipement introuvable', id => prisma.equipment.findUnique({ where: { id }, select: { id: true, companyId: true } }))
+      if (equipment === null) return
+      if (equipment && !ensureCompanyMatch(res, equipment.companyId, effectiveCompanyId, 'EQUIPMENT_COMPANY_MISMATCH', 'Cet équipement appartient à une autre entreprise')) return
+    }
+    if (body.callId) {
+      if (!await ensureExists(res, body.callId, 'CALL_NOT_FOUND', 'Appel introuvable', id => prisma.call.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+
     const slaDeadline = await computeSlaDeadline(body.priority)
     let ticket
     // Retry si la référence générée entre en collision avec une création concurrente
@@ -285,6 +312,36 @@ router.put('/:id', requirePermission('tickets:update'), async (req: AuthRequest,
     const body = ticketSchema.partial().parse(req.body)
     const current = await prisma.ticket.findUnique({ where: { id: req.params.id } })
     if (!current) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ticket introuvable' } }); return }
+
+    // ── Cohérence inter-entités ─────────────────────────────────────────────
+    // companyId « effectif » = celui du body s'il est fourni, sinon celui déjà en base.
+    // Les relations non modifiées sont re-résolues depuis `current` : un changement de
+    // companyId seul doit rester cohérent avec le contact/contrat/équipement déjà lié.
+    const effectiveCompanyId = body.companyId !== undefined ? (body.companyId || null) : current.companyId
+    const effectiveContactId = body.contactId !== undefined ? (body.contactId || null) : current.contactId
+    if (effectiveContactId) {
+      const contact = await fetchOrFail(res, effectiveContactId, 'CONTACT_NOT_FOUND', 'Contact introuvable', id => prisma.contact.findUnique({ where: { id }, select: { id: true, companyId: true } }))
+      if (contact === null) return
+      if (contact && !ensureCompanyMatch(res, contact.companyId, effectiveCompanyId, 'CONTACT_COMPANY_MISMATCH', 'Ce contact appartient à une autre entreprise')) return
+    }
+    if (body.companyId !== undefined && body.companyId) {
+      if (!await ensureExists(res, body.companyId, 'COMPANY_NOT_FOUND', 'Entreprise introuvable', id => prisma.company.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+    const effectiveContractId = body.contractId !== undefined ? (body.contractId || null) : current.contractId
+    if (effectiveContractId) {
+      const contract = await fetchOrFail(res, effectiveContractId, 'CONTRACT_NOT_FOUND', 'Contrat introuvable', id => prisma.contract.findUnique({ where: { id }, select: { id: true, companyId: true } }))
+      if (contract === null) return
+      if (contract && !ensureCompanyMatch(res, contract.companyId, effectiveCompanyId, 'CONTRACT_COMPANY_MISMATCH', 'Ce contrat appartient à une autre entreprise')) return
+    }
+    const effectiveEquipmentId = body.equipmentId !== undefined ? (body.equipmentId || null) : current.equipmentId
+    if (effectiveEquipmentId) {
+      const equipment = await fetchOrFail(res, effectiveEquipmentId, 'EQUIPMENT_NOT_FOUND', 'Équipement introuvable', id => prisma.equipment.findUnique({ where: { id }, select: { id: true, companyId: true } }))
+      if (equipment === null) return
+      if (equipment && !ensureCompanyMatch(res, equipment.companyId, effectiveCompanyId, 'EQUIPMENT_COMPANY_MISMATCH', 'Cet équipement appartient à une autre entreprise')) return
+    }
+    if (body.callId !== undefined && body.callId) {
+      if (!await ensureExists(res, body.callId, 'CALL_NOT_FOUND', 'Appel introuvable', id => prisma.call.findUnique({ where: { id }, select: { id: true } }))) return
+    }
 
     const newAssignee = body.assignedToId !== undefined ? (body.assignedToId || null) : undefined
     const assignmentChanged = newAssignee !== undefined && newAssignee !== current.assignedToId

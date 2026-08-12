@@ -5,6 +5,8 @@ export interface SearchSelectOption {
   id: string
   label: string
   sublabel?: string
+  /** Données additionnelles libres portées par l'option (ex : entreprise d'un contact) */
+  meta?: unknown
 }
 
 interface SearchSelectProps {

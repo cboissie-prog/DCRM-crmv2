@@ -496,7 +496,7 @@ Réponse : `data` = tableau de contacts (avec `company: { id, name }`), `meta: {
   "notes": "string (optionnel)"
 }
 ```
-`phone`/`mobile` sont normalisés (`phoneNormalized`/`mobileNormalized`) à la création. Les appels téléphoniques passés non liés (numéro correspondant) sont rattachés en arrière-plan (best-effort). Réponse `201` : le contact créé (avec `company`).
+`phone`/`mobile` sont normalisés (`phoneNormalized`/`mobileNormalized`) à la création. Les appels téléphoniques passés non liés (numéro correspondant) sont rattachés en arrière-plan (best-effort). Réponse `201` : le contact créé (avec `company`). Erreur spécifique : `400 COMPANY_NOT_FOUND` si `companyId` est fourni mais introuvable.
 
 **POST /contacts/import/csv**
 ```json
@@ -516,7 +516,7 @@ Réponse : `data` = contact avec `company`, `leads`, `opportunities` (avec `comp
 
 **PUT /contacts/:id**
 Corps : même schéma que POST, toutes les clés optionnelles (`.partial()`). Si `phone`/`mobile` présent dans le corps, les champs normalisés correspondants sont recalculés et un rattachement d'appels orphelins est retenté en arrière-plan.
-Réponse : le contact mis à jour (avec `company`).
+Réponse : le contact mis à jour (avec `company`). Erreur spécifique : `400 COMPANY_NOT_FOUND` si `companyId` est fourni mais introuvable.
 
 **DELETE /contacts/:id**
 Suppression logique uniquement. Réponse : `data: { message: "Contact supprimé" }`.
@@ -652,7 +652,7 @@ Réponse : `data` = tableau de leads (avec `contact.company`), `meta: { total, p
   "score": "int 0-100 (optionnel)"
 }
 ```
-Réponse `201` : le lead créé. Si `score > 0`, déclenche l'automatisation `LEAD_SCORE_THRESHOLD` (asynchrone, non bloquant).
+Réponse `201` : le lead créé. Si `score > 0`, déclenche l'automatisation `LEAD_SCORE_THRESHOLD` (asynchrone, non bloquant). Erreur spécifique : `400 CONTACT_NOT_FOUND` si `contactId` est introuvable.
 
 **PUT /pipeline/leads/:id**
 Corps identique à la création, tous les champs optionnels (`.partial()`). Redéclenche `LEAD_SCORE_THRESHOLD` si `score` est fourni et > 0.
@@ -673,7 +673,7 @@ Corps identique à la création, tous les champs optionnels (`.partial()`). Red�
   "notes": "string (optionnel)"
 }
 ```
-Crée une `Opportunity` liée au lead, passe le lead en `CONVERTED`, déclenche `OPPORTUNITY_CREATED`. Erreur spécifique : `404 NOT_FOUND` si le lead n'existe pas.
+Crée une `Opportunity` liée au lead, passe le lead en `CONVERTED`, déclenche `OPPORTUNITY_CREATED`. Erreurs spécifiques : `404 NOT_FOUND` si le lead n'existe pas ; `400 PIPELINE_NOT_FOUND` si `pipelineId` est fourni mais introuvable.
 
 **GET /pipeline/opportunities**
 Query : `stage`, `assignedToId`, `companyId`, `pipelineId` (tous optionnels), `page` (défaut `'1'`), `limit` (défaut `'50'`). Réponse : `data` = opportunités (avec `contact`, `company`, `assignedTo`, `products.product`), `meta: { total, page, limit }`.
@@ -698,6 +698,7 @@ Query : `stage`, `assignedToId`, `companyId`, `pipelineId` (tous optionnels), `p
 }
 ```
 Si `pipelineId` absent, rattache au pipeline par défaut (ou premier pipeline actif) et corrige `stage` s'il n'existe pas dans ce pipeline. Réponse `201`. Déclenche `OPPORTUNITY_CREATED`.
+Erreurs spécifiques : `400 CONTACT_NOT_FOUND`, `400 COMPANY_NOT_FOUND`, `400 LEAD_NOT_FOUND`, `400 PIPELINE_NOT_FOUND` (si l'id fourni est introuvable) ; `400 CONTACT_COMPANY_MISMATCH` si le contact a une société différente de `companyId` (cohérence souple : ignorée si le contact ou l'opportunité n'a pas de société).
 
 **POST /pipeline/opportunities/reattach-orphans**
 Pas de corps. Réponse : `{ reattached: number, pipeline: string }`. Erreur spécifique : `400 NO_PIPELINE` si aucun pipeline actif.
@@ -706,7 +707,7 @@ Pas de corps. Réponse : `{ reattached: number, pipeline: string }`. Erreur spé
 Réponse : opportunité avec `contact`, `company`, `assignedTo`, `products.product`, `activities` (20 dernières), `lead`. `404 NOT_FOUND` si absente.
 
 **PUT /pipeline/opportunities/:id**
-Corps identique à la création (`.partial()`). Si `stage` change réellement, `closedAt` est recalculé (daté si gagné/perdu, sinon `null`).
+Corps identique à la création (`.partial()`). Si `stage` change réellement, `closedAt` est recalculé (daté si gagné/perdu, sinon `null`). Mêmes erreurs de cohérence que la création (`CONTACT_NOT_FOUND`, `COMPANY_NOT_FOUND`, `LEAD_NOT_FOUND`, `PIPELINE_NOT_FOUND`, `CONTACT_COMPANY_MISMATCH`) — vérifiées sur la valeur effective (celle du corps si fournie, sinon celle déjà en base). 404 `NOT_FOUND` si l'opportunité n'existe pas.
 
 **PATCH /pipeline/opportunities/:id/stage**
 ```json
@@ -966,13 +967,13 @@ Réponse : tableau de tickets (avec `contact`, `company`, `assignedTo`, `equipme
 }
 ```
 Réponse (201) : le ticket créé. Génère une référence unique (retry automatique en cas de collision), calcule `slaDeadline` selon la priorité, journalise un événement `CREATED`, notifie l'assigné, alerte les managers si `priority: CRITICAL`, déclenche l'automatisation `TICKET_CREATED`.
-Erreur spécifique : si `assignedToId` désigne quelqu'un d'autre que l'auteur de la requête et que celui-ci n'a pas la permission `tickets:assign` → 403 `FORBIDDEN`.
+Erreurs spécifiques : si `assignedToId` désigne quelqu'un d'autre que l'auteur de la requête et que celui-ci n'a pas la permission `tickets:assign` → 403 `FORBIDDEN`. Existence des relations fournies : `400 CONTACT_NOT_FOUND`, `400 COMPANY_NOT_FOUND`, `400 CONTRACT_NOT_FOUND`, `400 EQUIPMENT_NOT_FOUND`, `400 CALL_NOT_FOUND`. Cohérence stricte (vs `companyId` du ticket) : `400 CONTRACT_COMPANY_MISMATCH`, `400 EQUIPMENT_COMPANY_MISMATCH`. Cohérence souple : `400 CONTACT_COMPANY_MISMATCH` (ignorée si le contact ou le ticket n'a pas de société).
 
 **GET /tickets/export/csv** — Mêmes filtres query que la liste (hors pagination/tri). Réponse : `text/csv; charset=utf-8` avec BOM UTF-8, colonnes Référence/Titre/Statut/Priorité/Catégorie/Contact/Entreprise/Assigné à/Temps (min)/Créé le.
 
 **GET /tickets/:id** — Réponse : ticket complet (`contact`, `company`, `contract`, `equipment`, `assignedTo`, `createdBy`, `comments`, `events`, `timeEntries`, `attachments`, `npsResponse`) + `appointments` (rendez-vous liés via `Appointment.ticketId`, non typés comme relation Prisma côté Ticket). 404 `NOT_FOUND` si absent.
 
-**PUT /tickets/:id** — Corps : `ticketSchema` en version partielle (tous les champs ci-dessus optionnels). Mêmes règles d'accès sur `assignedToId` que la création, à l'exception de : sans `tickets:assign`, un utilisateur peut toujours se prendre le ticket (`assignedToId = soi-même`) ou se désassigner soi-même. Si un ticket `NEW` reçoit une nouvelle assignation, son statut bascule automatiquement en `IN_PROGRESS`. Si `priority` change, `priorityOrder` et `slaDeadline` sont recalculés (ancrés sur la date de création d'origine). Journalise les événements `PRIORITY_CHANGED` / `STATUS_CHANGED` / `ASSIGNED` / `UNASSIGNED` selon les champs modifiés. 404 si le ticket n'existe pas, 403 `FORBIDDEN` sur assignation non autorisée.
+**PUT /tickets/:id** — Corps : `ticketSchema` en version partielle (tous les champs ci-dessus optionnels). Mêmes règles d'accès sur `assignedToId` que la création, à l'exception de : sans `tickets:assign`, un utilisateur peut toujours se prendre le ticket (`assignedToId = soi-même`) ou se désassigner soi-même. Si un ticket `NEW` reçoit une nouvelle assignation, son statut bascule automatiquement en `IN_PROGRESS`. Si `priority` change, `priorityOrder` et `slaDeadline` sont recalculés (ancrés sur la date de création d'origine). Journalise les événements `PRIORITY_CHANGED` / `STATUS_CHANGED` / `ASSIGNED` / `UNASSIGNED` selon les champs modifiés. 404 si le ticket n'existe pas, 403 `FORBIDDEN` sur assignation non autorisée. Mêmes erreurs de cohérence inter-entités que la création (`CONTACT_NOT_FOUND`, `COMPANY_NOT_FOUND`, `CONTRACT_NOT_FOUND`, `EQUIPMENT_NOT_FOUND`, `CALL_NOT_FOUND`, `CONTRACT_COMPANY_MISMATCH`, `EQUIPMENT_COMPANY_MISMATCH`, `CONTACT_COMPANY_MISMATCH`) — vérifiées sur la valeur effective de chaque relation (celle du corps si fournie, sinon celle déjà en base), de sorte qu'un changement de `companyId` seul reste cohérent avec le contact/contrat/équipement déjà lié.
 
 **PATCH /tickets/:id/status**
 ```json
@@ -1099,11 +1100,11 @@ Réponse : tableau d'équipements (`company`, `contract`, `product`, `_count.tic
   "notes": "string (optionnel)"
 }
 ```
-Réponse (201) : l'équipement créé. Une chaîne vide pour `productId`/`contractId` est convertie en `NULL` (au lieu de violer la contrainte de clé étrangère).
+Réponse (201) : l'équipement créé. Une chaîne vide pour `productId`/`contractId` est convertie en `NULL` (au lieu de violer la contrainte de clé étrangère). Erreurs spécifiques : `400 COMPANY_NOT_FOUND`, `400 CONTRACT_NOT_FOUND`, `400 PRODUCT_NOT_FOUND` (id fourni introuvable) ; `400 CONTRACT_COMPANY_MISMATCH` si le contrat lié appartient à une autre société que `companyId`.
 
 **GET /equipment/:id** — Réponse : équipement complet (`company`, `contract`, 10 derniers `tickets`, `licenses`). 404 `NOT_FOUND` si absent.
 
-**PUT /equipment/:id** — Corps : schéma ci-dessus en version partielle. Mêmes règles de normalisation des FK vides → `NULL`. Réponse : l'équipement mis à jour.
+**PUT /equipment/:id** — Corps : schéma ci-dessus en version partielle. Mêmes règles de normalisation des FK vides → `NULL`. Réponse : l'équipement mis à jour. Mêmes erreurs de cohérence que la création (`COMPANY_NOT_FOUND`, `CONTRACT_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `CONTRACT_COMPANY_MISMATCH`), vérifiées sur la valeur effective (`companyId`/`contractId` du corps si fournis, sinon ceux déjà en base). 404 `NOT_FOUND` si l'équipement n'existe pas.
 
 **DELETE /equipment/:id** — Réponse : `{ "message": "Équipement supprimé" }`.
 
@@ -1169,9 +1170,9 @@ Note : le module réutilise les permissions `equipment:*` (aucune permission `li
   "notes": "string (optionnel)"
 }
 ```
-Réponse (201) : la licence créée. FK vides (`productId`/`equipmentId`) normalisées en `NULL`.
+Réponse (201) : la licence créée. FK vides (`productId`/`equipmentId`) normalisées en `NULL`. Erreurs spécifiques : `400 COMPANY_NOT_FOUND`, `400 EQUIPMENT_NOT_FOUND`, `400 PRODUCT_NOT_FOUND` (id fourni introuvable) ; `400 EQUIPMENT_COMPANY_MISMATCH` si l'équipement lié appartient à une autre société que `companyId`.
 
-**PUT /licenses/:id** — Corps : schéma ci-dessus en version partielle, mêmes règles FK. Réponse : la licence mise à jour.
+**PUT /licenses/:id** — Corps : schéma ci-dessus en version partielle, mêmes règles FK. Réponse : la licence mise à jour. Mêmes erreurs de cohérence que la création (`COMPANY_NOT_FOUND`, `EQUIPMENT_NOT_FOUND`, `PRODUCT_NOT_FOUND`, `EQUIPMENT_COMPANY_MISMATCH`), vérifiées sur la valeur effective (`companyId`/`equipmentId` du corps si fournis, sinon ceux déjà en base). 404 `NOT_FOUND` si la licence n'existe pas.
 
 **DELETE /licenses/:id** — Réponse : `{ "message": "Licence supprimée" }`.
 
@@ -1332,10 +1333,10 @@ Réponse : l'appel avec `contact` (incl. `phone`/`mobile`), `company`, `assigned
   "assignedToId": "string (optionnel)"
 }
 ```
-Réponse `201` : l'appel créé (avec `contact`, `company`, `assignedTo`).
+Réponse `201` : l'appel créé (avec `contact`, `company`, `assignedTo`). Erreurs spécifiques : `400 CONTACT_NOT_FOUND`, `400 COMPANY_NOT_FOUND` (id fourni introuvable) ; `400 CONTACT_COMPANY_MISMATCH` si le contact a une société différente de `companyId` (cohérence souple : ignorée si le contact ou l'appel n'a pas de société).
 
 **PUT /calls/:id**
-Même schéma que POST, tous champs optionnels (`.partial()`). Réponse : l'appel mis à jour (avec `contact`, `company`, `assignedTo`, `tickets`).
+Même schéma que POST, tous champs optionnels (`.partial()`). Réponse : l'appel mis à jour (avec `contact`, `company`, `assignedTo`, `tickets`). Mêmes erreurs de cohérence que la création (`CONTACT_NOT_FOUND`, `COMPANY_NOT_FOUND`, `CONTACT_COMPANY_MISMATCH`), vérifiées sur la valeur effective (`companyId`/`contactId` du corps si fournis, sinon ceux déjà en base). 404 `NOT_FOUND` si l'appel n'existe pas.
 
 **POST /calls/sync-ovh**
 Pas de corps. Déclenche immédiatement une synchronisation OVH VoIP (le scheduler tourne déjà toutes les 5 min). Réponse : `data` = statistiques de synchro (objet retourné par `runOvhVoipSync`). Erreurs : `503 OVH_DISABLED` (clés API OVH absentes côté serveur), `502 OVH_SYNC_FAILED`.
@@ -1473,13 +1474,13 @@ Query : `from`, `to` (ISO, filtrent `startAt`), `userId` (legacy — filtre par 
   "contactIds": ["string"]
 }
 ```
-Réponse `201` : le RDV créé (avec `users`, `contacts`). Effets de bord : notification DB (`APPOINTMENT_CREATED`) pour chaque participant hors créateur, push Google Calendar fire-and-forget vers tous les participants (`pushAppointmentToAll`).
+Réponse `201` : le RDV créé (avec `users`, `contacts`). Effets de bord : notification DB (`APPOINTMENT_CREATED`) pour chaque participant hors créateur, push Google Calendar fire-and-forget vers tous les participants (`pushAppointmentToAll`). Erreurs spécifiques : `400 TICKET_NOT_FOUND` si `ticketId` est fourni mais introuvable ; `400 USER_NOT_FOUND` / `400 CONTACT_NOT_FOUND` si un ou plusieurs ids de `userIds`/`contactIds` sont introuvables (vérification batch, pas de contrainte de société entre participants).
 
 **GET /appointments/:id**
 Réponse : le RDV (avec `users`, `contacts`). Erreur : `404 NOT_FOUND` — renvoyé aussi bien si le RDV n'existe pas que s'il existe mais n'est pas visible par l'appelant (volontairement, pour ne pas révéler l'existence de la ressource).
 
 **PUT /appointments/:id**
-Même schéma que POST, tous champs optionnels (`.partial()`). Si `userIds`/`contactIds` sont fournis, remplacent intégralement les participants/contacts existants (`deleteMany` + `create`). Réponse : le RDV mis à jour — **sans** `include` sur `users`/`contacts` (incohérent avec POST/GET, voir anomalies). Effets de bord : suppression des copies Google des participants retirés (`pushRemovedParticipants`), push Google vers les participants courants (`pushAppointmentToAll`). Erreur : `404 NOT_FOUND` (idem GET).
+Même schéma que POST, tous champs optionnels (`.partial()`). Si `userIds`/`contactIds` sont fournis, remplacent intégralement les participants/contacts existants (`deleteMany` + `create`). Réponse : le RDV mis à jour — **sans** `include` sur `users`/`contacts` (incohérent avec POST/GET, voir anomalies). Effets de bord : suppression des copies Google des participants retirés (`pushRemovedParticipants`), push Google vers les participants courants (`pushAppointmentToAll`). Erreurs : `404 NOT_FOUND` (idem GET) ; mêmes erreurs de cohérence que la création (`TICKET_NOT_FOUND`, `USER_NOT_FOUND`, `CONTACT_NOT_FOUND`).
 
 **DELETE /appointments/:id**
 Réponse : `data: { "message": "string" }`. Avant suppression, supprime (best-effort, attendu) les copies Google Calendar de chaque participant, car la suppression du RDV efface en cascade les liens `AppointmentGoogleEvent`. Erreur : `404 NOT_FOUND` (idem GET).

@@ -4,6 +4,7 @@ import { optionalDateString } from '../lib/zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { ensureExists, fetchOrFail, ensureCompanyMatch } from '../lib/relationChecks'
 
 const router = Router()
 router.use(authenticate)
@@ -61,6 +62,17 @@ router.post('/', requirePermission('equipment:create'), async (req: AuthRequest,
     // FK optionnelles : une chaîne vide doit devenir NULL (sinon violation de contrainte)
     if (body.productId === '') data.productId = null
     if (body.equipmentId === '') data.equipmentId = null
+
+    if (!await ensureExists(res, body.companyId, 'COMPANY_NOT_FOUND', 'Entreprise introuvable', id => prisma.company.findUnique({ where: { id }, select: { id: true } }))) return
+    if (body.equipmentId) {
+      const equipment = await fetchOrFail(res, body.equipmentId, 'EQUIPMENT_NOT_FOUND', 'Équipement introuvable', id => prisma.equipment.findUnique({ where: { id }, select: { id: true, companyId: true } }))
+      if (equipment === null) return
+      if (equipment && !ensureCompanyMatch(res, equipment.companyId, body.companyId, 'EQUIPMENT_COMPANY_MISMATCH', 'Cet équipement appartient à une autre entreprise')) return
+    }
+    if (body.productId) {
+      if (!await ensureExists(res, body.productId, 'PRODUCT_NOT_FOUND', 'Produit introuvable', id => prisma.product.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+
     const license = await prisma.license.create({
       data: data as Parameters<typeof prisma.license.create>[0]['data'],
       include: {
@@ -75,12 +87,33 @@ router.post('/', requirePermission('equipment:create'), async (req: AuthRequest,
 router.put('/:id', requirePermission('equipment:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = licenseSchema.partial().parse(req.body)
+    const current = await prisma.license.findUnique({ where: { id: req.params.id } })
+    if (!current) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Licence introuvable' } }); return }
+
     const data: Record<string, unknown> = { ...body }
     if (body.purchaseDate) data.purchaseDate = new Date(body.purchaseDate)
     if (body.expiryDate) data.expiryDate = new Date(body.expiryDate)
     // FK optionnelles : une chaîne vide signifie « retirer le lien » → NULL
     if (body.productId === '') data.productId = null
     if (body.equipmentId === '') data.equipmentId = null
+
+    // companyId « effectif » = celui du body s'il est fourni, sinon celui déjà en base
+    const effectiveCompanyId = body.companyId !== undefined ? body.companyId : current.companyId
+    if (body.companyId !== undefined) {
+      if (!await ensureExists(res, body.companyId, 'COMPANY_NOT_FOUND', 'Entreprise introuvable', id => prisma.company.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+    // Re-vérifié même si equipmentId n'a pas changé : un changement de companyId seul
+    // doit rester cohérent avec l'équipement déjà lié.
+    const effectiveEquipmentId = body.equipmentId !== undefined ? (body.equipmentId || null) : current.equipmentId
+    if (effectiveEquipmentId) {
+      const equipment = await fetchOrFail(res, effectiveEquipmentId, 'EQUIPMENT_NOT_FOUND', 'Équipement introuvable', id => prisma.equipment.findUnique({ where: { id }, select: { id: true, companyId: true } }))
+      if (equipment === null) return
+      if (equipment && !ensureCompanyMatch(res, equipment.companyId, effectiveCompanyId, 'EQUIPMENT_COMPANY_MISMATCH', 'Cet équipement appartient à une autre entreprise')) return
+    }
+    if (body.productId !== undefined) {
+      if (!await ensureExists(res, body.productId, 'PRODUCT_NOT_FOUND', 'Produit introuvable', id => prisma.product.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+
     const license = await prisma.license.update({
       where: { id: req.params.id },
       data: data as Parameters<typeof prisma.license.update>[0]['data'],

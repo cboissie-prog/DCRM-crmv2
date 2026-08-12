@@ -11,6 +11,7 @@ import { ciContains } from '../lib/query'
 import { normalizePhone } from '../lib/phone'
 import { audit } from '../lib/audit'
 import { runOvhVoipSync, isOvhConfigured, getOvhDebugReport } from '../services/ovh-voip'
+import { ensureExists, fetchOrFail, ensureCompanyMatch } from '../lib/relationChecks'
 
 const router = Router()
 
@@ -282,6 +283,19 @@ const callSchema = z.object({
 router.post('/', requirePermission('calls:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = callSchema.parse(req.body)
+
+    // ── Cohérence inter-entités ─────────────────────────────────────────────
+    const effectiveCompanyId = body.companyId || null
+    if (body.contactId) {
+      const contact = await fetchOrFail(res, body.contactId, 'CONTACT_NOT_FOUND', 'Contact introuvable', id => prisma.contact.findUnique({ where: { id }, select: { id: true, companyId: true } }))
+      if (contact === null) return
+      // Cohérence souple : ne bloque que si contact ET appel ont chacun une société, et qu'elles diffèrent
+      if (contact && !ensureCompanyMatch(res, contact.companyId, effectiveCompanyId, 'CONTACT_COMPANY_MISMATCH', 'Ce contact appartient à une autre entreprise')) return
+    }
+    if (body.companyId) {
+      if (!await ensureExists(res, body.companyId, 'COMPANY_NOT_FOUND', 'Entreprise introuvable', id => prisma.company.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+
     const call = await prisma.call.create({
       data: {
         direction:      body.direction     ?? 'INBOUND',
@@ -314,6 +328,21 @@ router.post('/', requirePermission('calls:create'), async (req: AuthRequest, res
 router.put('/:id', requirePermission('calls:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = callSchema.partial().parse(req.body)
+    const current = await prisma.call.findUnique({ where: { id: req.params.id } })
+    if (!current) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Appel introuvable' } }); return }
+
+    // ── Cohérence inter-entités ─────────────────────────────────────────────
+    const effectiveCompanyId = body.companyId !== undefined ? (body.companyId || null) : current.companyId
+    const effectiveContactId = body.contactId !== undefined ? (body.contactId || null) : current.contactId
+    if (effectiveContactId) {
+      const contact = await fetchOrFail(res, effectiveContactId, 'CONTACT_NOT_FOUND', 'Contact introuvable', id => prisma.contact.findUnique({ where: { id }, select: { id: true, companyId: true } }))
+      if (contact === null) return
+      if (contact && !ensureCompanyMatch(res, contact.companyId, effectiveCompanyId, 'CONTACT_COMPANY_MISMATCH', 'Ce contact appartient à une autre entreprise')) return
+    }
+    if (body.companyId !== undefined && body.companyId) {
+      if (!await ensureExists(res, body.companyId, 'COMPANY_NOT_FOUND', 'Entreprise introuvable', id => prisma.company.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+
     const call = await prisma.call.update({
       where: { id: req.params.id },
       data: {

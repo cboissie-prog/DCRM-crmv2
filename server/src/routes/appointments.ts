@@ -5,6 +5,7 @@ import { authenticate, AuthRequest, requirePermission } from '../middleware/auth
 import { handleRouteError } from '../middleware/errorHandler'
 import { pushAppointmentToAll, pushRemovedParticipants, pushAppointmentForUser } from '../services/google-calendar'
 import { getVisibleOwnerIds, appointmentVisibilityWhere } from '../lib/calendar-visibility'
+import { ensureExists } from '../lib/relationChecks'
 
 const router = Router()
 router.use(authenticate)
@@ -21,6 +22,28 @@ const appointmentSchema = z.object({
   userIds: z.array(z.string()).optional(),
   contactIds: z.array(z.string()).optional(),
 })
+
+/**
+ * Vérifie en une seule requête que tous les ids d'un tableau existent bien
+ * (pattern batch findMany + comparaison de longueur, cf. src/routes/roles.ts).
+ * Renvoie `false` (réponse 400 déjà écrite) si au moins un id est introuvable.
+ */
+async function ensureAllExist(
+  res: Response,
+  ids: string[] | undefined,
+  code: string,
+  message: string,
+  finder: (uniqueIds: string[]) => Promise<{ id: string }[]>
+): Promise<boolean> {
+  if (!ids || ids.length === 0) return true
+  const uniqueIds = [...new Set(ids)]
+  const found = await finder(uniqueIds)
+  if (found.length !== uniqueIds.length) {
+    res.status(400).json({ success: false, error: { code, message } })
+    return false
+  }
+  return true
+}
 
 router.get('/', requirePermission('appointments:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -91,6 +114,11 @@ router.post('/', requirePermission('appointments:create'), async (req: AuthReque
   try {
     const body = appointmentSchema.parse(req.body)
     const { userIds = [], contactIds = [], ...rest } = body
+
+    if (!await ensureExists(res, rest.ticketId, 'TICKET_NOT_FOUND', 'Ticket introuvable', id => prisma.ticket.findUnique({ where: { id }, select: { id: true } }))) return
+    if (!await ensureAllExist(res, userIds, 'USER_NOT_FOUND', 'Un ou plusieurs utilisateurs sont introuvables', ids => prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true } }))) return
+    if (!await ensureAllExist(res, contactIds, 'CONTACT_NOT_FOUND', 'Un ou plusieurs contacts sont introuvables', ids => prisma.contact.findMany({ where: { id: { in: ids } }, select: { id: true } }))) return
+
     const appointment = await prisma.appointment.create({
       data: {
         ...rest,
@@ -193,6 +221,12 @@ router.put('/:id', requirePermission('appointments:update'), async (req: AuthReq
     // du partage de calendrier.
     const { userIds, contactIds, ...rest } = appointmentSchema.partial().parse(req.body)
     const appointmentId = req.params.id
+
+    if (rest.ticketId !== undefined) {
+      if (!await ensureExists(res, rest.ticketId, 'TICKET_NOT_FOUND', 'Ticket introuvable', id => prisma.ticket.findUnique({ where: { id }, select: { id: true } }))) return
+    }
+    if (!await ensureAllExist(res, userIds, 'USER_NOT_FOUND', 'Un ou plusieurs utilisateurs sont introuvables', ids => prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true } }))) return
+    if (!await ensureAllExist(res, contactIds, 'CONTACT_NOT_FOUND', 'Un ou plusieurs contacts sont introuvables', ids => prisma.contact.findMany({ where: { id: { in: ids } }, select: { id: true } }))) return
 
     // Récupère les participants actuels AVANT la mise à jour (pour détecter les retraits)
     const currentUsers = await prisma.appointmentUser.findMany({

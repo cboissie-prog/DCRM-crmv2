@@ -4,6 +4,7 @@ import { isAxiosError } from 'axios'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '../../lib/api'
 import { useUsersList } from '../../hooks/useApi'
+import { usePermissions } from '../../hooks/usePermission'
 import {
   formatDate, formatDateTime, formatRelative, formatDuration,
   CALL_DIRECTIONS, CALL_STATUSES, CALL_CATEGORIES, CALL_PRIORITIES,
@@ -18,10 +19,10 @@ import {
   Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed,
   Plus, Search, X, Edit2, Trash2, ArrowLeft, RefreshCw,
   Upload, FileText, Ticket, TrendingUp,
-  Download, Clock, Building2, User, ChevronDown,
+  Download, Clock, Building2, User, ChevronDown, PlusCircle,
 } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
-import { useForm, type Resolver } from 'react-hook-form'
+import { useForm, useWatch, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { optionalNumber } from '../../lib/formFields'
@@ -903,7 +904,11 @@ interface CallFormModalProps {
 }
 
 function CallFormModal({ open, onClose, call, onSuccess }: CallFormModalProps) {
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<CallFormData>({
+  const qc = useQueryClient()
+  const perms = usePermissions(['contacts:create', 'companies:create'])
+  const canCreateContact = perms['contacts:create']
+  const canCreateCompany = perms['companies:create']
+  const { register, handleSubmit, reset, control, setValue, formState: { errors, isSubmitting } } = useForm<CallFormData>({
     resolver: zodResolver(callFormSchema) as Resolver<CallFormData>,
     defaultValues: call ? {
       callerNumber:   call.callerNumber,
@@ -954,7 +959,10 @@ function CallFormModal({ open, onClose, call, onSuccess }: CallFormModalProps) {
 
   const { data: contactsData } = useQuery({
     queryKey: ['contacts-select'],
-    queryFn: async () => { const { data } = await api.get('/contacts', { params: { limit: 200 } }); return data.data as { id: string; firstName: string; lastName: string }[] },
+    queryFn: async () => {
+      const { data } = await api.get('/contacts', { params: { limit: 200 } })
+      return data.data as { id: string; firstName: string; lastName: string; companyId?: string | null; company?: { id: string; name: string } | null }[]
+    },
     enabled: open,
     staleTime: 60_000,
   })
@@ -965,6 +973,72 @@ function CallFormModal({ open, onClose, call, onSuccess }: CallFormModalProps) {
     staleTime: 60_000,
   })
   const { data: usersData } = useUsersList({ enabled: open })
+
+  const contactId = useWatch({ control, name: 'contactId' })
+  const companyId = useWatch({ control, name: 'companyId' })
+
+  // Filtre souple : contacts de l'entreprise sélectionnée + contacts sans société (non bloquant)
+  const filteredContacts = companyId
+    ? (contactsData ?? []).filter(c => !c.companyId || c.companyId === companyId)
+    : (contactsData ?? [])
+
+  // Auto-remplissage : sélectionner un contact ayant une entreprise renseigne le champ entreprise
+  useEffect(() => {
+    if (!contactId) return
+    const c = contactsData?.find(x => x.id === contactId)
+    if (c?.companyId && c.companyId !== companyId) setValue('companyId', c.companyId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contactId, contactsData])
+
+  // Incohérence : l'entreprise change pour une autre que celle du contact sélectionné → on le réinitialise
+  const prevCompanyIdRef = useRef(companyId)
+  useEffect(() => {
+    if (prevCompanyIdRef.current !== companyId) {
+      prevCompanyIdRef.current = companyId
+      if (companyId && contactId) {
+        const c = contactsData?.find(x => x.id === contactId)
+        if (c?.companyId && c.companyId !== companyId) setValue('contactId', '')
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId])
+
+  // Création à la volée : petits formulaires repliables sous les listes contact/entreprise
+  const [showNewContact, setShowNewContact] = useState(false)
+  const [newContact, setNewContact] = useState({ firstName: '', lastName: '' })
+  const [showNewCompany, setShowNewCompany] = useState(false)
+  const [newCompanyName, setNewCompanyName] = useState('')
+
+  const createContactMutation = useMutation({
+    mutationFn: () => api.post('/contacts', {
+      firstName: newContact.firstName.trim(),
+      lastName: newContact.lastName.trim() || '—',
+      companyId: companyId || undefined,
+    }),
+    onSuccess: ({ data }) => {
+      const c = data.data as { id: string; company?: { id: string; name: string } | null }
+      qc.invalidateQueries({ queryKey: ['contacts-select'] })
+      setValue('contactId', c.id)
+      if (c.company && !companyId) setValue('companyId', c.company.id)
+      setShowNewContact(false)
+      setNewContact({ firstName: '', lastName: '' })
+      toast.success('Contact créé')
+    },
+    onError: () => toast.error('Erreur lors de la création du contact'),
+  })
+
+  const createCompanyMutation = useMutation({
+    mutationFn: () => api.post('/companies', { name: newCompanyName.trim() }),
+    onSuccess: ({ data }) => {
+      const c = data.data as { id: string; name: string }
+      qc.invalidateQueries({ queryKey: ['companies-select'] })
+      setValue('companyId', c.id)
+      setShowNewCompany(false)
+      setNewCompanyName('')
+      toast.success('Entreprise créée')
+    },
+    onError: () => toast.error('Erreur lors de la création de l\'entreprise'),
+  })
 
   const mutation = useMutation({
     mutationFn: (values: CallFormData) => {
@@ -1044,8 +1118,51 @@ function CallFormModal({ open, onClose, call, onSuccess }: CallFormModalProps) {
             <label className="label">Contact</label>
             <select {...register('contactId')} className="input">
               <option value="">— Aucun —</option>
-              {contactsData?.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>)}
+              {filteredContacts.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.firstName} {c.lastName}{!companyId && c.company ? ` — ${c.company.name}` : ''}
+                </option>
+              ))}
             </select>
+            {companyId && filteredContacts.length === 0 && (
+              <p className="text-xs text-slate-400 mt-1">Aucun contact lié à cette entreprise</p>
+            )}
+            {canCreateContact && (
+              showNewContact ? (
+                <div className="mt-2 p-2.5 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      value={newContact.firstName}
+                      onChange={e => setNewContact(v => ({ ...v, firstName: e.target.value }))}
+                      placeholder="Prénom *"
+                      className="input"
+                      autoFocus
+                    />
+                    <input
+                      value={newContact.lastName}
+                      onChange={e => setNewContact(v => ({ ...v, lastName: e.target.value }))}
+                      placeholder="Nom"
+                      className="input"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button type="button" className="btn-secondary text-xs px-2 py-1" onClick={() => setShowNewContact(false)}>Annuler</button>
+                    <button
+                      type="button"
+                      className="btn-primary text-xs px-2 py-1"
+                      disabled={!newContact.firstName.trim() || createContactMutation.isPending}
+                      onClick={() => createContactMutation.mutate()}
+                    >
+                      {createContactMutation.isPending ? <Spinner className="w-3.5 h-3.5" /> : 'Créer'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setShowNewContact(true)} className="mt-1 text-xs text-primary-600 hover:text-primary-700 inline-flex items-center gap-1">
+                  <PlusCircle className="w-3.5 h-3.5" /> Nouveau contact
+                </button>
+              )
+            )}
           </div>
           <div className="form-group">
             <label className="label">Entreprise</label>
@@ -1053,6 +1170,34 @@ function CallFormModal({ open, onClose, call, onSuccess }: CallFormModalProps) {
               <option value="">— Aucune —</option>
               {companiesData?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+            {canCreateCompany && (
+              showNewCompany ? (
+                <div className="mt-2 p-2.5 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
+                  <input
+                    value={newCompanyName}
+                    onChange={e => setNewCompanyName(e.target.value)}
+                    placeholder="Nom de l'entreprise *"
+                    className="input"
+                    autoFocus
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button type="button" className="btn-secondary text-xs px-2 py-1" onClick={() => setShowNewCompany(false)}>Annuler</button>
+                    <button
+                      type="button"
+                      className="btn-primary text-xs px-2 py-1"
+                      disabled={!newCompanyName.trim() || createCompanyMutation.isPending}
+                      onClick={() => createCompanyMutation.mutate()}
+                    >
+                      {createCompanyMutation.isPending ? <Spinner className="w-3.5 h-3.5" /> : 'Créer'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setShowNewCompany(true)} className="mt-1 text-xs text-primary-600 hover:text-primary-700 inline-flex items-center gap-1">
+                  <PlusCircle className="w-3.5 h-3.5" /> Nouvelle entreprise
+                </button>
+              )
+            )}
           </div>
         </div>
         <div className="form-group">
@@ -1121,7 +1266,7 @@ function TicketFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose:
     ? `Appel du ${formatDateTime(call.startedAt)} (${call.callerNumber}).\n\n${call.notes}`
     : `Appel du ${formatDateTime(call.startedAt)}.\nNuméro : ${call.callerNumber}${call.callerName ? `\nNom : ${call.callerName}` : ''}`
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<TicketFromCallData>({
+  const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm<TicketFromCallData>({
     resolver: zodResolver(ticketFromCallSchema) as Resolver<TicketFromCallData>,
     defaultValues: {
       title: defaultTitle, description: defaultDesc,
@@ -1135,6 +1280,22 @@ function TicketFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose:
 
   const { data: companiesData } = useQuery({ queryKey: ['companies-light'], queryFn: async () => { const { data } = await api.get('/companies', { params: { limit: 200 } }); return data.data as { id: string; name: string }[] }, staleTime: 60_000 })
   const { data: usersData } = useUsersList({ enabled: canAssign })
+
+  // Partage le cache avec ContactInlinePicker (même queryKey) pour connaître l'entreprise du contact choisi
+  const { data: contactsLight } = useQuery<{ id: string; firstName: string; lastName: string; company?: { id: string; name: string } | null }[]>({
+    queryKey: ['contacts-light'],
+    queryFn: async () => { const { data } = await api.get('/contacts', { params: { limit: 200 } }); return data.data ?? [] },
+    enabled: picker.mode === 'existing',
+    staleTime: 60_000,
+  })
+
+  // Contact existant avec une entreprise → synchronise le champ entreprise du ticket
+  useEffect(() => {
+    if (picker.mode !== 'existing' || !picker.contactId) return
+    const c = contactsLight?.find(x => x.id === picker.contactId)
+    if (c?.company) setValue('companyId', c.company.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picker.mode, picker.contactId, contactsLight])
 
   const mutation = useMutation({
     mutationFn: async (values: TicketFromCallData) => {

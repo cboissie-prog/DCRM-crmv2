@@ -32,7 +32,7 @@ export function ContactInlinePicker({
   const set = (patch: Partial<ContactPickerValue>) => onChange({ ...value, ...patch })
   const setCompany = (patch: Partial<ContactPickerCompany>) => onChange({ ...value, company: { ...value.company, ...patch } })
 
-  const { data: contacts = [] } = useQuery<{ id: string; firstName: string; lastName: string; company?: { name: string } }[]>({
+  const { data: contacts = [] } = useQuery<{ id: string; firstName: string; lastName: string; company?: { id: string; name: string } }[]>({
     queryKey: ['contacts-light'],
     queryFn: async () => {
       const { data } = await api.get('/contacts', { params: { limit: 200 } })

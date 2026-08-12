@@ -1057,7 +1057,32 @@ function AppointmentFormFields({
   contacts: Contact[]
   tickets: Ticket[]
 }) {
-  const { register, handleSubmit, control, formState: { errors, isSubmitting } } = form
+  const { register, handleSubmit, control, watch, formState: { errors, isSubmitting } } = form
+
+  // Ticket sélectionné → suggestion (non bloquante) des contacts de la même entreprise
+  const ticketId = watch('ticketId')
+  const selectedTicket = tickets.find(t => t.id === ticketId)
+  const ticketCompanyId = selectedTicket?.companyId
+  const ticketCompanyName = selectedTicket?.company?.name
+
+  const contactOptions = ticketCompanyId
+    ? (() => {
+        const sameCompany = contacts.filter(c => c.companyId === ticketCompanyId)
+        const others = contacts.filter(c => c.companyId !== ticketCompanyId)
+        return [
+          ...sameCompany.map(c => ({
+            value: c.id,
+            label: `${c.firstName} ${c.lastName}`,
+            group: `Contacts de ${ticketCompanyName ?? "l'entreprise"}`,
+          })),
+          ...others.map(c => ({
+            value: c.id,
+            label: `${c.firstName} ${c.lastName}`,
+            group: sameCompany.length > 0 ? 'Autres contacts' : undefined,
+          })),
+        ]
+      })()
+    : contacts.map(c => ({ value: c.id, label: `${c.firstName} ${c.lastName}` }))
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
@@ -1136,13 +1161,18 @@ function AppointmentFormFields({
           name="contactIds"
           render={({ field }) => (
             <MultiSelectField
-              options={contacts.map(c => ({ value: c.id, label: `${c.firstName} ${c.lastName}` }))}
+              options={contactOptions}
               value={field.value ?? []}
               onChange={field.onChange}
               placeholder="Ajouter des contacts..."
             />
           )}
         />
+        {ticketCompanyId && (
+          <p className="mt-1 text-xs text-slate-400">
+            Les contacts de {ticketCompanyName ?? "l'entreprise du ticket"} sont proposés en premier.
+          </p>
+        )}
       </div>
 
       {/* Ticket lié */}
@@ -1175,7 +1205,7 @@ function MultiSelectField({
   onChange,
   placeholder,
 }: {
-  options: { value: string; label: string }[]
+  options: { value: string; label: string; group?: string }[]
   value: string[]
   onChange: (v: string[]) => void
   placeholder: string
@@ -1224,15 +1254,21 @@ function MultiSelectField({
       {/* Dropdown */}
       {open && filtered.length > 0 && (
         <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
-          {filtered.map(o => (
-            <button
-              key={o.value}
-              type="button"
-              className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 text-slate-700"
-              onMouseDown={() => add(o.value)}
-            >
-              {o.label}
-            </button>
+          {filtered.map((o, i) => (
+            <div key={o.value}>
+              {o.group && o.group !== filtered[i - 1]?.group && (
+                <div className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 bg-slate-50 sticky top-0">
+                  {o.group}
+                </div>
+              )}
+              <button
+                type="button"
+                className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 text-slate-700"
+                onMouseDown={() => add(o.value)}
+              >
+                {o.label}
+              </button>
+            </div>
           ))}
         </div>
       )}

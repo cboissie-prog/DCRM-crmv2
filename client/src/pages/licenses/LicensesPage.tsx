@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { differenceInDays, parseISO } from 'date-fns'
 import api from '../../lib/api'
-import { formatDate, formatCurrency } from '../../lib/utils'
+import { formatDate, formatCurrency, EQUIPMENT_TYPES } from '../../lib/utils'
 import { Badge } from '../../components/ui/Badge'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
@@ -63,6 +63,7 @@ export function LicensesPage() {
   const [showModal, setShowModal] = useState(false)
   const [editingLicense, setEditingLicense] = useState<License | null>(null)
   const [deletingLicense, setDeletingLicense] = useState<License | null>(null)
+  const [showQuickEquipment, setShowQuickEquipment] = useState(false)
 
   const { data, isLoading } = useQuery<{ data: License[] }>({
     queryKey: ['licenses', { expiringOnly, companyFilter }],
@@ -98,12 +99,21 @@ export function LicensesPage() {
   })
   const equipments = equipmentData?.data ?? []
 
-  const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<LicenseForm>({
+  const { register, handleSubmit, reset, setValue, watch, formState: { errors, isSubmitting } } = useForm<LicenseForm>({
     resolver: zodResolver(licenseSchema) as Resolver<LicenseForm>,
     defaultValues: { seats: 1, type: 'ANNUAL' },
   })
 
   const productReg = register('productId')
+  const companyIdReg = register('companyId')
+
+  // Équipements de l'entreprise sélectionnée uniquement (évite de lier une licence
+  // à un équipement d'une autre entreprise). Le select est désactivé tant qu'aucune
+  // entreprise n'est choisie.
+  const watchedCompanyId = watch('companyId')
+  const filteredEquipments = watchedCompanyId
+    ? equipments.filter(eq => eq.companyId === watchedCompanyId)
+    : []
 
   const { data: softwareCatalog } = useQuery<{ data: { id: string; name: string; supplier?: string; price: number; type: string }[] }>({
     queryKey: ['products-software'],
@@ -322,22 +332,39 @@ export function LicensesPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group sm:col-span-2">
               <label className="label">Entreprise *</label>
-              <select {...register('companyId')} className={`input ${errors.companyId ? 'input-error' : ''}`}>
+              <select
+                {...companyIdReg}
+                onChange={e => { companyIdReg.onChange(e); setValue('equipmentId', '') }}
+                className={`input ${errors.companyId ? 'input-error' : ''}`}
+              >
                 <option value="">Sélectionner une entreprise</option>
                 {companies.map(co => <option key={co.id} value={co.id}>{co.name}</option>)}
               </select>
               {errors.companyId && <p className="form-error">{errors.companyId.message}</p>}
             </div>
             <div className="form-group sm:col-span-2">
-              <label className="label">Équipement lié (optionnel)</label>
-              <select {...register('equipmentId')} className="input">
-                <option value="">Aucun équipement</option>
-                {equipments.map(eq => (
+              <div className="flex items-center justify-between">
+                <label className="label">Équipement lié (optionnel)</label>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-primary-600 hover:text-primary-700 disabled:text-slate-300 disabled:cursor-not-allowed flex items-center gap-1 mb-1.5"
+                  disabled={!watchedCompanyId}
+                  onClick={() => setShowQuickEquipment(true)}
+                >
+                  <Plus className="w-3.5 h-3.5" /> Nouvel équipement
+                </button>
+              </div>
+              <select {...register('equipmentId')} className="input" disabled={!watchedCompanyId}>
+                <option value="">{watchedCompanyId ? 'Aucun équipement' : 'Sélectionnez d\'abord une entreprise'}</option>
+                {filteredEquipments.map(eq => (
                   <option key={eq.id} value={eq.id}>
-                    {[eq.brand, eq.model].filter(Boolean).join(' ') || eq.type} — {eq.company?.name}
+                    {[eq.brand, eq.model].filter(Boolean).join(' ') || eq.type}
                   </option>
                 ))}
               </select>
+              {watchedCompanyId && filteredEquipments.length === 0 && (
+                <p className="text-xs text-slate-400 mt-1">Aucun équipement lié à cette entreprise</p>
+              )}
             </div>
             <div className="form-group">
               <label className="label">Logiciel *</label>
@@ -391,6 +418,17 @@ export function LicensesPage() {
         </form>
       </Modal>
 
+      {/* Création rapide d'un équipement pour l'entreprise sélectionnée */}
+      <QuickEquipmentModal
+        open={showQuickEquipment}
+        onClose={() => setShowQuickEquipment(false)}
+        companyId={watchedCompanyId ?? ''}
+        onCreated={(eq) => {
+          setValue('equipmentId', eq.id)
+          setShowQuickEquipment(false)
+        }}
+      />
+
       {/* Delete confirmation */}
       <Modal open={!!deletingLicense} onClose={() => setDeletingLicense(null)} title="Supprimer la licence" size="sm">
         <p className="text-slate-600 mb-6">
@@ -409,5 +447,80 @@ export function LicensesPage() {
         </div>
       </Modal>
     </div>
+  )
+}
+
+// ─── Création rapide d'un équipement (depuis le formulaire licence) ──────────────
+const quickEquipmentSchema = z.object({
+  type: z.string().min(1, 'Type requis'),
+  brand: z.string().optional(),
+  model: z.string().optional(),
+  serialNumber: z.string().optional(),
+})
+type QuickEquipmentForm = z.infer<typeof quickEquipmentSchema>
+
+interface QuickEquipmentModalProps {
+  open: boolean
+  onClose: () => void
+  companyId: string
+  onCreated: (equipment: Equipment) => void
+}
+
+function QuickEquipmentModal({ open, onClose, companyId, onCreated }: QuickEquipmentModalProps) {
+  const qc = useQueryClient()
+  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<QuickEquipmentForm>({
+    resolver: zodResolver(quickEquipmentSchema) as Resolver<QuickEquipmentForm>,
+  })
+
+  useEffect(() => { if (open) reset() }, [open, reset])
+
+  const createMutation = useMutation({
+    mutationFn: (values: QuickEquipmentForm) =>
+      api.post('/equipment', { ...values, companyId, status: 'ACTIVE' }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['equipment-list'] })
+      toast.success('Équipement créé')
+      onCreated(res.data.data as Equipment)
+    },
+    onError: () => toast.error('Erreur lors de la création de l\'équipement'),
+  })
+
+  const onSubmit = (values: QuickEquipmentForm) => createMutation.mutate(values)
+
+  return (
+    <Modal open={open} onClose={onClose} title="Nouvel équipement" size="sm">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <div className="form-group">
+          <label className="label">Type *</label>
+          <select {...register('type')} className={`input ${errors.type ? 'input-error' : ''}`}>
+            <option value="">Sélectionner un type</option>
+            {Object.entries(EQUIPMENT_TYPES).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+          {errors.type && <p className="form-error">{errors.type.message}</p>}
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="form-group">
+            <label className="label">Marque</label>
+            <input {...register('brand')} className="input" />
+          </div>
+          <div className="form-group">
+            <label className="label">Modèle</label>
+            <input {...register('model')} className="input" />
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="label">Numéro de série</label>
+          <input {...register('serialNumber')} className="input" />
+        </div>
+        <div className="flex justify-end gap-3 pt-2">
+          <button type="button" className="btn-secondary" onClick={onClose}>Annuler</button>
+          <button type="submit" className="btn-primary" disabled={isSubmitting || createMutation.isPending}>
+            Créer
+          </button>
+        </div>
+      </form>
+    </Modal>
   )
 }
