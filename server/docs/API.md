@@ -795,6 +795,10 @@ Fichier : `server/src/routes/targets.ts`. Le champ « réalisé » n'est jamais 
 | GET | `/targets` | Permission `targets:read` | Objectifs de la période (siens seuls sans `targets:read_all`) |
 | GET | `/targets/forecast` | Permission `targets:read` | Prévisions pondérées par étape/utilisateur pour une période |
 | GET | `/targets/performance` | Permission `targets:read_all` | Classement des commerciaux (gagné/perdu/actif/winrate) |
+| GET | `/targets/company` | Permission `company_targets:read` | Objectifs d'entreprise de la période (réalisé collectif + répartition) |
+| POST | `/targets/company` | Permission `company_targets:write` | Crée ou met à jour (upsert) un objectif d'entreprise |
+| PUT | `/targets/company/:id` | Permission `company_targets:write` | Met à jour un objectif d'entreprise |
+| DELETE | `/targets/company/:id` | Permission `company_targets:write` | Supprime un objectif d'entreprise |
 | POST | `/targets` | Permission `targets:write` | Crée ou met à jour (upsert) un objectif |
 | PUT | `/targets/:id` | Permission `targets:write` | Met à jour un objectif |
 | DELETE | `/targets/:id` | Permission `targets:write` | Supprime un objectif |
@@ -824,6 +828,30 @@ Réponse `data` :
 
 **GET /targets/performance**
 Query : `period` (optionnel — sans valeur, agrège sur toute la durée). Réponse : `data` = tableau `{ user, wonCount, wonValue, lostCount, activeCount, createdCount, winRate, avgDeal }` pour les utilisateurs `COMMERCIAL`/`MANAGER`/`ADMIN` actifs ayant une activité, trié par `wonValue` décroissant.
+
+**GET /targets/company**
+Query : `period` (optionnel, défaut = trimestre courant ; formats `AAAA`, `AAAA-Qn` ou `AAAA-MM` — la période annuelle est acceptée ici, contrairement aux objectifs individuels).
+Réponse : `data` = objectifs d'entreprise de la période (un global `pipelineId: null` et/ou un par pipeline), chacun enrichi de :
+- `computedActual` : CA des opportunités gagnées de **tous** les commerciaux sur la période (filtré par pipeline si l'objectif en a un) ;
+- `allocatedTarget` : somme des objectifs individuels couvrant la période sur le même périmètre, sans double comptage (l'objectif trimestriel d'un commercial prime sur ses objectifs mensuels du même trimestre ; pour une cible globale, l'objectif individuel global prime sur les ventilations par pipeline).
+
+**POST /targets/company**
+```json
+{
+  "period": "string (format 2026, 2026-Q1 ou 2026-01)",
+  "target": "number positif",
+  "pipelineId": "string ou null (optionnel — absent/null = objectif global)"
+}
+```
+Upsert sur `(period, pipelineId)` : met à jour l'objectif d'entreprise existant ou en crée un. Réponse `201`.
+
+**PUT /targets/company/:id**
+```json
+{
+  "target": "number positif",
+  "pipelineId": "string ou null (optionnel)"
+}
+```
 
 **POST /targets**
 ```json

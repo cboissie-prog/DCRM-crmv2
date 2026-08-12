@@ -55,6 +55,8 @@ const PERMISSIONS = [
   { key: 'targets:read',     label: 'Voir ses objectifs et prévisions',              category: 'Objectifs' },
   { key: 'targets:read_all', label: 'Voir les objectifs et prévisions de l\'équipe', category: 'Objectifs' },
   { key: 'targets:write',    label: 'Attribuer/modifier les objectifs',              category: 'Objectifs' },
+  { key: 'company_targets:read',  label: 'Voir l\'objectif d\'entreprise',                    category: 'Objectifs' },
+  { key: 'company_targets:write', label: 'Définir/modifier l\'objectif d\'entreprise',        category: 'Objectifs' },
   // Automatisations
   { key: 'automation:read', label: 'Voir les automatisations', category: 'Automatisations' },
   { key: 'automation:create', label: 'Créer une automatisation', category: 'Automatisations' },
@@ -126,6 +128,7 @@ export async function seedBase() {
     'tickets:read', 'tickets:create', 'tickets:update',
     'products:read',
     'targets:read',
+    'company_targets:read', // voir le cap collectif (l'écriture reste manager/admin)
     'appointments:read', 'appointments:create', 'appointments:update', 'appointments:delete',
     'calls:read', 'calls:create', 'calls:update',
   ]

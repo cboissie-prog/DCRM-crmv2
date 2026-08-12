@@ -16,6 +16,10 @@ function currentPeriod(): string {
 }
 
 function parsePeriod(period: string): { start: Date; end: Date } {
+  if (/^\d{4}$/.test(period)) {
+    const year = parseInt(period)
+    return { start: new Date(year, 0, 1), end: new Date(year, 12, 0, 23, 59, 59, 999) }
+  }
   if (/^\d{4}-Q[1-4]$/.test(period)) {
     const year = parseInt(period)
     const q    = parseInt(period.split('-Q')[1])
@@ -25,6 +29,20 @@ function parsePeriod(period: string): { start: Date; end: Date } {
   // Monthly: "2026-01"
   const [y, mo] = period.split('-').map(Number)
   return { start: new Date(y, mo - 1, 1), end: new Date(y, mo, 0, 23, 59, 59, 999) }
+}
+
+/** Mois ("YYYY-MM") composant un trimestre "YYYY-QN" */
+function monthsOfQuarter(quarter: string): string[] {
+  const year = quarter.slice(0, 4)
+  const q    = parseInt(quarter.split('-Q')[1])
+  return [0, 1, 2].map(i => `${year}-${String((q - 1) * 3 + i + 1).padStart(2, '0')}`)
+}
+
+/** Trimestres composant une période entreprise (année → 4 trimestres, trimestre → lui-même, mois → aucun) */
+function quartersOfPeriod(period: string): string[] {
+  if (/^\d{4}$/.test(period))       return [1, 2, 3, 4].map(q => `${period}-Q${q}`)
+  if (/^\d{4}-Q[1-4]$/.test(period)) return [period]
+  return []
 }
 
 /** Trimestres du plus ancien au plus récent : `past` en arrière (trimestre courant inclus) + `future` en avant */
@@ -60,6 +78,20 @@ const createSchema = z.object({
 })
 
 const updateSchema = z.object({
+  target:     z.number().positive(),
+  pipelineId: z.string().min(1).nullable().optional(),
+})
+
+// Objectif d'entreprise : accepte aussi la période annuelle ("2026")
+const COMPANY_PERIOD_REGEX = /^\d{4}$|^\d{4}-Q[1-4]$|^\d{4}-\d{2}$/
+
+const companyCreateSchema = z.object({
+  period:     z.string().regex(COMPANY_PERIOD_REGEX, 'Format: 2026, 2026-Q1 ou 2026-01'),
+  target:     z.number().positive('Objectif doit être positif'),
+  pipelineId: z.string().min(1).nullable().optional(), // null/absent = objectif global
+})
+
+const companyUpdateSchema = z.object({
   target:     z.number().positive(),
   pipelineId: z.string().min(1).nullable().optional(),
 })
@@ -310,6 +342,148 @@ router.get('/performance', requirePermission('targets:read_all'), async (req: Au
     active.sort((a, b) => b.wonValue - a.wonValue)
 
     res.json({ success: true, data: active })
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// ─── OBJECTIF D'ENTREPRISE ────────────────────────────────────────────────────
+// Cible collective par période, alimentée par les opportunités gagnées de tous
+// les commerciaux. `allocatedTarget` mesure la couverture de la cible par les
+// objectifs individuels déjà répartis.
+
+const companyPipelineInclude = { pipeline: { select: { id: true, name: true, color: true } } }
+
+/**
+ * Somme des objectifs individuels couvrant la période entreprise, sans double comptage :
+ * - temps : l'objectif trimestriel d'un commercial prime sur ses objectifs mensuels du
+ *   même trimestre (période annuelle : trimestres d'abord, puis mois non couverts) ;
+ * - périmètre : pour une cible entreprise globale, l'objectif global d'un commercial
+ *   prime sur ses objectifs par pipeline ; pour une cible par pipeline, seuls les
+ *   objectifs individuels de ce pipeline comptent.
+ */
+async function computeAllocatedTarget(period: string, pipelineId: string | null): Promise<number> {
+  const quarters   = quartersOfPeriod(period)
+  const months     = quarters.length > 0 ? quarters.flatMap(monthsOfQuarter) : [period]
+  const allPeriods = [...quarters, ...months]
+
+  const rows = await prisma.salesTarget.findMany({
+    where: {
+      period: { in: allPeriods },
+      ...(pipelineId ? { pipelineId } : {}),
+    },
+    select: { userId: true, period: true, target: true, pipelineId: true },
+  })
+
+  // Quota effectif d'un commercial sur une même fenêtre de temps
+  const effective = (list: typeof rows): number => {
+    if (pipelineId) return list.reduce((s, t) => s + t.target, 0)
+    const global = list.find(t => t.pipelineId === null)
+    return global ? global.target : list.reduce((s, t) => s + t.target, 0)
+  }
+
+  const byUser = new Map<string, typeof rows>()
+  for (const t of rows) {
+    const list = byUser.get(t.userId) ?? []
+    list.push(t)
+    byUser.set(t.userId, list)
+  }
+
+  let total = 0
+  for (const list of byUser.values()) {
+    if (quarters.length === 0) { total += effective(list); continue } // période mensuelle
+    for (const q of quarters) {
+      const qTargets = list.filter(t => t.period === q)
+      if (qTargets.length > 0) { total += effective(qTargets); continue }
+      for (const m of monthsOfQuarter(q)) {
+        const mTargets = list.filter(t => t.period === m)
+        if (mTargets.length > 0) total += effective(mTargets)
+      }
+    }
+  }
+  return total
+}
+
+// ─── GET /targets/company?period=2026-Q3 ──────────────────────────────────────
+
+router.get('/company', requirePermission('company_targets:read'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const period = (req.query.period as string) || currentPeriod()
+    if (!COMPANY_PERIOD_REGEX.test(period)) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Période invalide (formats : 2026, 2026-Q1, 2026-01)' } })
+      return
+    }
+
+    const targets = await prisma.companyTarget.findMany({
+      where: { period },
+      include: companyPipelineInclude,
+      orderBy: { createdAt: 'asc' },
+    })
+
+    // Réalisé collectif : opportunités gagnées de la période, tous commerciaux
+    const { wonKeys } = await getWonLostStageKeys()
+    const { start, end } = parsePeriod(period)
+    const wonGroups = targets.length > 0 && wonKeys.length > 0
+      ? await prisma.opportunity.groupBy({
+          by: ['pipelineId'],
+          _sum: { value: true },
+          where: { stage: { in: wonKeys }, closedAt: { gte: start, lte: end } },
+        })
+      : []
+    const actualFor = (pid: string | null) => pid
+      ? wonGroups.find(w => w.pipelineId === pid)?._sum.value ?? 0
+      : wonGroups.reduce((s, w) => s + (w._sum.value ?? 0), 0)
+
+    const enriched = await Promise.all(targets.map(async t => ({
+      ...t,
+      computedActual:  actualFor(t.pipelineId),
+      allocatedTarget: await computeAllocatedTarget(period, t.pipelineId),
+    })))
+
+    res.json({ success: true, data: enriched, meta: { period } })
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// ─── POST /targets/company ────────────────────────────────────────────────────
+
+router.post('/company', requirePermission('company_targets:write'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const body = companyCreateSchema.parse(req.body)
+    const pipelineId = body.pipelineId ?? null
+    // Upsert par period + pipeline (null = objectif global)
+    const existing = await prisma.companyTarget.findFirst({ where: { period: body.period, pipelineId } })
+    const target = existing
+      ? await prisma.companyTarget.update({
+          where: { id: existing.id },
+          data: { target: body.target },
+          include: companyPipelineInclude,
+        })
+      : await prisma.companyTarget.create({
+          data: { period: body.period, target: body.target, pipelineId },
+          include: companyPipelineInclude,
+        })
+    res.status(201).json({ success: true, data: target })
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// ─── PUT /targets/company/:id ─────────────────────────────────────────────────
+
+router.put('/company/:id', requirePermission('company_targets:write'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const body   = companyUpdateSchema.parse(req.body)
+    const target = await prisma.companyTarget.update({
+      where:   { id: req.params.id as string },
+      data:    body,
+      include: companyPipelineInclude,
+    })
+    res.json({ success: true, data: target })
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// ─── DELETE /targets/company/:id ──────────────────────────────────────────────
+
+router.delete('/company/:id', requirePermission('company_targets:write'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    await prisma.companyTarget.delete({ where: { id: req.params.id as string } })
+    res.json({ success: true })
   } catch (err) { handleRouteError(err, res) }
 })
 

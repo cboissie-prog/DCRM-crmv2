@@ -159,9 +159,10 @@ model Pipeline {
   owner         User?           @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
-  stages        PipelineStage[]
-  opportunities Opportunity[]
-  salesTargets  SalesTarget[]
+  stages         PipelineStage[]
+  opportunities  Opportunity[]
+  salesTargets   SalesTarget[]
+  companyTargets CompanyTarget[]
 }
 
 model PipelineStage {
@@ -594,6 +595,19 @@ model SalesTarget {
   period     String
   target     Float
   actual     Float     @default(0)
+  pipelineId String?   // null = objectif global (tous pipelines)
+  pipeline   Pipeline? @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+// Objectif d'entreprise : cible collective par période ("2026", "2026-Q3" ou "2026-01").
+// Le réalisé (opportunités gagnées de tous les commerciaux) et la répartition
+// (somme des objectifs individuels) sont calculés à la volée par l'API.
+model CompanyTarget {
+  id         String    @id @default(uuid())
+  period     String
+  target     Float
   pipelineId String?   // null = objectif global (tous pipelines)
   pipeline   Pipeline? @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
   createdAt  DateTime  @default(now())
