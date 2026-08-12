@@ -75,6 +75,7 @@ const PERMISSIONS = [
   { key: 'settings:write', label: 'Modifier les paramètres', category: 'Paramètres' },
   { key: 'settings:roles', label: 'Gérer les rôles et permissions', category: 'Paramètres' },
   { key: 'apikeys:manage', label: 'Gérer ses clés API', category: 'Paramètres' },
+  { key: 'apidocs:read', label: 'Consulter la documentation API', category: 'Paramètres' },
   // Appels téléphoniques
   { key: 'calls:read', label: 'Voir les appels', category: 'Appels' },
   { key: 'calls:create', label: 'Créer un appel', category: 'Appels' },
@@ -114,7 +115,8 @@ export async function seedBase() {
   const managerKeys = allKeys.filter(k =>
     k !== 'users:delete' &&
     k !== 'settings:roles' &&
-    k !== 'apikeys:manage'
+    k !== 'apikeys:manage' &&
+    k !== 'apidocs:read'
   )
   const commercialKeys = [
     'dashboard:read',

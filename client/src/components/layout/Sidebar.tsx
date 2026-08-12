@@ -54,6 +54,7 @@ const bottomItems: NavItem[] = [
     { label: 'Général',             to: '/settings' },
     { label: 'Utilisateurs',        to: '/users',          roles: ['ADMIN', 'MANAGER'] },
     { label: 'Rôles & Permissions', to: '/settings/roles', permission: 'settings:roles' },
+    { label: 'Documentation API',   to: '/settings/api-docs', permission: 'apidocs:read' },
   ]},
 ]
 

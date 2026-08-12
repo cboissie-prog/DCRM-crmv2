@@ -101,6 +101,9 @@ const GoogleCallbackPage = lazy(() =>
 const NpsSurveyPage = lazy(() =>
   import('./pages/nps/NpsSurveyPage').then(m => ({ default: m.NpsSurveyPage }))
 )
+const ApiDocsPage = lazy(() =>
+  import('./pages/docs/ApiDocsPage').then(m => ({ default: m.ApiDocsPage }))
+)
 
 // ── Query client ─────────────────────────────────────────────────────────────
 const queryClient = new QueryClient({
@@ -181,6 +184,11 @@ export default function App() {
               {/* settings:roles */}
               <Route element={<ProtectedRoute permission="settings:roles" />}>
                 <Route path="/settings/roles" element={<RolesPage />} />
+              </Route>
+
+              {/* apidocs:read */}
+              <Route element={<ProtectedRoute permission="apidocs:read" />}>
+                <Route path="/settings/api-docs" element={<ApiDocsPage />} />
               </Route>
 
               {/* contracts:read */}
