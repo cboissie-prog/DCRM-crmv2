@@ -15,34 +15,26 @@ function currentPeriod(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
+// Formats de période : mensuel ("2026-01") partout, annuel ("2026") pour l'objectif d'entreprise
+const MONTH_REGEX          = /^\d{4}-(0[1-9]|1[0-2])$/
+const COMPANY_PERIOD_REGEX = /^\d{4}$|^\d{4}-(0[1-9]|1[0-2])$/
+
 function parsePeriod(period: string): { start: Date; end: Date } {
   if (/^\d{4}$/.test(period)) {
     const year = parseInt(period)
     return { start: new Date(year, 0, 1), end: new Date(year, 12, 0, 23, 59, 59, 999) }
-  }
-  if (/^\d{4}-Q[1-4]$/.test(period)) {
-    const year = parseInt(period)
-    const q    = parseInt(period.split('-Q')[1])
-    const m    = (q - 1) * 3
-    return { start: new Date(year, m, 1), end: new Date(year, m + 3, 0, 23, 59, 59, 999) }
   }
   // Monthly: "2026-01"
   const [y, mo] = period.split('-').map(Number)
   return { start: new Date(y, mo - 1, 1), end: new Date(y, mo, 0, 23, 59, 59, 999) }
 }
 
-/** Mois ("YYYY-MM") composant un trimestre "YYYY-QN" */
-function monthsOfQuarter(quarter: string): string[] {
-  const year = quarter.slice(0, 4)
-  const q    = parseInt(quarter.split('-Q')[1])
-  return [0, 1, 2].map(i => `${year}-${String((q - 1) * 3 + i + 1).padStart(2, '0')}`)
-}
-
-/** Trimestres composant une période entreprise (année → 4 trimestres, trimestre → lui-même, mois → aucun) */
-function quartersOfPeriod(period: string): string[] {
-  if (/^\d{4}$/.test(period))       return [1, 2, 3, 4].map(q => `${period}-Q${q}`)
-  if (/^\d{4}-Q[1-4]$/.test(period)) return [period]
-  return []
+/** Mois ("YYYY-MM") composant une période entreprise (année → 12 mois, mois → lui-même) */
+function monthsOfPeriod(period: string): string[] {
+  if (/^\d{4}$/.test(period)) {
+    return Array.from({ length: 12 }, (_, i) => `${period}-${String(i + 1).padStart(2, '0')}`)
+  }
+  return [period]
 }
 
 /** Mois du plus ancien au plus récent : `past` en arrière (mois courant inclus) + `future` en avant */
@@ -67,12 +59,19 @@ const userSelect = { id: true, firstName: true, lastName: true, avatar: true, ro
 const canReadAll = (req: AuthRequest): boolean =>
   req.permissions?.includes('*') || req.permissions?.includes('targets:read_all') || false
 
+/** Répond 400 si la période n'est pas au format mensuel "AAAA-MM". Retourne true si la réponse a été envoyée. */
+function rejectInvalidMonth(period: string, res: Response): boolean {
+  if (MONTH_REGEX.test(period)) return false
+  res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Période invalide (format attendu : 2026-01)' } })
+  return true
+}
+
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 // Le « réalisé » n'est plus saisi : il est calculé depuis les opportunités gagnées.
 
 const createSchema = z.object({
   userId:     z.string().min(1),
-  period:     z.string().regex(/^\d{4}-Q[1-4]$|^\d{4}-\d{2}$/, 'Format: 2026-Q1 ou 2026-01'),
+  period:     z.string().regex(MONTH_REGEX, 'Format: 2026-01'),
   target:     z.number().positive('Objectif doit être positif'),
   pipelineId: z.string().min(1).nullable().optional(), // null/absent = objectif global
 })
@@ -83,10 +82,8 @@ const updateSchema = z.object({
 })
 
 // Objectif d'entreprise : accepte aussi la période annuelle ("2026")
-const COMPANY_PERIOD_REGEX = /^\d{4}$|^\d{4}-Q[1-4]$|^\d{4}-\d{2}$/
-
 const companyCreateSchema = z.object({
-  period:     z.string().regex(COMPANY_PERIOD_REGEX, 'Format: 2026, 2026-Q1 ou 2026-01'),
+  period:     z.string().regex(COMPANY_PERIOD_REGEX, 'Format: 2026 ou 2026-01'),
   target:     z.number().positive('Objectif doit être positif'),
   pipelineId: z.string().min(1).nullable().optional(), // null/absent = objectif global
 })
@@ -124,11 +121,12 @@ router.get('/eligible-users', requirePermission('targets:write'), async (_req: A
   } catch (err) { handleRouteError(err, res) }
 })
 
-// ─── GET /targets?period=2026-Q2 ──────────────────────────────────────────────
+// ─── GET /targets?period=2026-08 ──────────────────────────────────────────────
 
 router.get('/', requirePermission('targets:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const period = (req.query.period as string) || currentPeriod()
+    if (rejectInvalidMonth(period, res)) return
 
     // Sans targets:read_all, on ne voit que ses propres objectifs
     const where: Record<string, unknown> = { period }
@@ -172,6 +170,7 @@ router.get('/', requirePermission('targets:read'), async (req: AuthRequest, res:
 router.get('/forecast', requirePermission('targets:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const period     = (req.query.period as string) || currentPeriod()
+    if (rejectInvalidMonth(period, res)) return
     const pipelineId = (req.query.pipelineId as string) || undefined
     const { start, end } = parsePeriod(period)
     const { wonKeys, lostKeys } = await getWonLostStageKeys()
@@ -296,12 +295,13 @@ router.get('/forecast', requirePermission('targets:read'), async (req: AuthReque
   } catch (err) { handleRouteError(err, res) }
 })
 
-// ─── GET /targets/performance?period=2026-Q2 ─────────────────────────────────
+// ─── GET /targets/performance?period=2026-08 ─────────────────────────────────
 // Classement des commerciaux — nécessite la vue équipe.
 
 router.get('/performance', requirePermission('targets:read_all'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const period = (req.query.period as string) || undefined
+    if (period && rejectInvalidMonth(period, res)) return
     const dates  = period ? parsePeriod(period) : null
     const { wonKeys, lostKeys } = await getWonLostStageKeys()
 
@@ -353,62 +353,45 @@ router.get('/performance', requirePermission('targets:read_all'), async (req: Au
 const companyPipelineInclude = { pipeline: { select: { id: true, name: true, color: true } } }
 
 /**
- * Somme des objectifs individuels couvrant la période entreprise, sans double comptage :
- * - temps : l'objectif trimestriel d'un commercial prime sur ses objectifs mensuels du
- *   même trimestre (période annuelle : trimestres d'abord, puis mois non couverts) ;
- * - périmètre : pour une cible entreprise globale, l'objectif global d'un commercial
- *   prime sur ses objectifs par pipeline ; pour une cible par pipeline, seuls les
- *   objectifs individuels de ce pipeline comptent.
+ * Somme des objectifs individuels couvrant la période entreprise (mois exact, ou les
+ * 12 mois pour une cible annuelle), sans double comptage de périmètre : pour une cible
+ * entreprise globale, l'objectif global d'un commercial prime sur ses objectifs par
+ * pipeline ; pour une cible par pipeline, seuls les objectifs de ce pipeline comptent.
  */
 async function computeAllocatedTarget(period: string, pipelineId: string | null): Promise<number> {
-  const quarters   = quartersOfPeriod(period)
-  const months     = quarters.length > 0 ? quarters.flatMap(monthsOfQuarter) : [period]
-  const allPeriods = [...quarters, ...months]
-
   const rows = await prisma.salesTarget.findMany({
     where: {
-      period: { in: allPeriods },
+      period: { in: monthsOfPeriod(period) },
       ...(pipelineId ? { pipelineId } : {}),
     },
     select: { userId: true, period: true, target: true, pipelineId: true },
   })
 
-  // Quota effectif d'un commercial sur une même fenêtre de temps
-  const effective = (list: typeof rows): number => {
-    if (pipelineId) return list.reduce((s, t) => s + t.target, 0)
-    const global = list.find(t => t.pipelineId === null)
-    return global ? global.target : list.reduce((s, t) => s + t.target, 0)
-  }
-
-  const byUser = new Map<string, typeof rows>()
+  // Regroupe par (commercial, mois) pour appliquer la règle global > pipelines
+  const byUserMonth = new Map<string, typeof rows>()
   for (const t of rows) {
-    const list = byUser.get(t.userId) ?? []
+    const key  = `${t.userId}|${t.period}`
+    const list = byUserMonth.get(key) ?? []
     list.push(t)
-    byUser.set(t.userId, list)
+    byUserMonth.set(key, list)
   }
 
   let total = 0
-  for (const list of byUser.values()) {
-    if (quarters.length === 0) { total += effective(list); continue } // période mensuelle
-    for (const q of quarters) {
-      const qTargets = list.filter(t => t.period === q)
-      if (qTargets.length > 0) { total += effective(qTargets); continue }
-      for (const m of monthsOfQuarter(q)) {
-        const mTargets = list.filter(t => t.period === m)
-        if (mTargets.length > 0) total += effective(mTargets)
-      }
-    }
+  for (const list of byUserMonth.values()) {
+    if (pipelineId) { total += list.reduce((s, t) => s + t.target, 0); continue }
+    const global = list.find(t => t.pipelineId === null)
+    total += global ? global.target : list.reduce((s, t) => s + t.target, 0)
   }
   return total
 }
 
-// ─── GET /targets/company?period=2026-Q3 ──────────────────────────────────────
+// ─── GET /targets/company?period=2026-08 ──────────────────────────────────────
 
 router.get('/company', requirePermission('company_targets:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const period = (req.query.period as string) || currentPeriod()
     if (!COMPANY_PERIOD_REGEX.test(period)) {
-      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Période invalide (formats : 2026, 2026-Q1, 2026-01)' } })
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Période invalide (formats : 2026 ou 2026-01)' } })
       return
     }
 

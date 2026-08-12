@@ -601,7 +601,7 @@ model SalesTarget {
   updatedAt  DateTime  @updatedAt
 }
 
-// Objectif d'entreprise : cible collective par période ("2026", "2026-Q3" ou "2026-01").
+// Objectif d'entreprise : cible collective par période ("2026" ou "2026-01").
 // Le réalisé (opportunités gagnées de tous les commerciaux) et la répartition
 // (somme des objectifs individuels) sont calculés à la volée par l'API.
 model CompanyTarget {

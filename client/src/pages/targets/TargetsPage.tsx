@@ -131,14 +131,8 @@ const MONTH_LABELS = [
 
 function periodLabel(p: string) {
   if (/^\d{4}$/.test(p)) return `Année ${p}`
-  if (/^\d{4}-\d{2}$/.test(p)) {
-    const [year, month] = p.split('-')
-    return `${MONTH_LABELS[parseInt(month) - 1] ?? month} ${year}`
-  }
-  // Ancien format trimestriel (objectifs historiques)
-  const [year, q] = p.split('-Q')
-  const labels: Record<string, string> = { '1': 'T1', '2': 'T2', '3': 'T3', '4': 'T4' }
-  return `${labels[q] ?? q} ${year}`
+  const [year, month] = p.split('-')
+  return `${MONTH_LABELS[parseInt(month) - 1] ?? month} ${year}`
 }
 
 const fmt = (n: number) =>
@@ -1040,7 +1034,7 @@ export function TargetsPage() {
   const [tab,    setTab]    = useState<'objectifs' | 'previsions' | 'performance'>('objectifs')
   const [period, setPeriod] = useState(currentPeriod)
 
-  // Périodes fournies par l'API (8 derniers trimestres glissants), fallback local
+  // Périodes fournies par l'API (12 mois passés + 6 futurs glissants), fallback local
   const { data: periodsData } = useQuery<{ data: string[] }>({
     queryKey: ['target-periods'],
     queryFn: async () => { const { data } = await api.get('/targets/periods'); return data },
