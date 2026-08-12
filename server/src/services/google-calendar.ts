@@ -272,17 +272,26 @@ export async function pullUserCalendar(credential: GoogleCredentialWithUser): Pr
   let events: calendar_v3.Schema$Event[] = []
   let newSyncToken: string | undefined
 
-  // Tente la synchro incrémentale avec le syncToken existant
+  // Tente la synchro incrémentale avec le syncToken existant.
+  // Paginé : nextSyncToken n'est renvoyé que sur la DERNIÈRE page — sans boucle,
+  // au-delà de 250 changements le token n'avance jamais et la synchro reste bloquée.
   const tryIncremental = async (): Promise<boolean> => {
     if (!credential.syncToken) return false
     try {
-      const res = await cal.events.list({
-        calendarId: 'primary',
-        syncToken:  credential.syncToken,
-        singleEvents: true,
-      })
-      events       = res.data.items ?? []
-      newSyncToken = res.data.nextSyncToken ?? undefined
+      let pageToken: string | undefined
+      events = []
+      do {
+        const res = await cal.events.list({
+          calendarId: 'primary',
+          syncToken:  credential.syncToken,
+          singleEvents: true,
+          maxResults: 250,
+          pageToken,
+        })
+        events.push(...(res.data.items ?? []))
+        pageToken    = res.data.nextPageToken ?? undefined
+        newSyncToken = res.data.nextSyncToken ?? undefined
+      } while (pageToken)
       return true
     } catch (err: unknown) {
       const status = (err as { code?: number })?.code

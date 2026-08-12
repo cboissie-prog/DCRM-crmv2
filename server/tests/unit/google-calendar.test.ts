@@ -47,6 +47,7 @@ import {
   appointmentToEvent,
   processIncomingEvent,
   runCalendarSync,
+  pullUserCalendar,
 } from '../../src/services/google-calendar'
 
 // ── Mock crypto (encrypt/decrypt) pour éviter la dépendance sur TOKEN_ENC_KEY ─
@@ -319,6 +320,85 @@ describe('google-calendar service — tests unitaires', () => {
       // Le titre ne doit PAS avoir changé
       const unchanged = await prisma.appointment.findUnique({ where: { id: appt.id } })
       expect(unchanged?.title).toBe('Stable Title')
+    })
+  })
+
+  // ─── e) pullUserCalendar — pagination de la synchro incrémentale ─────────────
+
+  describe('e) pullUserCalendar — synchro incrémentale paginée', () => {
+    it('suit nextPageToken et met à jour le syncToken reçu sur la dernière page', async () => {
+      const cred = await prisma.googleCredential.upsert({
+        where:  { userId: adminUserId },
+        create: {
+          userId:              adminUserId,
+          googleEmail:         'admin@test.local',
+          refreshTokenEnc:     'enc:fake-refresh-token',
+          calendarSyncEnabled: true,
+          syncToken:           'stale-sync-token',
+        },
+        update: {
+          calendarSyncEnabled: true,
+          syncToken:           'stale-sync-token',
+        },
+      })
+
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000)
+      const tomorrowPlus1h = new Date(tomorrow.getTime() + 60 * 60 * 1000)
+      const makeEvent = (id: string, summary: string) => ({
+        id,
+        etag:    `etag-${id}`,
+        status:  'confirmed',
+        summary,
+        updated: new Date().toISOString(),
+        start:   { dateTime: tomorrow.toISOString() },
+        end:     { dateTime: tomorrowPlus1h.toISOString() },
+        extendedProperties: { private: {} },
+      })
+
+      // Page 1 : nextPageToken présent, PAS de nextSyncToken (comportement réel de l'API)
+      mockEventsList.mockResolvedValueOnce({
+        data: {
+          items:         [makeEvent('g-page1-event', 'Événement page 1')],
+          nextPageToken: 'page-2',
+        },
+      })
+      // Page 2 (dernière) : nextSyncToken présent
+      mockEventsList.mockResolvedValueOnce({
+        data: {
+          items:         [makeEvent('g-page2-event', 'Événement page 2')],
+          nextSyncToken: 'fresh-sync-token',
+        },
+      })
+
+      const callCountBefore = mockEventsList.mock.calls.length
+      const pulled = await pullUserCalendar(cred as Parameters<typeof pullUserCalendar>[0])
+
+      // Les DEUX pages doivent avoir été traitées
+      expect(pulled).toBe(2)
+      const calls = mockEventsList.mock.calls.slice(callCountBefore)
+      expect(calls).toHaveLength(2)
+      expect(calls[0][0]).toMatchObject({ syncToken: 'stale-sync-token' })
+      expect(calls[0][0].pageToken).toBeUndefined()
+      expect(calls[1][0]).toMatchObject({ syncToken: 'stale-sync-token', pageToken: 'page-2' })
+
+      // L'événement de la page 2 doit avoir été importé
+      const linkPage2 = await prisma.appointmentGoogleEvent.findFirst({
+        where: { googleEventId: 'g-page2-event', userId: adminUserId },
+      })
+      expect(linkPage2).not.toBeNull()
+
+      // Le syncToken doit avoir avancé vers celui de la dernière page
+      const updatedCred = await prisma.googleCredential.findUnique({ where: { userId: adminUserId } })
+      expect(updatedCred?.syncToken).toBe('fresh-sync-token')
+
+      // Nettoyage : RDV importés + credential
+      const links = await prisma.appointmentGoogleEvent.findMany({
+        where: { googleEventId: { in: ['g-page1-event', 'g-page2-event'] }, userId: adminUserId },
+      })
+      for (const link of links) {
+        await prisma.appointment.delete({ where: { id: link.appointmentId } }).catch(() => {})
+      }
+      await prisma.googleCredential.delete({ where: { userId: adminUserId } }).catch(() => {})
     })
   })
 
