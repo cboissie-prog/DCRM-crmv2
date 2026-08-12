@@ -27,6 +27,11 @@ import { z } from 'zod'
 import { optionalNumber } from '../../lib/formFields'
 import { useAuthStore } from '../../store/authStore'
 import { CanDo } from '../../components/CanDo'
+import { ContactInlinePicker } from '../../components/ui/ContactInlinePicker'
+import {
+  makeContactPickerValue, validateContactPicker, resolveContactPicker,
+  splitFullName, toNationalPhone, type ContactPickerValue,
+} from '../../lib/contactPicker'
 import type { Call, PaginatedResponse } from '../../types'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -699,13 +704,23 @@ export function CallDetailPage() {
         open={showTicketModal}
         call={call}
         onClose={() => setShowTicket(false)}
-        onSuccess={() => { qc.invalidateQueries({ queryKey: ['call', id] }); setShowTicket(false); toast.success('Ticket créé') }}
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ['call', id] })
+          qc.invalidateQueries({ queryKey: ['contacts-light'] })
+          qc.invalidateQueries({ queryKey: ['companies-light'] })
+          setShowTicket(false); toast.success('Ticket créé')
+        }}
       />
       <LeadFromCallModal
         open={showLeadModal}
         call={call}
         onClose={() => setShowLead(false)}
-        onSuccess={() => { setShowLead(false); toast.success('Lead créé') }}
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ['call', id] })
+          qc.invalidateQueries({ queryKey: ['contacts-light'] })
+          qc.invalidateQueries({ queryKey: ['companies-light'] })
+          setShowLead(false); toast.success('Lead créé')
+        }}
       />
     </div>
   )
@@ -1070,13 +1085,31 @@ const ticketFromCallSchema = z.object({
   description:  z.string().min(1, 'Description requise'),
   category:     z.string().min(1),
   priority:     z.string().min(1),
-  contactId:    z.string().optional(),
   companyId:    z.string().optional(),
   assignedToId: z.string().optional(),
 })
 type TicketFromCallData = z.infer<typeof ticketFromCallSchema>
 
+/** Pré-remplissage du bloc « nouveau contact » depuis les infos de l'appel */
+function pickerDefaultsFromCall(call: Call): ContactPickerValue {
+  return makeContactPickerValue({
+    contactId: call.contactId ?? '',
+    ...splitFullName(call.callerName),
+    phone: toNationalPhone(call.direction === 'OUTBOUND' ? call.receiverNumber : call.callerNumber),
+  })
+}
+
 function TicketFromCallModal({ open, call, onClose, onSuccess }: { open: boolean; call: Call; onClose: () => void; onSuccess: () => void }) {
+  // Le formulaire est un enfant de Modal : démonté à la fermeture, il repart
+  // toujours de valeurs fraîches (pas d'effet de reset nécessaire)
+  return (
+    <Modal open={open} onClose={onClose} title="Créer un ticket depuis cet appel" size="lg">
+      <TicketFromCallForm call={call} onClose={onClose} onSuccess={onSuccess} />
+    </Modal>
+  )
+}
+
+function TicketFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose: () => void; onSuccess: () => void }) {
   const { user } = useAuthStore()
   const canAssign = user?.role === 'ADMIN' || user?.role === 'MANAGER'
 
@@ -1088,40 +1121,48 @@ function TicketFromCallModal({ open, call, onClose, onSuccess }: { open: boolean
     ? `Appel du ${formatDateTime(call.startedAt)} (${call.callerNumber}).\n\n${call.notes}`
     : `Appel du ${formatDateTime(call.startedAt)}.\nNuméro : ${call.callerNumber}${call.callerName ? `\nNom : ${call.callerName}` : ''}`
 
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<TicketFromCallData>({
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<TicketFromCallData>({
     resolver: zodResolver(ticketFromCallSchema) as Resolver<TicketFromCallData>,
     defaultValues: {
       title: defaultTitle, description: defaultDesc,
       category: call.category === 'INCIDENT' ? 'HARDWARE_FAILURE' : 'OTHER',
       priority: call.priority === 'URGENT' ? 'CRITICAL' : call.priority === 'HIGH' ? 'HIGH' : 'NORMAL',
-      contactId: call.contactId ?? '', companyId: call.companyId ?? '',
+      companyId: call.companyId ?? '',
     },
   })
+  const [picker, setPicker] = useState<ContactPickerValue>(() => pickerDefaultsFromCall(call))
+  const [pickerError, setPickerError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (open) reset({
-      title: defaultTitle, description: defaultDesc,
-      category: call.category === 'INCIDENT' ? 'HARDWARE_FAILURE' : 'OTHER',
-      priority: call.priority === 'URGENT' ? 'CRITICAL' : call.priority === 'HIGH' ? 'HIGH' : 'NORMAL',
-      contactId: call.contactId ?? '', companyId: call.companyId ?? '',
-    })
-  }, [open])
-
-  const { data: contactsData } = useQuery({ queryKey: ['contacts-select'], queryFn: async () => { const { data } = await api.get('/contacts', { params: { limit: 200 } }); return data.data as { id: string; firstName: string; lastName: string }[] }, enabled: open, staleTime: 60_000 })
-  const { data: companiesData } = useQuery({ queryKey: ['companies-select'], queryFn: async () => { const { data } = await api.get('/companies', { params: { limit: 200 } }); return data.data as { id: string; name: string }[] }, enabled: open, staleTime: 60_000 })
-  const { data: usersData } = useUsersList({ enabled: open && canAssign })
+  const { data: companiesData } = useQuery({ queryKey: ['companies-light'], queryFn: async () => { const { data } = await api.get('/companies', { params: { limit: 200 } }); return data.data as { id: string; name: string }[] }, staleTime: 60_000 })
+  const { data: usersData } = useUsersList({ enabled: canAssign })
 
   const mutation = useMutation({
     mutationFn: async (values: TicketFromCallData) => {
-      const { data } = await api.post('/tickets', { ...values, callId: call.id, contactId: values.contactId || undefined, companyId: values.companyId || undefined, assignedToId: values.assignedToId || undefined })
+      // Crée entreprise + contact à la volée si le mode « nouveau contact » est utilisé
+      const resolved = await resolveContactPicker(picker)
+      const companyId = picker.mode === 'new' ? resolved.companyId : (values.companyId || undefined)
+      const { data } = await api.post('/tickets', {
+        title: values.title, description: values.description,
+        category: values.category, priority: values.priority,
+        callId: call.id,
+        contactId: resolved.contactId,
+        companyId,
+        assignedToId: values.assignedToId || undefined,
+      })
       return data
     },
     onSuccess, onError: () => toast.error('Erreur lors de la création du ticket'),
   })
 
+  const submit = (values: TicketFromCallData) => {
+    const err = validateContactPicker(picker, false)
+    setPickerError(err)
+    if (err) return
+    mutation.mutate(values)
+  }
+
   return (
-    <Modal open={open} onClose={onClose} title="Créer un ticket depuis cet appel" size="lg">
-      <form onSubmit={handleSubmit(v => mutation.mutate(v))} className="space-y-4">
+    <form onSubmit={handleSubmit(submit)} className="space-y-4">
         <div className="form-group">
           <label className="label">Titre *</label>
           <input {...register('title')} className={`input ${errors.title ? 'input-error' : ''}`} />
@@ -1146,14 +1187,11 @@ function TicketFromCallModal({ open, call, onClose, onSuccess }: { open: boolean
             </select>
           </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="form-group">
-            <label className="label">Contact</label>
-            <select {...register('contactId')} className="input">
-              <option value="">— Aucun —</option>
-              {contactsData?.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>)}
-            </select>
-          </div>
+        <div className="form-group">
+          <label className="label">Contact</label>
+          <ContactInlinePicker value={picker} onChange={v => { setPicker(v); setPickerError(null) }} allowNone error={pickerError} />
+        </div>
+        {picker.mode === 'existing' && (
           <div className="form-group">
             <label className="label">Entreprise</label>
             <select {...register('companyId')} className="input">
@@ -1161,7 +1199,7 @@ function TicketFromCallModal({ open, call, onClose, onSuccess }: { open: boolean
               {companiesData?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-        </div>
+        )}
         {canAssign && (
           <div className="form-group">
             <label className="label">Technicien assigné</label>
@@ -1173,13 +1211,12 @@ function TicketFromCallModal({ open, call, onClose, onSuccess }: { open: boolean
         )}
         <div className="flex justify-end gap-3 pt-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Annuler</button>
-          <button type="submit" className="btn-primary" disabled={isSubmitting}>
-            {isSubmitting ? <Spinner className="w-4 h-4" /> : <Ticket className="w-4 h-4" />}
+          <button type="submit" className="btn-primary" disabled={isSubmitting || mutation.isPending}>
+            {isSubmitting || mutation.isPending ? <Spinner className="w-4 h-4" /> : <Ticket className="w-4 h-4" />}
             Créer le ticket
           </button>
         </div>
-      </form>
-    </Modal>
+    </form>
   )
 }
 
@@ -1189,33 +1226,47 @@ const leadFromCallSchema = z.object({
   title:       z.string().min(1, 'Titre requis'),
   description: z.string().optional(),
   source:      z.string(),
-  contactId:   z.string().min(1, 'Contact requis pour un lead'),
 })
 type LeadFromCallData = z.infer<typeof leadFromCallSchema>
 
 function LeadFromCallModal({ open, call, onClose, onSuccess }: { open: boolean; call: Call; onClose: () => void; onSuccess: () => void }) {
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<LeadFromCallData>({
+  // Le formulaire est un enfant de Modal : démonté à la fermeture, il repart
+  // toujours de valeurs fraîches (pas d'effet de reset nécessaire)
+  return (
+    <Modal open={open} onClose={onClose} title="Créer un lead depuis cet appel" size="md">
+      <LeadFromCallForm call={call} onClose={onClose} onSuccess={onSuccess} />
+    </Modal>
+  )
+}
+
+function LeadFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose: () => void; onSuccess: () => void }) {
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LeadFromCallData>({
     resolver: zodResolver(leadFromCallSchema) as Resolver<LeadFromCallData>,
-    defaultValues: { title: `Lead — ${call.callerName ?? call.callerNumber} — ${formatDate(call.startedAt)}`, description: call.notes ?? '', source: 'PHONE_INBOUND', contactId: call.contactId ?? '' },
+    defaultValues: { title: `Lead — ${call.callerName ?? call.callerNumber} — ${formatDate(call.startedAt)}`, description: call.notes ?? '', source: 'PHONE_INBOUND' },
   })
-
-  useEffect(() => {
-    if (open) reset({ title: `Lead — ${call.callerName ?? call.callerNumber} — ${formatDate(call.startedAt)}`, description: call.notes ?? '', source: 'PHONE_INBOUND', contactId: call.contactId ?? '' })
-  }, [open])
-
-  const { data: contactsData } = useQuery({ queryKey: ['contacts-select'], queryFn: async () => { const { data } = await api.get('/contacts', { params: { limit: 200 } }); return data.data as { id: string; firstName: string; lastName: string }[] }, enabled: open, staleTime: 60_000 })
+  const [picker, setPicker] = useState<ContactPickerValue>(() => pickerDefaultsFromCall(call))
+  const [pickerError, setPickerError] = useState<string | null>(null)
 
   const mutation = useMutation({
     mutationFn: async (values: LeadFromCallData) => {
-      const { data } = await api.post('/pipeline/leads', { title: values.title, description: values.description || undefined, source: values.source, contactId: values.contactId })
+      // Crée entreprise + contact à la volée si le mode « nouveau contact » est utilisé
+      const { contactId } = await resolveContactPicker(picker)
+      if (!contactId) throw new Error('Contact requis')
+      const { data } = await api.post('/pipeline/leads', { title: values.title, description: values.description || undefined, source: values.source, contactId })
       return data
     },
     onSuccess, onError: () => toast.error('Erreur lors de la création du lead'),
   })
 
+  const submit = (values: LeadFromCallData) => {
+    const err = validateContactPicker(picker, true)
+    setPickerError(err)
+    if (err) return
+    mutation.mutate(values)
+  }
+
   return (
-    <Modal open={open} onClose={onClose} title="Créer un lead depuis cet appel" size="md">
-      <form onSubmit={handleSubmit(v => mutation.mutate(v))} className="space-y-4">
+    <form onSubmit={handleSubmit(submit)} className="space-y-4">
         <div className="form-group">
           <label className="label">Titre du lead *</label>
           <input {...register('title')} className={`input ${errors.title ? 'input-error' : ''}`} />
@@ -1223,12 +1274,10 @@ function LeadFromCallModal({ open, call, onClose, onSuccess }: { open: boolean; 
         </div>
         <div className="form-group">
           <label className="label">Contact * <span className="text-xs text-slate-400">(requis pour créer un lead)</span></label>
-          <select {...register('contactId')} className={`input ${errors.contactId ? 'input-error' : ''}`}>
-            <option value="">— Sélectionner un contact —</option>
-            {contactsData?.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>)}
-          </select>
-          {errors.contactId && <p className="form-error">{errors.contactId.message}</p>}
-          {!call.contactId && <p className="text-xs text-amber-600 mt-1">Cet appel n'a pas de contact identifié. Sélectionnez-en un ou créez-le d'abord.</p>}
+          <ContactInlinePicker value={picker} onChange={v => { setPicker(v); setPickerError(null) }} error={pickerError} />
+          {!call.contactId && picker.mode === 'existing' && (
+            <p className="text-xs text-amber-600 mt-1">Cet appel n'a pas de contact identifié. Sélectionnez-en un ou basculez sur « Nouveau contact ».</p>
+          )}
         </div>
         <div className="form-group">
           <label className="label">Source</label>
@@ -1244,12 +1293,11 @@ function LeadFromCallModal({ open, call, onClose, onSuccess }: { open: boolean; 
         </div>
         <div className="flex justify-end gap-3 pt-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Annuler</button>
-          <button type="submit" className="btn-primary" disabled={isSubmitting}>
-            {isSubmitting ? <Spinner className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />}
+          <button type="submit" className="btn-primary" disabled={isSubmitting || mutation.isPending}>
+            {isSubmitting || mutation.isPending ? <Spinner className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />}
             Créer le lead
           </button>
         </div>
-      </form>
-    </Modal>
+    </form>
   )
 }

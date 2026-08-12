@@ -8,7 +8,7 @@ import type { Resolver } from 'react-hook-form'
 import {
   TrendingUp, Search, Building2,
   AlertCircle, Plus, Pencil, Trash2,
-  PhoneOff, ArrowRightCircle, RotateCcw, UserPlus, Users, X,
+  PhoneOff, ArrowRightCircle, RotateCcw, UserPlus, X,
 } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import api from '../../lib/api'
@@ -19,7 +19,11 @@ import { Avatar } from '../../components/ui/Avatar'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
-import { CompanySearchInput } from '../../components/ui/CompanySearchInput'
+import { ContactInlinePicker } from '../../components/ui/ContactInlinePicker'
+import {
+  makeContactPickerValue, validateContactPicker, resolveContactPicker,
+  type ContactPickerValue,
+} from '../../lib/contactPicker'
 import type { Lead } from '../../types'
 
 const LEAD_STATUSES: Record<string, { label: string; color: string }> = {
@@ -46,20 +50,6 @@ interface Pipeline { id: string; name: string; color: string; isDefault: boolean
 
 const leadSchema = z.object({
   contactId: z.string().optional(),
-  // New contact fields (used when contactId is empty)
-  newFirstName: z.string().optional(),
-  newLastName: z.string().optional(),
-  newEmail: z.string().optional(),
-  newPhone: z.string().optional(),
-  newCompanyId: z.string().optional(),
-  newCompanyName: z.string().optional(),
-  newCompanySiret: z.string().optional(),
-  newCompanyVatNumber: z.string().optional(),
-  newCompanyWebsite: z.string().optional(),
-  newCompanySector: z.string().optional(),
-  newCompanyCity: z.string().optional(),
-  newCompanyPostalCode: z.string().optional(),
-  newCompanyBillingAddress: z.string().optional(),
   title: z.string().min(1, 'Titre requis'),
   description: z.string().optional(),
   source: z.string().optional(),
@@ -261,46 +251,12 @@ export function LeadsPage() {
     staleTime: 60_000,
   })
 
-  const { data: companies = [] } = useQuery<{ id: string; name: string }[]>({
-    queryKey: ['companies-light'],
-    queryFn: async () => {
-      const { data } = await api.get('/companies', { params: { limit: 200 } })
-      return data.data ?? []
-    },
-    staleTime: 60_000,
-  })
-
   // ── Mutations ──────────────────────────────────────────────────────────────
 
   const createMutation = useMutation({
-    mutationFn: async (values: LeadForm) => {
-      let contactId = values.contactId
-      // Create contact inline if no existing contact selected
-      if (!contactId && values.newFirstName) {
-        // Créer l'entreprise si nécessaire
-        let companyId = values.newCompanyId
-        if (!companyId && values.newCompanyName?.trim()) {
-          const { data } = await api.post('/companies', {
-            name: values.newCompanyName.trim(),
-            siret: values.newCompanySiret || undefined,
-            vatNumber: values.newCompanyVatNumber || undefined,
-            website: values.newCompanyWebsite || undefined,
-            sector: values.newCompanySector || undefined,
-            city: values.newCompanyCity || undefined,
-            postalCode: values.newCompanyPostalCode || undefined,
-            billingAddress: values.newCompanyBillingAddress || undefined,
-          })
-          companyId = data.data?.id
-        }
-        const { data } = await api.post('/contacts', {
-          firstName: values.newFirstName,
-          lastName: values.newLastName || '',
-          email: values.newEmail || undefined,
-          phone: values.newPhone || undefined,
-          companyId: companyId || undefined,
-        })
-        contactId = data.data?.id ?? data.id
-      }
+    mutationFn: async ({ values, picker }: { values: LeadForm; picker: ContactPickerValue }) => {
+      // Crée entreprise + contact à la volée si le mode « nouveau contact » est utilisé
+      const { contactId } = await resolveContactPicker(picker)
       if (!contactId) throw new Error('Contact requis')
       return api.post('/pipeline/leads', {
         contactId,
@@ -314,6 +270,7 @@ export function LeadsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pipeline-leads'] })
       qc.invalidateQueries({ queryKey: ['contacts-light'] })
+      qc.invalidateQueries({ queryKey: ['companies-light'] })
       setShowCreate(false)
       toast.success('Lead créé')
     },
@@ -562,8 +519,7 @@ export function LeadsPage() {
         <LeadFormFields
           form={createForm}
           contacts={contacts}
-          companies={companies}
-          onSubmit={v => createMutation.mutate(v)}
+          onSubmit={(v, picker) => createMutation.mutate({ values: v, picker })}
           isPending={createMutation.isPending}
           onCancel={() => setShowCreate(false)}
           submitLabel="Créer le lead"
@@ -575,7 +531,6 @@ export function LeadsPage() {
         <LeadFormFields
           form={editForm}
           contacts={contacts}
-          companies={companies}
           onSubmit={v => editingLead && editMutation.mutate({ id: editingLead.id, values: v })}
           isPending={editMutation.isPending}
           onCancel={() => setEditingLead(null)}
@@ -609,7 +564,6 @@ export function LeadsPage() {
 function LeadFormFields({
   form,
   contacts,
-  companies,
   onSubmit,
   isPending,
   onCancel,
@@ -619,142 +573,35 @@ function LeadFormFields({
 }: {
   form: ReturnType<typeof useForm<LeadForm>>
   contacts: { id: string; firstName: string; lastName: string; company?: { name: string } }[]
-  companies: { id: string; name: string }[]
-  onSubmit: (v: LeadForm) => void
+  onSubmit: (v: LeadForm, picker: ContactPickerValue) => void
   isPending: boolean
   onCancel: () => void
   submitLabel: string
   showStatus?: boolean
   editMode?: boolean
 }) {
-  const [contactMode, setContactMode] = useState<'existing' | 'new'>('existing')
-  const [newCompanyMode, setNewCompanyMode] = useState(false)
+  // État local : la modale démonte le formulaire à la fermeture, le picker se réinitialise seul
+  const [picker, setPicker] = useState<ContactPickerValue>(() => makeContactPickerValue())
+  const [pickerError, setPickerError] = useState<string | null>(null)
   const { register, handleSubmit, formState: { errors, isSubmitting } } = form
 
   const handleFormSubmit = (v: LeadForm) => {
-    if (contactMode === 'existing' && !v.contactId) {
-      form.setError('contactId', { message: 'Sélectionnez un contact' })
-      return
+    if (!editMode) {
+      const err = validateContactPicker(picker, true)
+      setPickerError(err)
+      if (err) return
     }
-    if (contactMode === 'new' && !v.newFirstName) {
-      form.setError('newFirstName', { message: 'Prénom requis' })
-      return
-    }
-    onSubmit(v)
+    onSubmit(v, picker)
   }
 
   return (
     <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
 
-      {/* Contact toggle — masqué en mode édition */}
+      {/* Contact — création inline possible, masqué en mode édition */}
       {!editMode && (
         <div className="form-group">
           <label className="label">Contact *</label>
-          <div className="flex rounded-lg border border-slate-200 overflow-hidden mb-3">
-            <button
-              type="button"
-              onClick={() => setContactMode('existing')}
-              className={cn(
-                'flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-colors',
-                contactMode === 'existing' ? 'bg-primary-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50',
-              )}
-            >
-              <Users className="w-3.5 h-3.5" /> Contact existant
-            </button>
-            <button
-              type="button"
-              onClick={() => setContactMode('new')}
-              className={cn(
-                'flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-colors',
-                contactMode === 'new' ? 'bg-primary-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50',
-              )}
-            >
-              <UserPlus className="w-3.5 h-3.5" /> Nouveau contact
-            </button>
-          </div>
-
-          {contactMode === 'existing' ? (
-            <>
-              <select {...register('contactId')} className={`input ${errors.contactId ? 'input-error' : ''}`}>
-                <option value="">Choisir un contact</option>
-                {contacts.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.firstName} {c.lastName}{c.company ? ` — ${c.company.name}` : ''}
-                  </option>
-                ))}
-              </select>
-              {errors.contactId && <p className="form-error">{errors.contactId.message}</p>}
-            </>
-          ) : (
-            <div className="space-y-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <input
-                    {...register('newFirstName')}
-                    placeholder="Prénom *"
-                    className={`input ${errors.newFirstName ? 'input-error' : ''}`}
-                  />
-                  {errors.newFirstName && <p className="form-error">{errors.newFirstName.message}</p>}
-                </div>
-                <input {...register('newLastName')} placeholder="Nom" className="input" />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <input {...register('newEmail')} type="email" placeholder="Email" className="input" />
-                <input {...register('newPhone')} placeholder="Téléphone" className="input" />
-              </div>
-              {newCompanyMode ? (
-                <div className="space-y-2 p-3 bg-white rounded-xl border border-slate-200">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Nouvelle entreprise</span>
-                    <button
-                      type="button"
-                      onClick={() => { setNewCompanyMode(false); form.setValue('newCompanyName', '') }}
-                      className="text-xs text-slate-400 hover:text-slate-700"
-                    >
-                      ✕ Annuler
-                    </button>
-                  </div>
-                  <CompanySearchInput onSelect={p => {
-                    form.setValue('newCompanyName', p.name)
-                    form.setValue('newCompanySiret', p.siret)
-                    form.setValue('newCompanyVatNumber', p.vatNumber)
-                    form.setValue('newCompanySector', p.activity)
-                    form.setValue('newCompanyCity', p.city)
-                    form.setValue('newCompanyPostalCode', p.postalCode)
-                    form.setValue('newCompanyBillingAddress', p.billingAddress)
-                  }} />
-                  <input {...register('newCompanyName')} placeholder="Nom de l'entreprise *" className="input" autoFocus />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <input {...register('newCompanySiret')} placeholder="SIRET" className="input" />
-                    <input {...register('newCompanyVatNumber')} placeholder="N° TVA" className="input" />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <input {...register('newCompanyWebsite')} placeholder="Site web" className="input" />
-                    <input {...register('newCompanySector')} placeholder="Secteur d'activité" className="input" />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <input {...register('newCompanyCity')} placeholder="Ville" className="input" />
-                    <input {...register('newCompanyPostalCode')} placeholder="Code postal" className="input" />
-                  </div>
-                  <input {...register('newCompanyBillingAddress')} placeholder="Adresse de facturation" className="input" />
-                </div>
-              ) : (
-                <div className="flex gap-2">
-                  <select {...register('newCompanyId')} className="input flex-1">
-                    <option value="">Entreprise existante</option>
-                    {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => { setNewCompanyMode(true); form.setValue('newCompanyId', '') }}
-                    className="btn-secondary text-xs px-2 whitespace-nowrap"
-                  >
-                    + Nouvelle
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+          <ContactInlinePicker value={picker} onChange={v => { setPicker(v); setPickerError(null) }} error={pickerError} />
         </div>
       )}
 
