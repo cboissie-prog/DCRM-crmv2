@@ -656,6 +656,7 @@ model ApiKey {
   prefix     String
   userId     String
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scopes     String    @default("[]") // tableau JSON de clés de permission — [] = aucun droit
   lastUsedAt DateTime?
   expiresAt  DateTime?
   isActive   Boolean   @default(true)

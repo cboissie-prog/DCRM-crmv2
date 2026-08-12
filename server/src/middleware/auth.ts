@@ -8,6 +8,8 @@ export interface AuthRequest extends Request {
   userId?: string
   userRole?: string
   permissions?: string[]
+  /** 'apikey' si la requête est authentifiée par X-API-Key, 'jwt' sinon */
+  authMethod?: 'jwt' | 'apikey'
 }
 
 function hashKey(key: string): string {
@@ -47,14 +49,28 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
       prisma.apiKey.update({ where: { id: record.id }, data: { lastUsedAt: new Date() } }).catch(() => {})
 
       const user = record.user
-      const permissions: string[] =
+
+      // Portée de la clé : tableau JSON de clés de permission. Illisible/invalide → aucun droit.
+      let scopes: string[] = []
+      try {
+        const parsed = JSON.parse(record.scopes)
+        if (Array.isArray(parsed)) scopes = parsed.filter((s): s is string => typeof s === 'string')
+      } catch { /* scopes corrompus → [] */ }
+
+      // Permissions effectives = intersection des scopes et des droits ACTUELS du propriétaire.
+      // Une clé ne reçoit jamais le bypass '*' : un ADMIN doit lister explicitement les droits
+      // de ses clés, et un propriétaire qui perd un droit le retire aussitôt à ses clés.
+      const ownerPermissions: string[] | null =
         user.role === 'ADMIN'
-          ? []
+          ? null // null = tous les droits → les scopes s'appliquent tels quels
           : user.roleRef?.permissions.map((rp: { permission: { key: string } }) => rp.permission.key) ?? []
 
       req.userId = user.id
       req.userRole = user.role
-      req.permissions = user.role === 'ADMIN' ? ['*'] : permissions
+      req.authMethod = 'apikey'
+      req.permissions = ownerPermissions === null
+        ? scopes
+        : scopes.filter(s => ownerPermissions.includes(s))
       next()
       return
     } catch (e) {
@@ -93,6 +109,7 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
     }
     req.userId = payload.userId
     req.userRole = payload.role
+    req.authMethod = 'jwt'
     req.permissions = payload.permissions ?? []
     next()
   } catch {
@@ -123,6 +140,12 @@ export const requirePermission = (permission: string) => {
 
 export const requireRole = (roles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction): void => {
+    // Les routes gardées par rôle (et non par permission) ne sont pas exprimables dans les
+    // scopes d'une clé API : elles restent réservées aux sessions navigateur (JWT).
+    if (req.authMethod === 'apikey') {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Route inaccessible par clé API' } })
+      return
+    }
     if (!req.userRole || !roles.includes(req.userRole)) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Accès refusé' } })
       return

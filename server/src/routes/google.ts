@@ -382,7 +382,8 @@ router.post('/calendar/sync', authenticate, async (req: AuthRequest, res: Respon
 
 // POST /api/google/calendar/sync/all  — synchro globale (admin)
 router.post('/calendar/sync/all', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
-  if (req.userRole !== 'ADMIN') {
+  // Garde par rôle (pas par permission) → inaccessible par clé API, comme requireRole
+  if (req.userRole !== 'ADMIN' || req.authMethod === 'apikey') {
     res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Réservé aux administrateurs' } })
     return
   }

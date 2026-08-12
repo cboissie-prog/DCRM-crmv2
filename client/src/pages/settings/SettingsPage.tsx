@@ -549,10 +549,82 @@ interface ApiKey {
   id: string
   name: string
   prefix: string
+  permissions: string[]
   lastUsedAt: string | null
   expiresAt: string | null
   isActive: boolean
   createdAt: string
+}
+
+interface GrantablePermission {
+  id: string
+  key: string
+  label: string
+  category: string
+}
+
+/** Sélecteur de droits groupé par catégorie, avec « tout cocher » par catégorie. */
+function PermissionPicker({
+  grouped,
+  selected,
+  onChange,
+}: {
+  grouped: Record<string, GrantablePermission[]>
+  selected: string[]
+  onChange: (keys: string[]) => void
+}) {
+  const selectedSet = new Set(selected)
+
+  const togglePerm = (key: string) => {
+    onChange(selectedSet.has(key) ? selected.filter(k => k !== key) : [...selected, key])
+  }
+
+  const toggleCategory = (perms: GrantablePermission[]) => {
+    const keys = perms.map(p => p.key)
+    const allChecked = keys.every(k => selectedSet.has(k))
+    onChange(allChecked
+      ? selected.filter(k => !keys.includes(k))
+      : [...new Set([...selected, ...keys])])
+  }
+
+  const categories = Object.entries(grouped)
+  if (categories.length === 0) {
+    return <p className="text-xs text-slate-400">Aucune permission disponible.</p>
+  }
+
+  return (
+    <div className="space-y-3 max-h-72 overflow-y-auto rounded-lg border border-slate-200 bg-white p-3">
+      {categories.map(([category, perms]) => {
+        const allChecked = perms.every(p => selectedSet.has(p.key))
+        return (
+          <div key={category}>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="rounded border-slate-300"
+                checked={allChecked}
+                onChange={() => toggleCategory(perms)}
+              />
+              <span className="text-xs font-semibold text-slate-700 uppercase tracking-wide">{category}</span>
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 mt-1.5 ml-5">
+              {perms.map(p => (
+                <label key={p.key} className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300"
+                    checked={selectedSet.has(p.key)}
+                    onChange={() => togglePerm(p.key)}
+                  />
+                  <span className="text-xs text-slate-600">{p.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 function ApiKeysTab() {
@@ -560,12 +632,22 @@ function ApiKeysTab() {
   const [showCreate, setShowCreate] = useState(false)
   const [newKeyName, setNewKeyName] = useState('')
   const [newKeyExpiry, setNewKeyExpiry] = useState('')
+  const [newKeyPerms, setNewKeyPerms] = useState<string[]>([])
   const [createdKey, setCreatedKey] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [editingKeyId, setEditingKeyId] = useState<string | null>(null)
+  const [editPerms, setEditPerms] = useState<string[]>([])
 
   const { data: keys = [], isLoading } = useQuery<ApiKey[]>({
     queryKey: ['apikeys'],
     queryFn: async () => { const { data } = await api.get('/apikeys'); return data.data ?? [] },
+  })
+
+  // Permissions que l'utilisateur courant peut attribuer à une clé, groupées par catégorie
+  const { data: grantable = {} } = useQuery<Record<string, GrantablePermission[]>>({
+    queryKey: ['apikeys', 'grantable-permissions'],
+    queryFn: async () => { const { data } = await api.get('/apikeys/permissions'); return data.data ?? {} },
+    staleTime: 5 * 60_000,
   })
 
   const createMutation = useMutation({
@@ -573,6 +655,7 @@ function ApiKeysTab() {
       const { data } = await api.post('/apikeys', {
         name: newKeyName.trim(),
         expiresAt: newKeyExpiry || undefined,
+        permissions: newKeyPerms,
       })
       return data.data
     },
@@ -580,15 +663,35 @@ function ApiKeysTab() {
       setCreatedKey(data.key)
       setNewKeyName('')
       setNewKeyExpiry('')
+      setNewKeyPerms([])
       setShowCreate(false)
       qc.invalidateQueries({ queryKey: ['apikeys'] })
     },
+    onError: () => toast.error('Impossible de créer la clé'),
+  })
+
+  const updatePermsMutation = useMutation({
+    mutationFn: async ({ id, permissions }: { id: string; permissions: string[] }) => {
+      const { data } = await api.put(`/apikeys/${id}/permissions`, { permissions })
+      return data.data
+    },
+    onSuccess: () => {
+      toast.success('Droits de la clé mis à jour')
+      setEditingKeyId(null)
+      qc.invalidateQueries({ queryKey: ['apikeys'] })
+    },
+    onError: () => toast.error('Impossible de modifier les droits'),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/apikeys/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['apikeys'] }),
   })
+
+  const startEditing = (key: ApiKey) => {
+    setEditingKeyId(key.id)
+    setEditPerms(key.permissions)
+  }
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
@@ -604,7 +707,7 @@ function ApiKeysTab() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-slate-900">Clés API</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Pour connecter des outils externes (Zapier, n8n, scripts…). Chaque clé hérite de vos permissions.</p>
+          <p className="text-sm text-slate-500 mt-0.5">Pour connecter des outils externes (Zapier, n8n, scripts…). Chaque clé n'a que les droits que vous lui attribuez, dans la limite des vôtres.</p>
         </div>
         <button
           onClick={() => setShowCreate(v => !v)}
@@ -638,6 +741,16 @@ function ApiKeysTab() {
               onChange={e => setNewKeyExpiry(e.target.value)}
             />
           </div>
+          <div>
+            <label className="label">Droits de la clé <span className="text-slate-400 font-normal">({newKeyPerms.length} sélectionné{newKeyPerms.length > 1 ? 's' : ''})</span></label>
+            <PermissionPicker grouped={grantable} selected={newKeyPerms} onChange={setNewKeyPerms} />
+            {newKeyPerms.length === 0 && (
+              <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" />
+                Aucun droit sélectionné — la clé ne pourra rien faire tant que vous ne lui en attribuez pas.
+              </p>
+            )}
+          </div>
           <div className="flex gap-2">
             <button
               className="btn-primary btn-sm"
@@ -648,7 +761,7 @@ function ApiKeysTab() {
             </button>
             <button
               className="btn-secondary btn-sm"
-              onClick={() => { setShowCreate(false); setNewKeyName(''); setNewKeyExpiry('') }}
+              onClick={() => { setShowCreate(false); setNewKeyName(''); setNewKeyExpiry(''); setNewKeyPerms([]) }}
             >
               Annuler
             </button>
@@ -698,34 +811,68 @@ function ApiKeysTab() {
       ) : (
         <div className="space-y-2">
           {keys.map(key => (
-            <div key={key.id} className={cn('card p-4 flex items-center gap-3', isExpired(key.expiresAt) && 'border-amber-200 bg-amber-50/30')}>
-              <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                <Key className="w-4 h-4 text-slate-500" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-sm font-semibold text-slate-900">{key.name}</p>
-                  {isExpired(key.expiresAt) && (
-                    <span className="badge badge-yellow text-[10px]">
-                      <AlertTriangle className="w-2.5 h-2.5 mr-0.5" />Expirée
-                    </span>
-                  )}
+            <div key={key.id} className={cn('card p-4 space-y-3', isExpired(key.expiresAt) && 'border-amber-200 bg-amber-50/30')}>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                  <Key className="w-4 h-4 text-slate-500" />
                 </div>
-                <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                  <code className="text-xs text-slate-400 font-mono">{key.prefix}…</code>
-                  <span className="text-xs text-slate-400">Créée le {formatDate(key.createdAt)}</span>
-                  {key.lastUsedAt && <span className="text-xs text-slate-400">Dernière utilisation : {formatDate(key.lastUsedAt)}</span>}
-                  {key.expiresAt && <span className="text-xs text-slate-400">Expire le {formatDate(key.expiresAt)}</span>}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-semibold text-slate-900">{key.name}</p>
+                    {isExpired(key.expiresAt) && (
+                      <span className="badge badge-yellow text-[10px]">
+                        <AlertTriangle className="w-2.5 h-2.5 mr-0.5" />Expirée
+                      </span>
+                    )}
+                    {key.permissions.length === 0 ? (
+                      <span className="badge badge-red text-[10px]">Aucun droit</span>
+                    ) : (
+                      <span className="badge badge-blue text-[10px]">{key.permissions.length} droit{key.permissions.length > 1 ? 's' : ''}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                    <code className="text-xs text-slate-400 font-mono">{key.prefix}…</code>
+                    <span className="text-xs text-slate-400">Créée le {formatDate(key.createdAt)}</span>
+                    {key.lastUsedAt && <span className="text-xs text-slate-400">Dernière utilisation : {formatDate(key.lastUsedAt)}</span>}
+                    {key.expiresAt && <span className="text-xs text-slate-400">Expire le {formatDate(key.expiresAt)}</span>}
+                  </div>
                 </div>
+                <button
+                  onClick={() => editingKeyId === key.id ? setEditingKeyId(null) : startEditing(key)}
+                  className="btn-ghost p-2 text-slate-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg flex-shrink-0"
+                  title="Modifier les droits"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => { if (confirm(`Révoquer la clé "${key.name}" ?`)) deleteMutation.mutate(key.id) }}
+                  disabled={deleteMutation.isPending}
+                  className="btn-ghost p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg flex-shrink-0"
+                  title="Révoquer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
-              <button
-                onClick={() => { if (confirm(`Révoquer la clé "${key.name}" ?`)) deleteMutation.mutate(key.id) }}
-                disabled={deleteMutation.isPending}
-                className="btn-ghost p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg flex-shrink-0"
-                title="Révoquer"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+
+              {/* Panneau d'édition des droits */}
+              {editingKeyId === key.id && (
+                <div className="border-t border-slate-100 pt-3 space-y-2">
+                  <label className="label">Droits de la clé <span className="text-slate-400 font-normal">({editPerms.length} sélectionné{editPerms.length > 1 ? 's' : ''})</span></label>
+                  <PermissionPicker grouped={grantable} selected={editPerms} onChange={setEditPerms} />
+                  <div className="flex gap-2">
+                    <button
+                      className="btn-primary btn-sm"
+                      disabled={updatePermsMutation.isPending}
+                      onClick={() => updatePermsMutation.mutate({ id: key.id, permissions: editPerms })}
+                    >
+                      {updatePermsMutation.isPending ? 'Enregistrement…' : 'Enregistrer'}
+                    </button>
+                    <button className="btn-secondary btn-sm" onClick={() => setEditingKeyId(null)}>
+                      Annuler
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

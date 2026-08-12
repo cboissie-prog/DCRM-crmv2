@@ -23,10 +23,10 @@ Obtenu via `POST /auth/login`. Durée de vie : 15 minutes. Renouvelable via `POS
 ```
 X-API-Key: dcrm_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
-Clés à durée de vie longue générées via `POST /apikeys`. Idéal pour Zapier, n8n, Make, scripts, webhooks entrants. La clé hérite des permissions de l'utilisateur qui l'a créée.
+Clés à durée de vie longue générées via `POST /apikeys`. Idéal pour Zapier, n8n, Make, scripts, webhooks entrants. Chaque clé porte une liste explicite de droits (voir module Clés API) : ses permissions effectives sont l'intersection de ses droits et de ceux de son propriétaire.
 
 Détails du middleware `authenticate` (les deux modes sont essayés dans cet ordre) :
-1. Header `X-API-Key` → clé hashée (SHA-256) comparée en base ; doit être active, non expirée, et son propriétaire actif. Une clé d'un ADMIN reçoit toutes les permissions (`*`).
+1. Header `X-API-Key` → clé hashée (SHA-256) comparée en base ; doit être active, non expirée, et son propriétaire actif. Permissions effectives = intersection des droits de la clé (scopes) et des droits actuels du propriétaire — jamais de bypass `*`, même pour un ADMIN ; les routes gardées par rôle sont inaccessibles par clé API.
 2. Header `Authorization: Bearer <JWT>` → vérifié en HS256 ; rejeté si l'utilisateur est inactif ou si son `tokenVersion` a changé (déconnexion forcée après désactivation, changement de rôle ou de mot de passe).
 
 ### Permissions (RBAC)
@@ -303,23 +303,39 @@ Erreurs : `404 NOT_FOUND`, `403 FORBIDDEN` (rôle système), `409 CONFLICT` (rô
 
 `authenticate` appliqué au montage, toutes les routes exigent en plus la permission `apikeys:manage`. Portée par utilisateur (chaque utilisateur ne voit/gère que ses propres clés).
 
+**Droits d'une clé (scopes)** : chaque clé porte une liste explicite de permissions. Les permissions effectives d'une requête `X-API-Key` sont l'**intersection** des droits de la clé et des droits actuels de son propriétaire — une clé ne reçoit jamais le bypass `*`, même pour un ADMIN, et une clé sans droits (`permissions: []`) ne peut rien faire. Les routes gardées par rôle (et non par permission) sont inaccessibles par clé API.
+
 | Méthode | Route | Accès | Description |
 |---------|-------|-------|-------------|
-| GET | `/apikeys` | Permission `apikeys:manage` | Liste des clés actives de l'utilisateur courant |
-| POST | `/apikeys` | Permission `apikeys:manage` | Génère une nouvelle clé |
+| GET | `/apikeys` | Permission `apikeys:manage` | Liste des clés actives de l'utilisateur courant (avec leurs droits) |
+| GET | `/apikeys/permissions` | Permission `apikeys:manage` | Permissions attribuables à une clé par l'utilisateur courant, groupées par catégorie |
+| POST | `/apikeys` | Permission `apikeys:manage` | Génère une nouvelle clé avec ses droits |
+| PUT | `/apikeys/:id/permissions` | Permission `apikeys:manage` | Remplace les droits d'une clé |
 | DELETE | `/apikeys/:id` | Permission `apikeys:manage` | Révoque une clé |
 
 **GET /apikeys**
-Réponse : `data: [{ id, name, prefix, lastUsedAt, expiresAt, isActive, createdAt }]` (clés actives de `req.userId` uniquement).
+Réponse : `data: [{ id, name, prefix, permissions: string[], lastUsedAt, expiresAt, isActive, createdAt }]` (clés actives de `req.userId` uniquement).
+
+**GET /apikeys/permissions**
+Réponse : `data: { "<catégorie>": [{ id, key, label, category }] }` — toutes les permissions pour un admin, celles de l'appelant sinon.
 
 **POST /apikeys**
 ```json
 {
   "name": "string (trim, min 1)",
-  "expiresAt": "string (date parseable, ex. YYYY-MM-DD — optionnel, nullable)"
+  "expiresAt": "string (date parseable, ex. YYYY-MM-DD — optionnel, nullable)",
+  "permissions": "string[] (clés de permission, optionnel — défaut [] = aucun droit)"
 }
 ```
-Réponse `201` : `{ id, name, key, prefix, expiresAt, createdAt }` — `key` (valeur en clair, ex. `dcrm_xxx`) n'est renvoyée qu'à cet instant, seul son hash SHA-256 est stocké en base.
+Chaque permission doit exister et, pour un non-admin, appartenir aux droits de l'appelant → sinon `400 INVALID_PERMISSIONS`.
+Réponse `201` : `{ id, name, key, prefix, permissions, expiresAt, createdAt }` — `key` (valeur en clair, ex. `dcrm_xxx`) n'est renvoyée qu'à cet instant, seul son hash SHA-256 est stocké en base.
+
+**PUT /apikeys/:id/permissions**
+```json
+{ "permissions": "string[] (clés de permission)" }
+```
+Remplace intégralement les droits de la clé (même validation que POST), effet immédiat. Restreint au propriétaire.
+Réponse : `{ id, permissions }`. Erreurs : `404 NOT_FOUND`, `400 INVALID_PERMISSIONS`.
 
 **DELETE /apikeys/:id**
 Soft revoke (`isActive: false`), restreint à `req.userId`.

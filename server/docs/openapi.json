@@ -40,7 +40,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-API-Key",
-        "description": "Clé API longue durée générée via POST /apikeys (préfixe dcrm_)"
+        "description": "Clé API longue durée générée via POST /apikeys (préfixe dcrm_). Permissions effectives = intersection des droits de la clé (scopes) et des droits actuels de son propriétaire — jamais de bypass '*', même pour un ADMIN ; les routes gardées par rôle sont inaccessibles par clé API."
       }
     },
     "schemas": {
@@ -1054,7 +1054,7 @@
         "x-permission": "apikeys:manage",
         "responses": {
           "200": {
-            "description": "data: [{ id, name, prefix, lastUsedAt, expiresAt, isActive, createdAt }]"
+            "description": "data: [{ id, name, prefix, permissions: string[], lastUsedAt, expiresAt, isActive, createdAt }]"
           }
         }
       },
@@ -1062,7 +1062,7 @@
         "tags": [
           "Clés API"
         ],
-        "summary": "Génère une nouvelle clé API",
+        "summary": "Génère une nouvelle clé API avec ses droits",
         "security": [
           {
             "bearerAuth": []
@@ -1091,6 +1091,14 @@
                     "type": "string",
                     "nullable": true,
                     "description": "optionnel — toute valeur produisant une Date valide (ex. YYYY-MM-DD)"
+                  },
+                  "permissions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": [],
+                    "description": "Clés de permission accordées à la clé (défaut [] = aucun droit). Chaque clé doit exister et, pour un non-admin, appartenir aux droits de l'appelant → sinon 400 INVALID_PERMISSIONS."
                   }
                 }
               }
@@ -1099,7 +1107,10 @@
         },
         "responses": {
           "201": {
-            "description": "{ id, name, key, prefix, expiresAt, createdAt } — key affichée une seule fois"
+            "description": "{ id, name, key, prefix, permissions, expiresAt, createdAt } — key affichée une seule fois"
+          },
+          "400": {
+            "description": "INVALID_PERMISSIONS — permission inconnue ou au-delà des droits de l'appelant"
           }
         }
       }
@@ -9518,6 +9529,88 @@
           },
           "404": {
             "description": "NOT_FOUND (introuvable ou non visible)"
+          }
+        }
+      }
+    },
+    "/apikeys/permissions": {
+      "get": {
+        "tags": [
+          "Clés API"
+        ],
+        "summary": "Permissions attribuables à une clé par l'utilisateur courant, groupées par catégorie",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "apikeys:manage",
+        "responses": {
+          "200": {
+            "description": "data: { \"<catégorie>\": [{ id, key, label, category }] } — toutes les permissions pour un admin, celles de l'appelant sinon"
+          }
+        }
+      }
+    },
+    "/apikeys/{id}/permissions": {
+      "put": {
+        "tags": [
+          "Clés API"
+        ],
+        "summary": "Remplace les droits d'une clé API (propriétaire uniquement, effet immédiat)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "apikeys:manage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "permissions"
+                ],
+                "properties": {
+                  "permissions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Nouvelle liste complète des clés de permission (même validation que POST /apikeys)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ id, permissions }"
+          },
+          "400": {
+            "description": "INVALID_PERMISSIONS"
+          },
+          "404": {
+            "description": "NOT_FOUND — clé inexistante ou appartenant à un autre utilisateur"
           }
         }
       }
