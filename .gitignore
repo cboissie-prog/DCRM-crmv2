@@ -35,6 +35,7 @@ server/uploads/
 # Documentation interne & rapports — gardés en local, hors dépôt public
 /API.md
 /AUDIT-MODIFICATIONS.md
+/AUDIT-PERMISSIONS.md
 /BUGS.md
 /CLAUDE.md
 /DESIGN.md
