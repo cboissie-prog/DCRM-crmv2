@@ -391,16 +391,14 @@ export function Header({ onMenuClick }: { onMenuClick: () => void }) {
             </div>
 
             {/* Panel footer */}
-            {notifications.length > 0 && (
-              <div className="px-4 py-2.5 border-t border-slate-100 text-center">
-                <button
-                  onClick={() => { navigate('/notifications'); setShowPanel(false) }}
-                  className="text-xs text-primary-600 hover:text-primary-700 font-medium"
-                >
-                  Voir toutes les notifications ({notifications.length})
-                </button>
-              </div>
-            )}
+            <div className="px-4 py-2.5 border-t border-slate-100 text-center">
+              <button
+                onClick={() => { navigate('/notifications'); setShowPanel(false) }}
+                className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+              >
+                Voir toutes les notifications{notifications.length > 0 ? ` (${notifications.length})` : ''}
+              </button>
+            </div>
           </div>
         )}
       </div>

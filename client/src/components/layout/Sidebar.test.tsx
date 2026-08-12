@@ -52,9 +52,9 @@ describe('Sidebar — couleurs par module', () => {
     expect(active!.className).toContain('text-module-tickets-700')
   })
 
-  it('laisse Notifications et Paramètres neutres (pas de classe module)', () => {
+  it('laisse Paramètres neutre (pas de classe module)', () => {
     const { getByText } = renderSidebar()
-    const notif = getByText('Notifications').closest('a')!
-    expect(notif.innerHTML).not.toContain('text-module-')
+    const settings = getByText('Paramètres').closest('button')!
+    expect(settings.innerHTML).not.toContain('text-module-')
   })
 })

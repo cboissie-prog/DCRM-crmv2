@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, TrendingUp,
-  Wrench, Calendar, Bell, Settings,
+  Wrench, Calendar, Settings,
   ChevronDown, Monitor, LogOut, LayoutGrid, X, Phone,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
@@ -27,6 +27,7 @@ const navItems: NavItem[] = [
     { label: 'Leads',               to: '/leads' },
     { label: 'Objectifs & Prévisions', to: '/targets' },
   ]},
+  { label: 'Tickets', module: 'tickets', icon: <Wrench className="w-4 h-4" />, to: '/tickets' },
   { label: 'Agenda', module: 'agenda', icon: <Calendar className="w-4 h-4" />, to: '/appointments' },
   { label: 'Contacts', module: 'contacts', icon: <Users className="w-4 h-4" />, children: [
     { label: 'Tous les contacts', to: '/contacts' },
@@ -39,17 +40,15 @@ const navItems: NavItem[] = [
     { label: 'Licences',    to: '/licenses' },
     { label: 'Contrats',    to: '/contracts' },
   ]},
-  { label: 'Tickets SAV', module: 'tickets', icon: <Wrench className="w-4 h-4" />, to: '/tickets' },
+]
+
+const bottomItems: NavItem[] = [
   { label: 'Outils', module: 'tools', icon: <LayoutGrid className="w-4 h-4" />, children: [
     { label: 'Catalogue produits',   to: '/products' },
     { label: 'Base de connaissance', to: '/knowledge' },
     { label: 'Automatisations',      to: '/automations',     roles: ['ADMIN'] },
     { label: 'NPS',                  to: '/nps',             roles: ['ADMIN', 'MANAGER'] },
   ]},
-]
-
-const bottomItems: NavItem[] = [
-  { label: 'Notifications', icon: <Bell className="w-4 h-4" />, to: '/notifications' },
   { label: 'Paramètres', icon: <Settings className="w-4 h-4" />, children: [
     { label: 'Général',             to: '/settings' },
     { label: 'Utilisateurs',        to: '/users',          roles: ['ADMIN', 'MANAGER'] },
@@ -108,10 +107,12 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
-        {navItems.map(renderItem)}
+      <nav className="flex-1 overflow-y-auto px-3 py-3 flex flex-col">
+        <div className="space-y-0.5">
+          {navItems.map(renderItem)}
+        </div>
 
-        <div className="pt-2 mt-2 border-t border-slate-100 space-y-0.5">
+        <div className="mt-auto pt-2 border-t border-slate-100 space-y-0.5">
           {bottomItems.map(renderItem)}
         </div>
       </nav>

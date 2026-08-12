@@ -330,7 +330,7 @@ export function TicketsListView() {
         <div className="flex items-center gap-3">
           <PageIcon module="tickets" icon={<Wrench className="w-5 h-5" />} />
           <div>
-            <h1 className="page-title">Tickets SAV</h1>
+            <h1 className="page-title">Tickets</h1>
             <p className="page-subtitle">{data?.meta.total || 0} tickets</p>
           </div>
         </div>
