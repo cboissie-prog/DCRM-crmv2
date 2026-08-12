@@ -806,7 +806,7 @@ Fichier : `server/src/routes/targets.ts`. Le champ « réalisé » n'est jamais 
 
 | Méthode | Route | Accès | Description |
 |---------|-------|-------|-------------|
-| GET | `/targets/periods` | Permission `targets:read` | Liste des périodes disponibles (8 trimestres passés + 4 futurs) |
+| GET | `/targets/periods` | Permission `targets:read` | Liste des périodes disponibles (12 mois passés + 6 futurs) |
 | GET | `/targets/eligible-users` | Permission `targets:write` | Utilisateurs pouvant recevoir un objectif (ADMIN + rôles ayant `targets:read`) |
 | GET | `/targets` | Permission `targets:read` | Objectifs de la période (siens seuls sans `targets:read_all`) |
 | GET | `/targets/forecast` | Permission `targets:read` | Prévisions pondérées par étape/utilisateur pour une période |
@@ -820,17 +820,17 @@ Fichier : `server/src/routes/targets.ts`. Le champ « réalisé » n'est jamais 
 | DELETE | `/targets/:id` | Permission `targets:write` | Supprime un objectif |
 
 **GET /targets/periods**
-Réponse : `data` = tableau de chaînes `"AAAA-Qn"` (ex. `["2024-Q3", ..., "2027-Q2"]`).
+Réponse : `data` = tableau de chaînes `"AAAA-MM"` (ex. `["2025-09", ..., "2027-02"]`).
 
 **GET /targets/eligible-users**
 Réponse : `data` = utilisateurs actifs (`id, firstName, lastName, avatar, role`) qui sont `ADMIN` ou disposent de la permission `targets:read`.
 
 **GET /targets**
-Query : `period` (optionnel, défaut = trimestre courant, format `AAAA-Qn` ou `AAAA-MM`).
+Query : `period` (optionnel, défaut = mois courant, format `AAAA-Qn` ou `AAAA-MM`).
 Réponse : `data` = objectifs (avec `user`, `pipeline`, et `computedActual` = somme des opportunités gagnées sur la période, filtrée par pipeline si l'objectif en a un), `meta: { period }`.
 
 **GET /targets/forecast**
-Query : `period` (optionnel, défaut trimestre courant), `pipelineId` (optionnel).
+Query : `period` (optionnel, défaut mois courant), `pipelineId` (optionnel).
 Réponse `data` :
 ```json
 {
@@ -846,7 +846,7 @@ Réponse `data` :
 Query : `period` (optionnel — sans valeur, agrège sur toute la durée). Réponse : `data` = tableau `{ user, wonCount, wonValue, lostCount, activeCount, createdCount, winRate, avgDeal }` pour les utilisateurs `COMMERCIAL`/`MANAGER`/`ADMIN` actifs ayant une activité, trié par `wonValue` décroissant.
 
 **GET /targets/company**
-Query : `period` (optionnel, défaut = trimestre courant ; formats `AAAA`, `AAAA-Qn` ou `AAAA-MM` — la période annuelle est acceptée ici, contrairement aux objectifs individuels).
+Query : `period` (optionnel, défaut = mois courant ; formats `AAAA`, `AAAA-Qn` ou `AAAA-MM` — la période annuelle est acceptée ici, contrairement aux objectifs individuels).
 Réponse : `data` = objectifs d'entreprise de la période (un global `pipelineId: null` et/ou un par pipeline), chacun enrichi de :
 - `computedActual` : CA des opportunités gagnées de **tous** les commerciaux sur la période (filtré par pipeline si l'objectif en a un) ;
 - `allocatedTarget` : somme des objectifs individuels couvrant la période sur le même périmètre, sans double comptage (l'objectif trimestriel d'un commercial prime sur ses objectifs mensuels du même trimestre ; pour une cible globale, l'objectif individuel global prime sur les ventilations par pipeline).

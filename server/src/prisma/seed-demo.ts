@@ -256,9 +256,9 @@ async function main() {
 
   // ─── SALES TARGETS ─────────────────────────────────────
   await prisma.salesTarget.createMany({ data: [
-    { userId: commercial1.id, period: '2026-Q2', target: 25000, actual: 8700 },
-    { userId: commercial1.id, period: '2026-Q1', target: 22000, actual: 21200 },
-    { userId: admin.id, period: '2026-Q2', target: 10000, actual: 3200 },
+    { userId: commercial1.id, period: '2026-08', target: 9000, actual: 3100 },
+    { userId: commercial1.id, period: '2026-07', target: 8000, actual: 7600 },
+    { userId: admin.id, period: '2026-08', target: 4000, actual: 1200 },
   ]})
   console.log('✅ Objectifs commerciaux créés')
 

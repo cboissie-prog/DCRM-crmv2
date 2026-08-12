@@ -112,20 +112,30 @@ interface ForecastData {
 
 function currentPeriod() {
   const now = new Date()
-  return `${now.getFullYear()}-Q${Math.floor(now.getMonth() / 3) + 1}`
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
 function periodOptions() {
   const year = new Date().getFullYear()
   const opts = []
   for (const y of [year - 1, year, year + 1]) {
-    for (const q of [1, 2, 3, 4]) opts.push(`${y}-Q${q}`)
+    for (let m = 1; m <= 12; m++) opts.push(`${y}-${String(m).padStart(2, '0')}`)
   }
   return opts
 }
 
+const MONTH_LABELS = [
+  'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
+]
+
 function periodLabel(p: string) {
   if (/^\d{4}$/.test(p)) return `Année ${p}`
+  if (/^\d{4}-\d{2}$/.test(p)) {
+    const [year, month] = p.split('-')
+    return `${MONTH_LABELS[parseInt(month) - 1] ?? month} ${year}`
+  }
+  // Ancien format trimestriel (objectifs historiques)
   const [year, q] = p.split('-Q')
   const labels: Record<string, string> = { '1': 'T1', '2': 'T2', '3': 'T3', '4': 'T4' }
   return `${labels[q] ?? q} ${year}`
@@ -140,7 +150,7 @@ function PeriodNav({ periods, period, onChange }: { periods: string[]; period: s
   const idx       = periods.indexOf(period)
   const current   = currentPeriod()
   const isCurrent = period === current
-  // Format YYYY-QN : la comparaison lexicographique suit l'ordre chronologique
+  // Format YYYY-MM : la comparaison lexicographique suit l'ordre chronologique
   const isFuture  = period > current
   const isPast    = period < current
 
@@ -155,7 +165,7 @@ function PeriodNav({ periods, period, onChange }: { periods: string[]; period: s
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
-        <div className="flex items-center gap-2 px-4 py-2 border-x border-slate-100 min-w-[7.5rem] justify-center">
+        <div className="flex items-center gap-2 px-4 py-2 border-x border-slate-100 min-w-[9.5rem] justify-center">
           <CalendarRange className="w-4 h-4 text-indigo-500" />
           <span className="text-sm font-semibold text-slate-800">{periodLabel(period)}</span>
         </div>
@@ -171,7 +181,7 @@ function PeriodNav({ periods, period, onChange }: { periods: string[]; period: s
 
       {isCurrent && (
         <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full">
-          Trimestre en cours
+          Mois en cours
         </span>
       )}
       {isFuture && (
@@ -184,7 +194,7 @@ function PeriodNav({ periods, period, onChange }: { periods: string[]; period: s
           onClick={() => onChange(current)}
           className="text-xs font-medium text-slate-400 hover:text-indigo-600 hover:underline transition-colors"
         >
-          {isPast ? 'Revenir au trimestre en cours' : 'Trimestre en cours'}
+          {isPast ? 'Revenir au mois en cours' : 'Mois en cours'}
         </button>
       )}
     </div>
@@ -833,7 +843,7 @@ function PrevisionsTab({ period }: { period: string }) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard label="Pipeline pondéré"  value={fmt(summary.weightedTotal)} sub="Valeur × probabilité" color="text-indigo-600" />
         <StatCard label="Pipeline brut"     value={fmt(summary.rawTotal)}      sub={`${summary.count} opportunité${summary.count > 1 ? 's' : ''}`} color="text-slate-900" />
-        <StatCard label="Gagné ce trimestre" value={fmt(summary.wonTotal)}     color="text-emerald-600" />
+        <StatCard label="Gagné ce mois-ci"   value={fmt(summary.wonTotal)}     color="text-emerald-600" />
         <StatCard label="Total projeté"     value={fmt(summary.wonTotal + summary.weightedTotal)} sub="Gagné + pondéré" color="text-violet-600" />
       </div>
 

@@ -7252,7 +7252,7 @@
         "tags": [
           "Objectifs & Prévisions"
         ],
-        "summary": "Liste des périodes disponibles (trimestres)",
+        "summary": "Liste des périodes disponibles (mois)",
         "security": [
           {
             "bearerAuth": []
@@ -7264,7 +7264,7 @@
         "x-permission": "targets:read",
         "responses": {
           "200": {
-            "description": "Tableau de chaînes AAAA-Qn (8 trimestres passés + 4 futurs)"
+            "description": "Tableau de chaînes AAAA-MM (12 mois passés + 6 futurs)"
           },
           "401": {
             "description": "Non authentifié"
@@ -7326,7 +7326,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Format AAAA-Qn ou AAAA-MM, défaut = trimestre courant"
+            "description": "Format AAAA-Qn ou AAAA-MM, défaut = mois courant"
           }
         ],
         "responses": {
@@ -7431,7 +7431,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "défaut = trimestre courant"
+            "description": "défaut = mois courant"
           },
           {
             "name": "pipelineId",
@@ -7517,7 +7517,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Format AAAA, AAAA-Qn ou AAAA-MM (la période annuelle est acceptée), défaut = trimestre courant"
+            "description": "Format AAAA, AAAA-Qn ou AAAA-MM (la période annuelle est acceptée), défaut = mois courant"
           }
         ],
         "responses": {

@@ -12,7 +12,7 @@ router.use(authenticate)
 
 function currentPeriod(): string {
   const now = new Date()
-  return `${now.getFullYear()}-Q${Math.floor(now.getMonth() / 3) + 1}`
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
 function parsePeriod(period: string): { start: Date; end: Date } {
@@ -45,20 +45,20 @@ function quartersOfPeriod(period: string): string[] {
   return []
 }
 
-/** Trimestres du plus ancien au plus récent : `past` en arrière (trimestre courant inclus) + `future` en avant */
-function quartersAround(past: number, future: number): string[] {
+/** Mois du plus ancien au plus récent : `past` en arrière (mois courant inclus) + `future` en avant */
+function monthsAround(past: number, future: number): string[] {
   const now = new Date()
-  let year = now.getFullYear()
-  let q = Math.ceil((now.getMonth() + 1) / 3)
-  // Recule jusqu'au premier trimestre de la fenêtre
-  for (let i = 0; i < past - 1; i++) { q--; if (q === 0) { q = 4; year-- } }
-  const quarters: string[] = []
+  // Recule jusqu'au premier mois de la fenêtre
+  let year  = now.getFullYear()
+  let month = now.getMonth() + 1 - (past - 1)
+  while (month <= 0) { month += 12; year-- }
+  const months: string[] = []
   for (let i = 0; i < past + future; i++) {
-    quarters.push(`${year}-Q${q}`)
-    q++
-    if (q === 5) { q = 1; year++ }
+    months.push(`${year}-${String(month).padStart(2, '0')}`)
+    month++
+    if (month === 13) { month = 1; year++ }
   }
-  return quarters
+  return months
 }
 
 const userSelect = { id: true, firstName: true, lastName: true, avatar: true, role: true }
@@ -99,8 +99,8 @@ const companyUpdateSchema = z.object({
 // ─── GET /targets/periods ─────────────────────────────────────────────────────
 
 router.get('/periods', requirePermission('targets:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
-  // 8 trimestres passés (courant inclus) + 4 futurs pour planifier les objectifs à venir
-  res.json({ success: true, data: quartersAround(8, 4) })
+  // 12 mois passés (courant inclus) + 6 futurs pour planifier les objectifs à venir
+  res.json({ success: true, data: monthsAround(12, 6) })
 })
 
 // ─── GET /targets/eligible-users ──────────────────────────────────────────────
