@@ -30,6 +30,7 @@ import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
 import { useAuthStore } from '../../store/authStore'
+import { usePermission } from '../../hooks/usePermission'
 import type { Appointment, User, Contact, Ticket } from '../../types'
 
 // ── Types calendrier partagé ───────────────────────────────────────────────────
@@ -152,11 +153,13 @@ interface GoogleCalendarStatus {
 function GoogleCalendarPanel({ onConnected }: { onConnected?: () => void }) {
   const qc = useQueryClient()
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false)
+  const canUseGoogle = usePermission('google:calendar')
 
   const { data, isLoading } = useQuery<{ data: GoogleCalendarStatus }>({
     queryKey: ['google-calendar-status'],
     queryFn: async () => { const { data } = await api.get('/google/status'); return data },
     staleTime: 30_000,
+    enabled: canUseGoogle,
   })
 
   const status = data?.data
@@ -196,6 +199,7 @@ function GoogleCalendarPanel({ onConnected }: { onConnected?: () => void }) {
     onError: () => toast.error('Erreur lors de la déconnexion'),
   })
 
+  if (!canUseGoogle) return null
   if (isLoading) return null
 
   if (!status?.connected || !status.calendarSyncEnabled) {

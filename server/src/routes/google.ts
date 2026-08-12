@@ -16,7 +16,7 @@ import jwt from 'jsonwebtoken'
 import { createHmac } from 'crypto'
 import { google } from 'googleapis'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
 import { encrypt } from '../lib/crypto'
 import { audit } from '../lib/audit'
@@ -169,7 +169,7 @@ router.post('/notifications', async (req: Request, res: Response): Promise<void>
 // ─── Routes authentifiées ─────────────────────────────────────────────────────
 
 // GET /api/google/status
-router.get('/status', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/status', authenticate, requirePermission('google:calendar'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const cred = await prisma.googleCredential.findUnique({ where: { userId: req.userId! } })
     res.json({
@@ -191,7 +191,7 @@ router.get('/status', authenticate, async (req: AuthRequest, res: Response): Pro
 })
 
 // GET /api/google/calendar/connect
-router.get('/calendar/connect', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/calendar/connect', authenticate, requirePermission('google:calendar'), async (req: AuthRequest, res: Response): Promise<void> => {
   if (!requireGoogleConfig(res)) return
   try {
     // Génère un state JWT signé contenant l'userId (5 min), avec un secret dédié et un claim
@@ -323,7 +323,7 @@ router.get('/calendar/callback', async (req: Request, res: Response): Promise<vo
 })
 
 // POST /api/google/calendar/disconnect
-router.post('/calendar/disconnect', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/calendar/disconnect', authenticate, requirePermission('google:calendar'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const cred = await prisma.googleCredential.findUnique({ where: { userId: req.userId! } })
     if (!cred) {
@@ -363,7 +363,7 @@ router.post('/calendar/disconnect', authenticate, async (req: AuthRequest, res: 
 })
 
 // POST /api/google/calendar/sync  — synchro manuelle (force=true)
-router.post('/calendar/sync', authenticate, async (req: AuthRequest, res: Response): Promise<void> => {
+router.post('/calendar/sync', authenticate, requirePermission('google:calendar'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const cred = await prisma.googleCredential.findUnique({ where: { userId: req.userId! } })
     if (!cred || !cred.calendarSyncEnabled) {

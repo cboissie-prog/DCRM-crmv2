@@ -78,6 +78,10 @@ const PERMISSIONS = [
   { key: 'settings:roles', label: 'Gérer les rôles et permissions', category: 'Paramètres' },
   { key: 'apikeys:manage', label: 'Gérer ses clés API', category: 'Paramètres' },
   { key: 'apidocs:read', label: 'Consulter la documentation API', category: 'Paramètres' },
+  // Notifications
+  { key: 'notifications:read', label: 'Voir et gérer ses notifications', category: 'Notifications' },
+  // NPS
+  { key: 'nps:read', label: 'Voir les enquêtes de satisfaction (NPS)', category: 'NPS' },
   // Appels téléphoniques
   { key: 'calls:read', label: 'Voir les appels', category: 'Appels' },
   { key: 'calls:create', label: 'Créer un appel', category: 'Appels' },
@@ -86,6 +90,7 @@ const PERMISSIONS = [
   { key: 'calls:listen', label: 'Accéder aux enregistrements', category: 'Appels' },
   // Agenda
   { key: 'calendars:manage_access', label: 'Gérer les partages de calendriers', category: 'Agenda' },
+  { key: 'google:calendar', label: 'Connecter et synchroniser son agenda Google', category: 'Agenda' },
 ]
 
 /**
@@ -131,6 +136,8 @@ export async function seedBase() {
     'company_targets:read', // voir le cap collectif (l'écriture reste manager/admin)
     'appointments:read', 'appointments:create', 'appointments:update', 'appointments:delete',
     'calls:read', 'calls:create', 'calls:update',
+    'notifications:read',
+    'google:calendar',
   ]
   const technicienKeys = [
     'dashboard:read',
@@ -143,6 +150,8 @@ export async function seedBase() {
     'appointments:read', 'appointments:create', 'appointments:update', 'appointments:delete',
     'knowledge:read',
     'calls:read', 'calls:create', 'calls:update',
+    'notifications:read',
+    'google:calendar',
   ]
 
   const rolesConfig = [

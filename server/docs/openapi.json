@@ -524,7 +524,7 @@
         "tags": [
           "Utilisateurs"
         ],
-        "summary": "Détail d'un utilisateur (soi-même, ou rôle ADMIN/MANAGER)",
+        "summary": "Détail d'un utilisateur (soi-même, ou permission users:read)",
         "security": [
           {
             "bearerAuth": []
@@ -553,13 +553,14 @@
           "404": {
             "description": "NOT_FOUND"
           }
-        }
+        },
+        "x-permission": "users:read (ou soi-même)"
       },
       "put": {
         "tags": [
           "Utilisateurs"
         ],
-        "summary": "Modifie un utilisateur (soi-même, ou rôle ADMIN pour role/isActive)",
+        "summary": "Modifie un utilisateur (soi-même, ou permission users:update ; compte ADMIN réservé aux ADMIN)",
         "security": [
           {
             "bearerAuth": []
@@ -634,7 +635,8 @@
           "403": {
             "description": "FORBIDDEN"
           }
-        }
+        },
+        "x-permission": "users:update (ou soi-même)"
       },
       "delete": {
         "tags": [
@@ -675,7 +677,7 @@
         "tags": [
           "Utilisateurs"
         ],
-        "summary": "Change le mot de passe (soi-même, ou rôle ADMIN pour un tiers)",
+        "summary": "Change le mot de passe (soi-même, ou permission users:update ; compte ADMIN réservé aux ADMIN)",
         "security": [
           {
             "bearerAuth": []
@@ -735,7 +737,8 @@
           "404": {
             "description": "NOT_FOUND"
           }
-        }
+        },
+        "x-permission": "users:update (ou soi-même)"
       }
     },
     "/roles": {
@@ -2379,8 +2382,12 @@
           },
           "401": {
             "description": "Non authentifié"
+          },
+          "403": {
+            "description": "FORBIDDEN — permission manquante"
           }
-        }
+        },
+        "x-permission": "notifications:read"
       }
     },
     "/notifications/read-all": {
@@ -2403,8 +2410,12 @@
           },
           "401": {
             "description": "Non authentifié"
+          },
+          "403": {
+            "description": "FORBIDDEN — permission manquante"
           }
-        }
+        },
+        "x-permission": "notifications:read"
       }
     },
     "/notifications/{id}/read": {
@@ -2438,10 +2449,14 @@
           "401": {
             "description": "Non authentifié"
           },
+          "403": {
+            "description": "FORBIDDEN — permission manquante"
+          },
           "404": {
             "description": "NOT_FOUND — notification introuvable ou n'appartenant pas à l'utilisateur"
           }
-        }
+        },
+        "x-permission": "notifications:read"
       }
     },
     "/notifications/all": {
@@ -2464,8 +2479,12 @@
           },
           "401": {
             "description": "Non authentifié"
+          },
+          "403": {
+            "description": "FORBIDDEN — permission manquante"
           }
-        }
+        },
+        "x-permission": "notifications:read"
       }
     },
     "/notifications/{id}": {
@@ -2498,8 +2517,12 @@
           },
           "401": {
             "description": "Non authentifié"
+          },
+          "403": {
+            "description": "FORBIDDEN — permission manquante"
           }
-        }
+        },
+        "x-permission": "notifications:read"
       }
     },
     "/dashboard/today": {
@@ -2725,7 +2748,7 @@
             "apiKeyAuth": []
           }
         ],
-        "x-permission": "dashboard:read",
+        "x-permission": "nps:read",
         "responses": {
           "200": {
             "description": "data: { score, promoters, passives, detractors, total, responses }"
@@ -8901,8 +8924,12 @@
           },
           "401": {
             "description": "UNAUTHORIZED / INVALID_TOKEN"
+          },
+          "403": {
+            "description": "FORBIDDEN — permission manquante"
           }
-        }
+        },
+        "x-permission": "google:calendar"
       }
     },
     "/google/calendar/connect": {
@@ -8926,10 +8953,14 @@
           "401": {
             "description": "UNAUTHORIZED / INVALID_TOKEN"
           },
+          "403": {
+            "description": "FORBIDDEN — permission manquante"
+          },
           "503": {
             "description": "GOOGLE_DISABLED"
           }
-        }
+        },
+        "x-permission": "google:calendar"
       }
     },
     "/google/calendar/callback": {
@@ -8997,8 +9028,12 @@
           },
           "401": {
             "description": "UNAUTHORIZED / INVALID_TOKEN"
+          },
+          "403": {
+            "description": "FORBIDDEN — permission manquante"
           }
-        }
+        },
+        "x-permission": "google:calendar"
       }
     },
     "/google/calendar/sync": {
@@ -9024,8 +9059,12 @@
           },
           "401": {
             "description": "UNAUTHORIZED / INVALID_TOKEN"
+          },
+          "403": {
+            "description": "FORBIDDEN — permission manquante"
           }
-        }
+        },
+        "x-permission": "google:calendar"
       }
     },
     "/google/calendar/sync/all": {

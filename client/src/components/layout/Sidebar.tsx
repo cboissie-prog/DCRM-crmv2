@@ -46,12 +46,12 @@ const bottomItems: NavItem[] = [
   { label: 'Outils', module: 'tools', icon: <LayoutGrid className="w-4 h-4" />, children: [
     { label: 'Catalogue produits',   to: '/products' },
     { label: 'Base de connaissance', to: '/knowledge' },
-    { label: 'Automatisations',      to: '/automations',     roles: ['ADMIN'] },
-    { label: 'NPS',                  to: '/nps',             roles: ['ADMIN', 'MANAGER'] },
+    { label: 'Automatisations',      to: '/automations',     permission: 'automation:read' },
+    { label: 'NPS',                  to: '/nps',             permission: 'nps:read' },
   ]},
   { label: 'Paramètres', icon: <Settings className="w-4 h-4" />, children: [
     { label: 'Général',             to: '/settings' },
-    { label: 'Utilisateurs',        to: '/users',          roles: ['ADMIN', 'MANAGER'] },
+    { label: 'Utilisateurs',        to: '/users',          permission: 'users:read' },
     { label: 'Rôles & Permissions', to: '/settings/roles', permission: 'settings:roles' },
     { label: 'Documentation API',   to: '/settings/api-docs', permission: 'apidocs:read' },
   ]},

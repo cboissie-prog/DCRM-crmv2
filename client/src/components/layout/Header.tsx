@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import api from '../../lib/api'
 import { formatRelative } from '../../lib/utils'
+import { usePermission } from '../../hooks/usePermission'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -225,11 +226,14 @@ export function Header({ onMenuClick }: { onMenuClick: () => void }) {
   const panelRef = useRef<HTMLDivElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
 
+  const canSeeNotifications = usePermission('notifications:read')
+
   const { data: notifData } = useQuery({
     queryKey: ['notifications'],
     queryFn: async () => { const { data } = await api.get('/notifications'); return data },
     refetchInterval: 30_000,
     staleTime: 20_000,
+    enabled: canSeeNotifications,
   })
 
   const unread: number = notifData?.meta?.unreadCount || 0
@@ -289,21 +293,23 @@ export function Header({ onMenuClick }: { onMenuClick: () => void }) {
       <GlobalSearch />
 
       <div className="flex items-center gap-2 ml-auto relative">
-        <button
-          ref={btnRef}
-          onClick={() => setShowPanel(v => !v)}
-          className="relative btn-ghost p-2 rounded-lg"
-        >
-          <Bell className="w-5 h-5" />
-          {unread > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-medium">
-              {unread > 9 ? '9+' : unread}
-            </span>
-          )}
-        </button>
+        {canSeeNotifications && (
+          <button
+            ref={btnRef}
+            onClick={() => setShowPanel(v => !v)}
+            className="relative btn-ghost p-2 rounded-lg"
+          >
+            <Bell className="w-5 h-5" />
+            {unread > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-medium">
+                {unread > 9 ? '9+' : unread}
+              </span>
+            )}
+          </button>
+        )}
 
         {/* ── Notification panel ── */}
-        {showPanel && (
+        {canSeeNotifications && showPanel && (
           <div
             ref={panelRef}
             className="absolute right-0 top-10 w-[calc(100vw-2rem)] max-w-sm sm:max-w-96 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden"

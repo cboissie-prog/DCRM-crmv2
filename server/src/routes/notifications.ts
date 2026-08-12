@@ -1,10 +1,13 @@
 import { Router, Response } from 'express'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
 
 const router = Router()
-router.use(authenticate)
+// notifications:read couvre lecture ET gestion (marquer lu / supprimer) : les données sont
+// strictement celles de l'utilisateur connecté. La permission ferme aussi l'accès aux clés
+// API à zéro droit (avant : simple `authenticate` → accessible à toute clé valide).
+router.use(authenticate, requirePermission('notifications:read'))
 
 router.get('/', async (req: AuthRequest, res: Response): Promise<void> => {
   try {

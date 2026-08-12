@@ -168,10 +168,10 @@ Toutes les routes exigent `authenticate` (posé via `router.use(authenticate)`).
 | POST | `/users` | Permission `users:create` | Crée un utilisateur |
 | GET | `/users/targets` | Permission `targets:read` | Liste des objectifs de vente |
 | POST | `/users/targets` | Permission `targets:write` | Définit/met à jour un objectif |
-| GET | `/users/:id` | Authentifié (soi-même, ou rôle ADMIN/MANAGER) | Détail d'un utilisateur |
-| PUT | `/users/:id` | Authentifié (soi-même, ou rôle ADMIN) | Modifie un utilisateur |
+| GET | `/users/:id` | Soi-même, ou permission `users:read` | Détail d'un utilisateur |
+| PUT | `/users/:id` | Soi-même, ou permission `users:update` (compte ADMIN : réservé aux ADMIN) | Modifie un utilisateur |
 | DELETE | `/users/:id` | Permission `users:delete` | Désactive un utilisateur (soft delete) |
-| PATCH | `/users/:id/password` | Authentifié (soi-même, ou rôle ADMIN) | Change le mot de passe |
+| PATCH | `/users/:id/password` | Soi-même, ou permission `users:update` (compte ADMIN : réservé aux ADMIN) | Change le mot de passe |
 
 **GET /users**
 Query : `includeInactive` (`"true"` pour inclure les comptes désactivés, défaut : actifs uniquement).
@@ -548,11 +548,11 @@ Réponse :
 
 | Méthode | Route | Accès | Description |
 |---------|-------|-------|-------------|
-| GET | `/notifications` | Authentifié | Liste des 50 dernières notifications de l'utilisateur connecté |
-| PATCH | `/notifications/read-all` | Authentifié | Marque toutes les notifications de l'utilisateur comme lues |
-| PATCH | `/notifications/:id/read` | Authentifié | Marque une notification comme lue |
-| DELETE | `/notifications/all` | Authentifié | Supprime toutes les notifications de l'utilisateur |
-| DELETE | `/notifications/:id` | Authentifié | Supprime une notification |
+| GET | `/notifications` | Permission `notifications:read` | Liste des 50 dernières notifications de l'utilisateur connecté |
+| PATCH | `/notifications/read-all` | Permission `notifications:read` | Marque toutes les notifications de l'utilisateur comme lues |
+| PATCH | `/notifications/:id/read` | Permission `notifications:read` | Marque une notification comme lue |
+| DELETE | `/notifications/all` | Permission `notifications:read` | Supprime toutes les notifications de l'utilisateur |
+| DELETE | `/notifications/:id` | Permission `notifications:read` | Supprime une notification |
 
 Aucune de ces routes n'utilise `requirePermission` : elles sont scopées à l'utilisateur connecté (`userId: req.userId`) uniquement.
 
@@ -578,7 +578,7 @@ Suppression physique (`deleteMany`, scopée à l'utilisateur) — silencieuse si
 | GET | `/dashboard/kpis` | Permission `dashboard:read` | 4 KPIs globaux condensés |
 | GET | `/dashboard/charts` | Permission `dashboard:read` | Données pour graphiques (pipeline par étape, tickets par statut) |
 | GET | `/dashboard/alerts` | Permission `dashboard:read` | Contrats expirant sous 60 jours + opportunités inactives depuis 14 jours |
-| GET | `/dashboard/nps` | Permission `dashboard:read` | Score NPS agrégé (promoteurs/passifs/détracteurs) |
+| GET | `/dashboard/nps` | Permission `nps:read` | Score NPS agrégé (promoteurs/passifs/détracteurs) |
 
 **GET /dashboard/today**
 Réponse : `data: { appointments, urgentTickets, overdueActivities }` — `appointments` = RDV du jour où l'utilisateur est participant (avec `contacts`) ; `urgentTickets` = 10 tickets max, priorité `HIGH`/`CRITICAL`, statut ouvert, assignés à l'utilisateur ; `overdueActivities` = 10 activités max non complétées, `dueDate` ≤ fin de journée, assignées à l'utilisateur.
@@ -1356,11 +1356,11 @@ Sert le fichier local en streaming avec support `Range` (`206 Partial Content`),
 | Méthode | Route | Accès | Description |
 |---------|-------|-------|-------------|
 | POST | `/google/notifications` | Public (vérifié par jeton de canal Google) | Réception des push notifications Google Calendar |
-| GET | `/google/status` | Authentifié | Statut de connexion Calendar de l'utilisateur courant |
-| GET | `/google/calendar/connect` | Authentifié | Génère l'URL de consentement OAuth Google (scopes Calendar) |
+| GET | `/google/status` | Permission `google:calendar` | Statut de connexion Calendar de l'utilisateur courant |
+| GET | `/google/calendar/connect` | Permission `google:calendar` | Génère l'URL de consentement OAuth Google (scopes Calendar) |
 | GET | `/google/calendar/callback` | Public (state CSRF signé + cookie) | Échange le code OAuth, stocke le refresh token, redirige vers le front |
-| POST | `/google/calendar/disconnect` | Authentifié | Révoque et supprime la connexion Google Calendar |
-| POST | `/google/calendar/sync` | Authentifié | Synchronisation manuelle forcée (pull) |
+| POST | `/google/calendar/disconnect` | Permission `google:calendar` | Révoque et supprime la connexion Google Calendar |
+| POST | `/google/calendar/sync` | Permission `google:calendar` | Synchronisation manuelle forcée (pull) |
 | POST | `/google/calendar/sync/all` | Authentifié + Rôle ADMIN | Synchronisation globale de tous les utilisateurs connectés |
 
 **POST /google/notifications**

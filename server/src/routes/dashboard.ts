@@ -351,7 +351,7 @@ router.get('/alerts', requirePermission('dashboard:read'), async (_req: AuthRequ
   } catch (err) { handleRouteError(err, res) }
 })
 
-router.get('/nps', requirePermission('dashboard:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
+router.get('/nps', requirePermission('nps:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const responses = await prisma.npsResponse.findMany({ orderBy: { createdAt: 'desc' } })
     const total = responses.length

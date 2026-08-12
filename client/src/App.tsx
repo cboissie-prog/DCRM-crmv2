@@ -142,9 +142,15 @@ export default function App() {
 
             {/* Protected routes — Layout handles auth check and redirect */}
             <Route element={<Layout />}>
-              {/* No permission guard — auth only (handled by Layout) */}
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/notifications" element={<NotificationsPage />} />
+              {/* dashboard:read */}
+              <Route element={<ProtectedRoute permission="dashboard:read" />}>
+                <Route path="/" element={<DashboardPage />} />
+              </Route>
+
+              {/* notifications:read */}
+              <Route element={<ProtectedRoute permission="notifications:read" />}>
+                <Route path="/notifications" element={<NotificationsPage />} />
+              </Route>
 
               {/* contacts:read */}
               <Route element={<ProtectedRoute permission="contacts:read" />}>
@@ -209,8 +215,8 @@ export default function App() {
                 <Route path="/knowledge" element={<KnowledgePage />} />
               </Route>
 
-              {/* dashboard:read */}
-              <Route element={<ProtectedRoute permission="dashboard:read" />}>
+              {/* nps:read */}
+              <Route element={<ProtectedRoute permission="nps:read" />}>
                 <Route path="/nps" element={<NpsPage />} />
               </Route>
 

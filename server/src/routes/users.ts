@@ -2,7 +2,7 @@ import { Router, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import prisma from '../prisma/client'
-import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
+import { authenticate, AuthRequest, requirePermission, hasPermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
 import { audit } from '../lib/audit'
 import { copyTemplatesToUser } from '../services/pipelineService'
@@ -147,12 +147,11 @@ router.post('/targets', requirePermission('targets:write'), async (req: AuthRequ
   } catch (err) { handleRouteError(err, res) }
 })
 
-// GET /:id — un user (ADMIN, MANAGER ou soi-même)
+// GET /:id — un user (soi-même, ou permission users:read)
 router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const isSelf = req.params.id === req.userId
-    const isAdminOrManager = req.userRole === 'ADMIN' || req.userRole === 'MANAGER'
-    if (!isSelf && !isAdminOrManager) {
+    if (!isSelf && !hasPermission(req, 'users:read')) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Accès refusé' } })
       return
     }
@@ -165,20 +164,30 @@ router.get('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   } catch (err) { handleRouteError(err, res) }
 })
 
-// PUT /:id — modifier (ADMIN ou soi-même pour son profil)
+// PUT /:id — modifier (soi-même pour son profil, ou permission users:update)
 router.put('/:id', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const isSelf = req.params.id === req.userId
-    const isAdmin = req.userRole === 'ADMIN'
-    if (!isSelf && !isAdmin) {
+    const canEditOthers = hasPermission(req, 'users:update')
+    if (!isSelf && !canEditOthers) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Accès refusé' } })
       return
     }
-    // Seul ADMIN peut modifier le rôle ou isActive
+    // rôle / isActive : réservés aux porteurs de users:update (canAssignRole borne ensuite
+    // l'escalade : jamais ADMIN ni un rôle aux permissions supérieures aux siennes)
     const body = updateUserSchema.parse(req.body)
-    if (!isAdmin) {
+    if (!canEditOthers) {
       delete body.role
       delete body.isActive
+    }
+    // Protection de la cible : seul un '*' (ADMIN) peut toucher au rôle/statut d'un compte ADMIN
+    if (body.role !== undefined || body.isActive !== undefined) {
+      const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { role: true } })
+      if (!target) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Utilisateur introuvable' } }); return }
+      if (target.role === 'ADMIN' && !req.permissions?.includes('*')) {
+        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Seul un administrateur peut modifier un compte ADMIN' } })
+        return
+      }
     }
 
     let roleFields: { role?: string; roleId?: string } = {}
@@ -229,14 +238,24 @@ const changePasswordSchema = z.object({
   newPassword: passwordSchema,
 })
 
-// PATCH /:id/password — changer son propre mot de passe (ou celui d'un tiers pour ADMIN)
+// PATCH /:id/password — changer son propre mot de passe (ou celui d'un tiers avec users:update)
 router.patch('/:id/password', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const isSelf = req.params.id === req.userId
-    const isAdmin = req.userRole === 'ADMIN'
-    if (!isSelf && !isAdmin) {
+    const isAdmin = req.permissions?.includes('*') ?? false
+    if (!isSelf && !hasPermission(req, 'users:update')) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Accès refusé' } })
       return
+    }
+    // Protection de la cible : changer le mot de passe d'un tiers = prise de contrôle du compte.
+    // Un compte ADMIN ne peut être ciblé que par un '*' (ADMIN).
+    if (!isSelf) {
+      const target = await prisma.user.findUnique({ where: { id: req.params.id }, select: { role: true } })
+      if (!target) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Utilisateur introuvable' } }); return }
+      if (target.role === 'ADMIN' && !isAdmin) {
+        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Seul un administrateur peut modifier un compte ADMIN' } })
+        return
+      }
     }
 
     // Validation Zod — évite bcrypt.compare(undefined, ...) → 500
