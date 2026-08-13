@@ -58,6 +58,16 @@ const leadSchema = z.object({
 })
 type LeadForm = z.infer<typeof leadSchema>
 
+// Couleur de texte/bordure lisible sur fond clair : si la couleur du stage est
+// trop claire (ex. blanc), on retombe sur un slate foncé au lieu de l'utiliser telle quelle
+function readableStageColor(hex: string): string {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex ?? '')
+  if (!m) return '#334155'
+  const n = parseInt(m[1], 16)
+  const luminance = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
+  return luminance > 0.68 ? '#334155' : `#${m[1]}`
+}
+
 // ── Add to pipeline modal ──────────────────────────────────────────────────────
 
 function AddToPipelineModal({ lead, open, onClose }: { lead: Lead | null; open: boolean; onClose: () => void }) {
@@ -168,11 +178,11 @@ function AddToPipelineModal({ lead, open, onClose }: { lead: Lead | null; open: 
                   )}
                   style={
                     (selectedStage === s.key || (!selectedStage && activeStages[0]?.key === s.key))
-                      ? { background: `${s.color}20`, borderColor: s.color, color: s.color }
+                      ? { background: `${s.color}20`, borderColor: readableStageColor(s.color), color: readableStageColor(s.color) }
                       : undefined
                   }
                 >
-                  <span className="w-2 h-2 rounded-full" style={{ background: s.color }} />
+                  <span className="w-2 h-2 rounded-full border border-black/20" style={{ background: s.color }} />
                   {s.name}
                 </button>
               ))}
