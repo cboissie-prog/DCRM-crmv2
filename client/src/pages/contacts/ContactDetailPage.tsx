@@ -180,7 +180,7 @@ export function ContactDetailPage() {
                       {opp.expectedCloseDate && <p className="text-xs text-slate-400">Closing : {formatDate(opp.expectedCloseDate)}</p>}
                     </div>
                     <div className="flex items-center gap-3">
-                      <p className="text-sm font-semibold text-slate-700">{opp.value.toLocaleString('fr-FR')} €</p>
+                      <p className="text-sm font-semibold text-slate-700">{opp.value.toLocaleString('fr-FR')} € HT</p>
                       <Badge variant={PIPELINE_STAGES[opp.stage]?.color}>{PIPELINE_STAGES[opp.stage]?.label}</Badge>
                     </div>
                   </div>

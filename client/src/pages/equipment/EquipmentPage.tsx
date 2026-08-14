@@ -601,11 +601,11 @@ function QuickContractModal({ open, onClose, companyId, onCreated }: QuickContra
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div className="form-group">
-            <label className="label">Montant mensuel (€)</label>
+            <label className="label">Montant mensuel HT (€)</label>
             <input {...register('monthlyAmount')} type="number" min={0} step={0.01} className="input" />
           </div>
           <div className="form-group">
-            <label className="label">Montant annuel (€)</label>
+            <label className="label">Montant annuel HT (€)</label>
             <input {...register('annualAmount')} type="number" min={0} step={0.01} className="input" />
           </div>
         </div>

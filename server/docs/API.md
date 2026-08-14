@@ -55,6 +55,10 @@ Chaque route protégée exige soit une simple authentification, soit une **permi
 ```
 `meta` n'est présent que sur les listes paginées.
 
+### Montants monétaires
+
+**Tous les montants de l'API sont exprimés en euros hors taxes (HT)** : `Opportunity.value`, `Contract.monthlyAmount`/`annualAmount`, `License.cost`, `Product.price`, `Company.annualRevenue`, objectifs (`SalesTarget`/`CompanyTarget`) et tous les agrégats dérivés (MRR, ARR, CA, pipeline). Le TTC n'est jamais stocké ; il se calcule à l'affichage via `Product.vatRate` (défaut 20 %). La facturation TTC est gérée hors CRM (Pennylane).
+
 ### Erreur
 ```json
 {

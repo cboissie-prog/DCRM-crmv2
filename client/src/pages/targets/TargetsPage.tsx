@@ -289,7 +289,7 @@ function TargetFormModal({ users, pipelines, period, editing, onClose, onSaved }
         </select>
       </div>
       <div>
-        <label className="label">Objectif (€) *</label>
+        <label className="label">Objectif HT (€) *</label>
         <input className="input" type="number" min="0" value={target} onChange={e => setTarget(e.target.value)} placeholder="25000" />
       </div>
       <p className="text-xs text-slate-400">Période : <strong>{periodLabel(period)}</strong></p>
@@ -357,7 +357,7 @@ function CompanyTargetFormModal({ pipelines, period, editing, onClose, onSaved }
         </select>
       </div>
       <div>
-        <label className="label">Objectif (€) *</label>
+        <label className="label">Objectif HT (€) *</label>
         <input className="input" type="number" min="0" value={target} onChange={e => setTarget(e.target.value)} placeholder="500000" />
       </div>
       <p className="text-xs text-slate-400">Période : <strong>{periodLabel(period)}</strong></p>
@@ -444,7 +444,7 @@ function CompanyTargetCard({ period, canWrite, pipelines }: { period: string; ca
           <div>
             <div className="flex items-baseline justify-between mb-1.5">
               <p className="text-2xl font-bold text-slate-900">
-                {fmt(effActual)} <span className="text-sm font-medium text-slate-400">/ {fmt(effTarget)}</span>
+                {fmt(effActual)} <span className="text-sm font-medium text-slate-400">/ {fmt(effTarget)} HT</span>
               </p>
               <span className={`text-sm font-bold ${pct >= 100 ? 'text-emerald-600' : pct >= 75 ? 'text-amber-600' : 'text-indigo-600'}`}>
                 {pct}%{pct >= 100 && ' 🎉'}
@@ -661,8 +661,8 @@ function ObjectifsTab({ period, canWrite, canReadCompany, canWriteCompany }: {
               <tr className="border-b border-slate-100 bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wide">
                 <th className="px-5 py-3 text-left">Commercial</th>
                 <th className="px-5 py-3 text-left">Pipeline</th>
-                <th className="px-5 py-3 text-right">Objectif</th>
-                <th className="px-5 py-3 text-right">Réalisé</th>
+                <th className="px-5 py-3 text-right">Objectif HT</th>
+                <th className="px-5 py-3 text-right">Réalisé HT</th>
                 <th className="px-5 py-3 text-left w-48">Progression</th>
                 {canWrite && <th className="px-5 py-3" />}
               </tr>
@@ -835,10 +835,10 @@ function PrevisionsTab({ period }: { period: string }) {
 
       {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <StatCard label="Pipeline pondéré"  value={fmt(summary.weightedTotal)} sub="Valeur × probabilité" color="text-indigo-600" />
-        <StatCard label="Pipeline brut"     value={fmt(summary.rawTotal)}      sub={`${summary.count} opportunité${summary.count > 1 ? 's' : ''}`} color="text-slate-900" />
-        <StatCard label="Gagné ce mois-ci"   value={fmt(summary.wonTotal)}     color="text-emerald-600" />
-        <StatCard label="Total projeté"     value={fmt(summary.wonTotal + summary.weightedTotal)} sub="Gagné + pondéré" color="text-violet-600" />
+        <StatCard label="Pipeline pondéré (HT)"  value={fmt(summary.weightedTotal)} sub="Valeur × probabilité" color="text-indigo-600" />
+        <StatCard label="Pipeline brut (HT)"     value={fmt(summary.rawTotal)}      sub={`${summary.count} opportunité${summary.count > 1 ? 's' : ''}`} color="text-slate-900" />
+        <StatCard label="Gagné ce mois-ci (HT)"   value={fmt(summary.wonTotal)}     color="text-emerald-600" />
+        <StatCard label="Total projeté (HT)"     value={fmt(summary.wonTotal + summary.weightedTotal)} sub="Gagné + pondéré" color="text-violet-600" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -853,7 +853,7 @@ function PrevisionsTab({ period }: { period: string }) {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                 <YAxis tickFormatter={v => `${Math.round(v / 1000)}k`} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v) => [`${Number(v ?? 0).toLocaleString('fr-FR')} €`, '']} />
+                <Tooltip formatter={(v) => [`${Number(v ?? 0).toLocaleString('fr-FR')} € HT`, '']} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Bar dataKey="Pipeline brut"    fill="#e2e8f0" radius={[4,4,0,0]} />
                 <Bar dataKey="Pipeline pondéré" fill="#6366f1" radius={[4,4,0,0]}>
@@ -979,8 +979,8 @@ function PerformanceTab({ period }: { period: string }) {
             <th className="px-5 py-3 text-right">Opps créées</th>
             <th className="px-5 py-3 text-right">Actives</th>
             <th className="px-5 py-3 text-right">Gagnées</th>
-            <th className="px-5 py-3 text-right">CA gagné</th>
-            <th className="px-5 py-3 text-right">Panier moyen</th>
+            <th className="px-5 py-3 text-right">CA gagné HT</th>
+            <th className="px-5 py-3 text-right">Panier moyen HT</th>
             <th className="px-5 py-3 text-left w-40">Taux de succès</th>
           </tr>
         </thead>

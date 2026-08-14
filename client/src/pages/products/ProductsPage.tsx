@@ -250,7 +250,7 @@ export function ProductsPage() {
                 <div>
                   {p.category === 'CONTRACT_TEMPLATE' ? (
                     <>
-                      <p className="text-lg font-bold text-slate-900">{p.price.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €<span className="text-xs font-normal text-slate-400">/mois</span></p>
+                      <p className="text-lg font-bold text-slate-900">{p.price.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €<span className="text-xs font-normal text-slate-400"> HT/mois</span></p>
                       <p className="text-xs text-slate-400">TVA {p.vatRate}%</p>
                     </>
                   ) : (

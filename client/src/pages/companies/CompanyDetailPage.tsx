@@ -244,7 +244,7 @@ export function CompanyDetailPage() {
               <input {...register('employees')} type="number" className="input" />
             </div>
             <div className="form-group">
-              <label className="label">CA annuel (€)</label>
+              <label className="label">CA annuel HT (€)</label>
               <input {...register('annualRevenue')} type="number" className="input" />
             </div>
           </div>
@@ -335,7 +335,7 @@ function TabInfo({ company }: { company: Record<string, unknown> }) {
       label: 'Ville / CP', value: [c.city, c.postalCode].filter(Boolean).join(' ') || '—',
     },
     { label: 'Pays', value: c.country || '—' },
-    { label: 'CA annuel', value: c.annualRevenue != null ? formatCurrency(c.annualRevenue as number) : '—' },
+    { label: 'CA annuel HT', value: c.annualRevenue != null ? formatCurrency(c.annualRevenue as number) : '—' },
     { label: 'Employés', value: c.employees != null ? String(c.employees) : '—' },
   ]
 
@@ -422,7 +422,7 @@ function TabOpportunities({ opportunities }: { opportunities: Record<string, unk
           <tr>
             <th>Titre</th>
             <th>Stage</th>
-            <th>Valeur</th>
+            <th>Valeur HT</th>
             <th>Probabilité</th>
             <th>Closing</th>
           </tr>
@@ -499,7 +499,7 @@ function TabContracts({ contracts }: { contracts: Record<string, unknown>[] }) {
             <th>Référence</th>
             <th>Type</th>
             <th>Statut</th>
-            <th>Mensuel</th>
+            <th>Mensuel HT</th>
             <th>Fin</th>
           </tr>
         </thead>

@@ -840,7 +840,7 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
                 <th>Type</th>
                 <th>Postes</th>
                 <th>Expiration</th>
-                <th>Coût</th>
+                <th>Coût HT</th>
                 <th>Équipement lié</th>
                 <th></th>
               </tr>
@@ -939,7 +939,7 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
               <input {...register('expiryDate')} type="date" className="input" />
             </div>
             <div className="form-group">
-              <label className="label">Coût annuel (€)</label>
+              <label className="label">Coût annuel HT (€)</label>
               <input {...register('cost')} type="number" min={0} step={0.01} className="input" />
             </div>
             <div className="form-group">
@@ -1064,7 +1064,7 @@ function ContractsTab({ companyId, contracts, isLoading, canWrite, canDelete, hi
                 <th>Statut</th>
                 <th>Début</th>
                 <th>Fin</th>
-                <th>Mensuel</th>
+                <th>Mensuel HT</th>
                 <th></th>
               </tr>
             </thead>
@@ -1118,7 +1118,7 @@ function ContractsTab({ companyId, contracts, isLoading, canWrite, canDelete, hi
               >
                 <option value="">— Choisir un modèle —</option>
                 {contractTemplates.data.map(t => (
-                  <option key={t.id} value={t.id}>{t.name}{t.price ? ` — ${t.price} €/mois` : ''}</option>
+                  <option key={t.id} value={t.id}>{t.name}{t.price ? ` — ${t.price} € HT/mois` : ''}</option>
                 ))}
               </select>
             </div>
@@ -1150,11 +1150,11 @@ function ContractsTab({ companyId, contracts, isLoading, canWrite, canDelete, hi
               <input {...register('endDate')} type="date" className={`input ${errors.endDate ? 'input-error' : ''}`} />
             </div>
             <div className="form-group">
-              <label className="label">Montant mensuel (€)</label>
+              <label className="label">Montant mensuel HT (€)</label>
               <input {...register('monthlyAmount')} type="number" min={0} step={0.01} className="input" />
             </div>
             <div className="form-group">
-              <label className="label">Montant annuel (€)</label>
+              <label className="label">Montant annuel HT (€)</label>
               <input {...register('annualAmount')} type="number" min={0} step={0.01} className="input" />
             </div>
             <div className="form-group">

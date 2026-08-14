@@ -193,7 +193,7 @@ function AddToPipelineModal({ lead, open, onClose }: { lead: Lead | null; open: 
         {/* Conversion fields (optional) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="form-group">
-            <label className="label">Montant (€)</label>
+            <label className="label">Montant HT (€)</label>
             <input className="input" type="number" min="0" step="100" placeholder="0" value={value} onChange={e => setValue(e.target.value)} />
           </div>
           <div className="form-group">

@@ -152,7 +152,7 @@ router.get('/export/csv', requirePermission('companies:read'), async (req: AuthR
       orderBy: { name: 'asc' },
       include: { _count: { select: { contacts: true, tickets: true, contracts: true } } },
     })
-    const header = ['Nom', 'Secteur', 'Ville', 'Code postal', 'SIRET', 'CA annuel', 'Effectif', 'Contacts', 'Tickets', 'Contrats', 'Créé le']
+    const header = ['Nom', 'Secteur', 'Ville', 'Code postal', 'SIRET', 'CA annuel HT', 'Effectif', 'Contacts', 'Tickets', 'Contrats', 'Créé le']
     const rows = companies.map(c => [
       csvEscape(c.name), csvEscape(c.sector), csvEscape(c.city), csvEscape(c.postalCode),
       csvEscape(c.siret), csvEscape(c.annualRevenue), csvEscape(c.employees),

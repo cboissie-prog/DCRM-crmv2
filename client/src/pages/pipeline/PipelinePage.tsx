@@ -296,7 +296,7 @@ function OpportunityCard({ opportunity: opp, index, stages, onEdit, onDelete, on
 
           {/* Footer : valeur + proba */}
           <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
-            <span className="text-sm font-bold text-slate-900">{formatCurrency(opp.value)}</span>
+            <span className="text-sm font-bold text-slate-900">{formatCurrency(opp.value)} <span className="text-xs font-normal text-slate-400">HT</span></span>
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1.5">
                 <div className="w-16 bg-slate-100 rounded-full h-1.5">
@@ -572,7 +572,7 @@ function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, st
         {/* Valeur + Probabilité */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="form-group">
-            <label className="label">Valeur (€) *</label>
+            <label className="label">Valeur HT (€) *</label>
             <input
               {...register('value')}
               type="number"
@@ -1172,7 +1172,7 @@ export function PipelinePage() {
             <Euro className="w-5 h-5 text-emerald-600" />
           </div>
           <div>
-            <p className="text-xs text-slate-500">Valeur pipeline pondérée</p>
+            <p className="text-xs text-slate-500">Valeur pipeline pondérée (HT)</p>
             <p className="text-xl font-bold text-slate-900">{formatCurrency(totalPipelineValue)}</p>
           </div>
         </div>
@@ -1255,7 +1255,7 @@ export function PipelinePage() {
                       </button>
                     )}
                   </div>
-                  <p className="text-xs text-slate-500">{formatCurrency(stageValue)}</p>
+                  <p className="text-xs text-slate-500">{formatCurrency(stageValue)} HT</p>
                 </div>
 
                 {/* Liste droppable */}

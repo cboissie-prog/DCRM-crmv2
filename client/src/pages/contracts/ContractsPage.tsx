@@ -221,8 +221,8 @@ export function ContractsPage() {
                 <th>Type</th>
                 <th>Titre</th>
                 <th>Statut</th>
-                <th>Mensuel</th>
-                <th>Annuel</th>
+                <th>Mensuel HT</th>
+                <th>Annuel HT</th>
                 <th>Date fin</th>
                 <th>Renouvellement</th>
                 <th></th>
@@ -310,7 +310,7 @@ export function ContractsPage() {
               >
                 <option value="">— Choisir un modèle —</option>
                 {contractTemplates.data.map(t => (
-                  <option key={t.id} value={t.id}>{t.name}{t.price ? ` — ${t.price} €/mois` : ''}</option>
+                  <option key={t.id} value={t.id}>{t.name}{t.price ? ` — ${t.price} € HT/mois` : ''}</option>
                 ))}
               </select>
             </div>
@@ -366,11 +366,11 @@ export function ContractsPage() {
               <input {...register('slaResponseTime')} type="number" min={0} className="input" />
             </div>
             <div className="form-group">
-              <label className="label">Montant mensuel (€)</label>
+              <label className="label">Montant mensuel HT (€)</label>
               <input {...register('monthlyAmount')} type="number" min={0} step={0.01} className="input" />
             </div>
             <div className="form-group">
-              <label className="label">Montant annuel (€)</label>
+              <label className="label">Montant annuel HT (€)</label>
               <input {...register('annualAmount')} type="number" min={0} step={0.01} className="input" />
             </div>
             <div className="form-group sm:col-span-2 flex items-center gap-3">

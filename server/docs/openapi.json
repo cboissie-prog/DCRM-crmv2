@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "DCRM API",
-    "description": "API REST du CRM interne DCB Technologies. Format de réponse unifié : succès `{ success: true, data, meta? }`, erreur `{ success: false, error: { code, message } }`. Authentification par JWT Bearer (15 min, refresh 7 j via cookie httpOnly) ou par clé API longue durée (header X-API-Key). L'extension `x-permission` sur une opération indique la clé de permission RBAC requise.",
+    "description": "API REST du CRM interne DCB Technologies. Format de réponse unifié : succès `{ success: true, data, meta? }`, erreur `{ success: false, error: { code, message } }`. Authentification par JWT Bearer (15 min, refresh 7 j via cookie httpOnly) ou par clé API longue durée (header X-API-Key). L'extension `x-permission` sur une opération indique la clé de permission RBAC requise. Tous les montants monétaires sont exprimés en euros hors taxes (HT) ; le TTC n'est jamais stocké et se dérive via Product.vatRate (défaut 20 %).",
     "version": "2.0.0"
   },
   "servers": [

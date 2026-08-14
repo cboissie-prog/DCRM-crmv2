@@ -401,7 +401,7 @@ function AlertsSection({ alerts, isLoading }: { alerts?: AlertsData; isLoading: 
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-slate-900 truncate">{o.title}</p>
                     <p className="text-xs text-slate-400">
-                      {o.company?.name ?? 'Sans entreprise'} · {formatCurrency(o.value)}
+                      {o.company?.name ?? 'Sans entreprise'} · {formatCurrency(o.value)} HT
                     </p>
                   </div>
                   <span className="text-xs text-slate-400 flex-shrink-0">
@@ -529,7 +529,7 @@ export function DashboardPage() {
         <KpiCard
           module="commercial"
           icon={<Euro className="w-5 h-5" />}
-          label="CA ce mois"
+          label="CA ce mois (HT)"
           value={formatCurrency(stats.opportunities.wonValueThisMonth)}
           sub="Opportunités gagnées"
           trend={{ value: wonVariation, label: 'vs mois dernier' }}
@@ -537,7 +537,7 @@ export function DashboardPage() {
         <KpiCard
           module="commercial"
           icon={<TrendingUp className="w-5 h-5" />}
-          label="Pipeline commercial"
+          label="Pipeline commercial (HT)"
           value={formatCurrency(stats.opportunities.pipelineValue)}
           sub={`${stats.opportunities.open} opportunité(s) en cours`}
         />
@@ -547,7 +547,7 @@ export function DashboardPage() {
           <KpiCard
             module="commercial"
             icon={<TrendingUp className="w-5 h-5" />}
-            label="Pipeline pondéré"
+            label="Pipeline pondéré (HT)"
             value={formatCurrency(kpis?.pipelineWeightedValue ?? 0)}
             sub="Valeur × probabilité"
           />
@@ -555,9 +555,9 @@ export function DashboardPage() {
         <KpiCard
           module="parc"
           icon={<FileText className="w-5 h-5" />}
-          label="MRR"
+          label="MRR (HT)"
           value={formatCurrency(stats.mrr)}
-          sub={`ARR : ${formatCurrency(stats.arr)}`}
+          sub={`ARR : ${formatCurrency(stats.arr)} HT`}
         />
         <KpiCard
           module="tickets"
@@ -581,7 +581,7 @@ export function DashboardPage() {
         {/* Revenue chart */}
         <div className="lg:col-span-2 card">
           <div className="card-header">
-            <h3 className="font-semibold text-slate-900">Chiffre d'affaires — 12 derniers mois</h3>
+            <h3 className="font-semibold text-slate-900">Chiffre d'affaires HT — 12 derniers mois</h3>
           </div>
           <div className="p-4">
             <ResponsiveContainer width="100%" height={240}>

@@ -248,7 +248,7 @@ export function LicensesPage() {
                 <th>Type</th>
                 <th>Postes</th>
                 <th>Expiration</th>
-                <th>Coût annuel</th>
+                <th>Coût annuel HT</th>
                 <th></th>
               </tr>
             </thead>
@@ -399,7 +399,7 @@ export function LicensesPage() {
               <input {...register('expiryDate')} type="date" className="input" />
             </div>
             <div className="form-group sm:col-span-2">
-              <label className="label">Coût annuel (€)</label>
+              <label className="label">Coût annuel HT (€)</label>
               <input {...register('cost')} type="number" min={0} step={0.01} className="input" />
             </div>
             <div className="form-group sm:col-span-2">
