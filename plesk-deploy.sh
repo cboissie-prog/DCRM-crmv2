@@ -73,7 +73,15 @@ npm run build
 
 echo "── Redémarrage Passenger"
 cd ..
-mkdir -p server/tmp
-touch server/tmp/restart.txt
+# Passenger surveille <app_root>/tmp/restart.txt. Selon la configuration Plesk,
+# l'app root est la racine du dépôt (fichier de démarrage server/dist/index.js)
+# ou le dossier server/ : on touche les deux, sinon l'ancien process reste en
+# mémoire et sert une API obsolète alors que le front statique, lui, est à jour.
+mkdir -p tmp server/tmp
+touch tmp/restart.txt server/tmp/restart.txt
 
 echo "── Déploiement terminé"
+echo "   API compilée le : $(date -r server/dist/index.js '+%d/%m/%Y %H:%M:%S' 2>/dev/null || echo '?')"
+echo "   Routes présentes dans le build : $(ls server/dist/routes 2>/dev/null | wc -l)"
+echo "   ⚠️  Si l'API répond encore 'Route introuvable' sur une route récente,"
+echo "      redémarrer l'application depuis Plesk > Node.js > Redémarrer."

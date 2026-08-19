@@ -26,6 +26,10 @@ server/*.db
 # Logs PM2
 server/logs/
 
+# Fichiers de redémarrage Passenger (créés par plesk-deploy.sh sur le serveur)
+/tmp/
+server/tmp/
+
 # Enregistrements d'appels (serveur VoIP)
 server/uploads/
 
