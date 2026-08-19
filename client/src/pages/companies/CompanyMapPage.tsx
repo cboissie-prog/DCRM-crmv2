@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import L from 'leaflet'
@@ -8,6 +8,8 @@ import { Building2, Users, Ticket, MapPin, AlertCircle, Locate } from 'lucide-re
 import { PageSpinner } from '../../components/ui/Spinner'
 import { toast } from '../../components/ui/Toast'
 import { useAuthStore } from '../../store/authStore'
+import { useReferencesQuery } from '../../hooks/useReferences'
+import { colorStyle } from '../../lib/referenceUi'
 
 // Fix Leaflet default icon paths (broken by bundlers)
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl
@@ -25,21 +27,6 @@ interface MapCompany {
   lng: number
   sector: string
   _count: { contacts: number; tickets: number }
-}
-
-const SECTOR_COLORS: Record<string, string> = {
-  'Informatique':           '#6366f1',
-  'Santé':                  '#10b981',
-  'Commerce alimentaire':   '#f59e0b',
-  'Restauration':           '#ef4444',
-  'Pharmacie':              '#3b82f6',
-  'Immobilier':             '#8b5cf6',
-  'Automobile':             '#64748b',
-  'Commerce habillement':   '#ec4899',
-}
-
-function sectorColor(sector: string): string {
-  return SECTOR_COLORS[sector] ?? '#6366f1'
 }
 
 function makeIcon(color: string, hasTickets: boolean): L.DivIcon {
@@ -62,6 +49,20 @@ export function CompanyMapPage() {
   const qc = useQueryClient()
   const user = useAuthStore(s => s.user)
   const canEdit = ['ADMIN', 'MANAGER'].includes(user?.role ?? '')
+  // Couleurs par secteur depuis le référentiel `sector` — memoïsées pour que
+  // l'effet d'initialisation de la carte ait des dépendances stables.
+  const { data: refDomains, isLoading: refsLoading } = useReferencesQuery()
+  const sectorHexByKey = useMemo(() => {
+    const m: Record<string, string> = {}
+    for (const v of refDomains?.find(d => d.domain === 'sector')?.values ?? []) {
+      if (v.color) m[v.key] = colorStyle(v.color).hex
+    }
+    return m
+  }, [refDomains])
+  const sectorColor = useCallback(
+    (sector: string): string => sectorHexByKey[sector] ?? '#6366f1',
+    [sectorHexByKey],
+  )
   const mapRef    = useRef<HTMLDivElement>(null)
   const leafletRef = useRef<L.Map | null>(null)
   const [selected, setSelected] = useState<MapCompany | null>(null)
@@ -100,7 +101,9 @@ export function CompanyMapPage() {
   }
 
   useEffect(() => {
-    if (!mapRef.current || !data || leafletRef.current) return
+    // Attendre les référentiels : sinon la carte s'initialise avec la couleur
+    // fallback pour tous les marqueurs (ils ne sont pas redessinés ensuite).
+    if (!mapRef.current || !data || refsLoading || leafletRef.current) return
 
     const map = L.map(mapRef.current, {
       center: [45.75, 4.85],
@@ -130,7 +133,7 @@ export function CompanyMapPage() {
 
     leafletRef.current = map
     return () => { map.remove(); leafletRef.current = null }
-  }, [data])
+  }, [data, refsLoading, sectorColor])
 
   // Stats
   const sectors   = data ? [...new Set(data.map(c => c.sector))].sort() : []

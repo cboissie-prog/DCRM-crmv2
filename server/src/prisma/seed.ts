@@ -76,6 +76,7 @@ const PERMISSIONS = [
   { key: 'settings:read', label: 'Voir les paramètres', category: 'Paramètres' },
   { key: 'settings:write', label: 'Modifier les paramètres', category: 'Paramètres' },
   { key: 'settings:roles', label: 'Gérer les rôles et permissions', category: 'Paramètres' },
+  { key: 'references:manage', label: 'Gérer les listes personnalisées', category: 'Paramètres' },
   { key: 'apikeys:manage', label: 'Gérer ses clés API', category: 'Paramètres' },
   { key: 'apidocs:read', label: 'Consulter la documentation API', category: 'Paramètres' },
   // Notifications
@@ -91,6 +92,10 @@ const PERMISSIONS = [
   // Agenda
   { key: 'calendars:manage_access', label: 'Gérer les partages de calendriers', category: 'Agenda' },
   { key: 'google:calendar', label: 'Connecter et synchroniser son agenda Google', category: 'Agenda' },
+  // Todo
+  { key: 'todos:read', label: 'Voir et gérer sa todolist', category: 'Todo' },
+  { key: 'todos:read_all', label: 'Consulter les todolists des autres', category: 'Todo' },
+  { key: 'todos:write_all', label: 'Modifier les todolists des autres', category: 'Todo' },
 ]
 
 /**
@@ -122,6 +127,7 @@ export async function seedBase() {
   const managerKeys = allKeys.filter(k =>
     k !== 'users:delete' &&
     k !== 'settings:roles' &&
+    k !== 'references:manage' &&
     k !== 'apikeys:manage' &&
     k !== 'apidocs:read'
   )
@@ -138,6 +144,7 @@ export async function seedBase() {
     'calls:read', 'calls:create', 'calls:update',
     'notifications:read',
     'google:calendar',
+    'todos:read',
   ]
   const technicienKeys = [
     'dashboard:read',
@@ -152,6 +159,7 @@ export async function seedBase() {
     'calls:read', 'calls:create', 'calls:update',
     'notifications:read',
     'google:calendar',
+    'todos:read',
   ]
 
   const rolesConfig = [
@@ -243,6 +251,32 @@ export async function seedBase() {
       console.log(`✅ Rattrapage roleId : ${updated.count} user(s) mis à jour pour le rôle ${roleName}`)
     }
   }
+
+  // ─── RÉFÉRENTIELS PERSONNALISABLES ─────────────────────
+  // Upsert non destructif : au rejeu, les libellés/couleurs/désactivations
+  // personnalisés par l'utilisateur sont conservés (seul isSystem est réaligné).
+  const { REFERENCE_DOMAINS } = await import('../lib/reference-domains')
+  for (const domain of REFERENCE_DOMAINS) {
+    let order = 0
+    for (const v of domain.seed) {
+      await prisma.referenceValue.upsert({
+        where: { domain_key: { domain: domain.domain, key: v.key } },
+        update: { isSystem: v.isSystem ?? false },
+        create: {
+          domain: domain.domain,
+          key: v.key,
+          label: v.label,
+          color: v.color ?? null,
+          icon: v.icon ?? null,
+          isSystem: v.isSystem ?? false,
+          meta: v.meta ? JSON.stringify(v.meta) : null,
+          order: order,
+        },
+      })
+      order++
+    }
+  }
+  console.log('✅ Référentiels personnalisables seedés')
 
   console.log('\n✅ Seed de base terminé avec succès !')
   return roleIdByName

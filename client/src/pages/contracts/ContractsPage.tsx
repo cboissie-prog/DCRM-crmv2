@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import api from '../../lib/api'
-import { formatDate, formatCurrency, CONTRACT_STATUSES, CONTRACT_TYPES } from '../../lib/utils'
+import { formatDate, formatCurrency, CONTRACT_STATUSES } from '../../lib/utils'
 import { Badge } from '../../components/ui/Badge'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
@@ -16,6 +16,7 @@ import { optionalNumber, requiredNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
 import type { Contract, Company, PaginatedResponse } from '../../types'
 import { useAuthStore } from '../../store/authStore'
+import { useReferences } from '../../hooks/useReferences'
 
 const contractSchema = z.object({
   companyId: z.string().min(1, 'Entreprise requise'),
@@ -34,14 +35,6 @@ const contractSchema = z.object({
 })
 type ContractForm = z.infer<typeof contractSchema>
 
-const CONTRACT_TYPE_OPTIONS = [
-  { value: 'IT_MAINTENANCE', label: 'Maintenance IT' },
-  { value: 'CASH_REGISTER_MAINTENANCE', label: 'Maintenance caisses' },
-  { value: 'WEB_HOSTING', label: 'Hébergement web' },
-  { value: 'SOFTWARE_MAINTENANCE', label: 'Maintenance logiciel' },
-  { value: 'FULL_SUPPORT', label: 'Support complet' },
-]
-
 const CONTRACT_STATUS_OPTIONS = [
   { value: 'ACTIVE', label: 'Actif' },
   { value: 'PENDING', label: 'En attente' },
@@ -54,6 +47,7 @@ export function ContractsPage() {
   const qc = useQueryClient()
   const { user } = useAuthStore()
   const canWrite = user?.role === 'ADMIN' || user?.role === 'MANAGER'
+  const refs = useReferences()
   const [searchParams] = useSearchParams()
 
   const [typeFilter, setTypeFilter] = useState(searchParams.get('type') ?? '')
@@ -96,7 +90,7 @@ export function ContractsPage() {
 
   const { data: contractTemplates } = useQuery<{ data: { id: string; name: string; description?: string; price: number; supplier?: string }[] }>({
     queryKey: ['products-contract-templates'],
-    queryFn: async () => { const { data } = await api.get('/products', { params: { category: 'CONTRACT_TEMPLATE', limit: 100 } }); return data },
+    queryFn: async () => { const { data } = await api.get('/products', { params: { category: 'CONTRACT_TEMPLATE', isActive: 'true', limit: 100 } }); return data },
     staleTime: 120_000,
   })
 
@@ -190,7 +184,7 @@ export function ContractsPage() {
           onChange={e => { setTypeFilter(e.target.value); setPage(1) }}
         >
           <option value="">Tous les types</option>
-          {CONTRACT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {refs.options('contract_type').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         <select
           className="input flex-1 min-w-[140px]"
@@ -235,7 +229,7 @@ export function ContractsPage() {
                 <tr key={c.id}>
                   <td className="font-mono text-xs text-slate-600">{c.reference}</td>
                   <td className="text-slate-700">{c.company?.name ?? '—'}</td>
-                  <td className="text-slate-500 text-xs">{CONTRACT_TYPES[c.type] ?? c.type}</td>
+                  <td className="text-slate-500 text-xs">{refs.label('contract_type', c.type)}</td>
                   <td className="font-medium text-slate-900">{c.title}</td>
                   <td>
                     <Badge variant={CONTRACT_STATUSES[c.status]?.color ?? 'badge-gray'}>
@@ -328,7 +322,7 @@ export function ContractsPage() {
               <label className="label">Type *</label>
               <select {...register('type')} className={`input ${errors.type ? 'input-error' : ''}`}>
                 <option value="">Sélectionner un type</option>
-                {CONTRACT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {refs.options('contract_type').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
               {errors.type && <p className="form-error">{errors.type.message}</p>}
             </div>

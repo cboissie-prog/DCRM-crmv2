@@ -6,7 +6,7 @@ import { PageSpinner } from '../../components/ui/Spinner'
 import { toast } from '../../components/ui/Toast'
 import {
   Bell, CheckCheck, Ticket, FileText, Monitor, Key,
-  TrendingUp, Zap, ThumbsUp, Star, AlertTriangle, CalendarDays, Clock, Trash2, X,
+  TrendingUp, Zap, ThumbsUp, Star, AlertTriangle, CalendarDays, Clock, Trash2, X, ListTodo,
 } from 'lucide-react'
 
 interface Notification {
@@ -32,6 +32,8 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
   CHURN_RISK:            <AlertTriangle className="w-4 h-4 text-red-500" />,
   APPOINTMENT_CREATED:   <CalendarDays className="w-4 h-4 text-indigo-500" />,
   APPOINTMENT_REMINDER:  <Clock className="w-4 h-4 text-indigo-500" />,
+  TODO_REMINDER:         <ListTodo className="w-4 h-4 text-rose-500" />,
+  TODO_DUE:              <ListTodo className="w-4 h-4 text-rose-500" />,
 }
 
 export function NotificationsPage() {

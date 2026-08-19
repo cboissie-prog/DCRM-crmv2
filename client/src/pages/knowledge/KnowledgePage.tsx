@@ -9,10 +9,11 @@ import { formatDate } from '../../lib/utils'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
 import { useAuthStore } from '../../store/authStore'
+import { useReferences, type ReferencesHelpers } from '../../hooks/useReferences'
+import { colorStyle, ReferenceIcon } from '../../lib/referenceUi'
 import {
   Plus, Search, Eye, Pencil, Trash2, BookOpen, Tag,
-  ClipboardList, HelpCircle, CheckCircle2, Monitor, Code2,
-  Wifi, ShoppingCart, FileText, ArrowLeft, Clock, X,
+  ArrowLeft, Clock, X,
 } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 
@@ -32,26 +33,17 @@ interface KnowledgeArticle {
 
 // ── Category config ────────────────────────────────────────────────────────────
 
-const CATEGORIES: Record<string, {
-  label: string
-  icon: React.ReactNode
-  bg: string
-  text: string
-  border: string
-  bar: string
-}> = {
-  PROCEDURES:   { label: 'Procédures',  icon: <ClipboardList className="w-4 h-4" />,   bg: 'bg-blue-50',    text: 'text-blue-700',   border: 'border-blue-200',   bar: 'bg-blue-500' },
-  FAQ:          { label: 'FAQ',         icon: <HelpCircle className="w-4 h-4" />,       bg: 'bg-violet-50',  text: 'text-violet-700', border: 'border-violet-200', bar: 'bg-violet-500' },
-  RESOLUTIONS:  { label: 'Résolutions', icon: <CheckCircle2 className="w-4 h-4" />,     bg: 'bg-emerald-50', text: 'text-emerald-700',border: 'border-emerald-200',bar: 'bg-emerald-500' },
-  HARDWARE:     { label: 'Matériel',    icon: <Monitor className="w-4 h-4" />,          bg: 'bg-amber-50',   text: 'text-amber-700',  border: 'border-amber-200',  bar: 'bg-amber-500' },
-  SOFTWARE:     { label: 'Logiciels',   icon: <Code2 className="w-4 h-4" />,            bg: 'bg-indigo-50',  text: 'text-indigo-700', border: 'border-indigo-200', bar: 'bg-indigo-500' },
-  NETWORK:      { label: 'Réseau',      icon: <Wifi className="w-4 h-4" />,             bg: 'bg-cyan-50',    text: 'text-cyan-700',   border: 'border-cyan-200',   bar: 'bg-cyan-500' },
-  CASHREGISTER: { label: 'Caisse',      icon: <ShoppingCart className="w-4 h-4" />,     bg: 'bg-orange-50',  text: 'text-orange-700', border: 'border-orange-200', bar: 'bg-orange-500' },
-  OTHER:        { label: 'Autre',       icon: <FileText className="w-4 h-4" />,         bg: 'bg-slate-50',   text: 'text-slate-600',  border: 'border-slate-200',  bar: 'bg-slate-400' },
-}
-
-function getCat(key: string) {
-  return CATEGORIES[key] ?? CATEGORIES.OTHER
+/** Style d'une catégorie (référentiel `knowledge_category`) — équivalent de l'ancien Record en dur. */
+function catStyle(refs: ReferencesHelpers, key: string) {
+  const style = colorStyle(refs.color('knowledge_category', key))
+  return {
+    label: refs.label('knowledge_category', key),
+    icon: <ReferenceIcon name={refs.icon('knowledge_category', key)} className="w-4 h-4" />,
+    bg: style.bg,
+    text: style.text,
+    border: style.border,
+    bar: style.bar,
+  }
 }
 
 // ── Schema ────────────────────────────────────────────────────────────────────
@@ -76,7 +68,8 @@ function ArticleCard({
   onDelete: (e: React.MouseEvent) => void
   canEdit: boolean
 }) {
-  const cat = getCat(article.category)
+  const refs = useReferences()
+  const cat = catStyle(refs, article.category)
   const excerpt = article.content
     .replace(/#{1,6}\s+/g, '')
     .replace(/\|[^\n]+\|/g, '')
@@ -157,7 +150,8 @@ function ArticleReader({
   onDelete: () => void
   onClose: () => void
 }) {
-  const cat = getCat(article.category)
+  const refs = useReferences()
+  const cat = catStyle(refs, article.category)
 
   // Simple content renderer: preserve line breaks, highlight code blocks
   const renderContent = (text: string) => {
@@ -238,6 +232,8 @@ export function KnowledgePage() {
   const qc = useQueryClient()
   const user = useAuthStore(s => s.user)
   const canEdit = ['ADMIN', 'MANAGER'].includes(user?.role ?? '')
+  const refs = useReferences()
+  const defaultCategory = refs.options('knowledge_category')[0]?.value ?? 'PROCEDURES'
 
   const [search, setSearch]                     = useState('')
   const [activeCategory, setActiveCategory]     = useState('')
@@ -303,14 +299,14 @@ export function KnowledgePage() {
   // Forms
   const createForm = useForm<ArticleForm>({
     resolver: zodResolver(articleSchema) as Resolver<ArticleForm>,
-    defaultValues: { isPublished: true, category: 'PROCEDURES' },
+    defaultValues: { isPublished: true, category: defaultCategory },
   })
   const editForm = useForm<ArticleForm>({
     resolver: zodResolver(articleSchema) as Resolver<ArticleForm>,
   })
 
   const openCreate = () => {
-    createForm.reset({ title: '', category: activeCategory || 'PROCEDURES', content: '', tags: '', isPublished: true })
+    createForm.reset({ title: '', category: activeCategory || defaultCategory, content: '', tags: '', isPublished: true })
     setShowCreate(true)
   }
   const openEdit = (a: KnowledgeArticle, e?: React.MouseEvent) => {
@@ -359,15 +355,16 @@ export function KnowledgePage() {
           <p className="px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Catégories</p>
         </div>
 
-        {Object.entries(CATEGORIES).map(([key, cat]) => {
-          const count = catData?.categories.find(c => c.category === key)?.count ?? 0
+        {refs.values('knowledge_category').map(v => {
+          const cat = catStyle(refs, v.key)
+          const count = catData?.categories.find(c => c.category === v.key)?.count ?? 0
           if (count === 0 && !canEdit) return null
           return (
             <button
-              key={key}
-              onClick={() => { setActiveCategory(key); setSelectedArticle(null) }}
+              key={v.key}
+              onClick={() => { setActiveCategory(v.key); setSelectedArticle(null) }}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm font-medium transition-colors ${
-                activeCategory === key ? `${cat.bg} ${cat.text}` : 'text-slate-600 hover:bg-slate-100'
+                activeCategory === v.key ? `${cat.bg} ${cat.text}` : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
               <div className="flex items-center gap-2.5">
@@ -376,7 +373,7 @@ export function KnowledgePage() {
               </div>
               {count > 0 && (
                 <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${
-                  activeCategory === key ? `${cat.bg} ${cat.text}` : 'bg-slate-100 text-slate-500'
+                  activeCategory === v.key ? `${cat.bg} ${cat.text}` : 'bg-slate-100 text-slate-500'
                 }`}>
                   {count}
                 </span>
@@ -403,7 +400,7 @@ export function KnowledgePage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               className="input pl-9 bg-white"
-              placeholder={`Rechercher${activeCategory ? ` dans ${CATEGORIES[activeCategory]?.label ?? activeCategory}` : ''}…`}
+              placeholder={`Rechercher${activeCategory ? ` dans ${refs.label('knowledge_category', activeCategory)}` : ''}…`}
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -512,9 +509,10 @@ function ArticleFormFields({
   onCancel: () => void
   submitLabel: string
 }) {
+  const refs = useReferences()
   const { register, handleSubmit, watch, formState: { errors } } = form
   const selectedCat = watch('category')
-  const cat = getCat(selectedCat)
+  const cat = catStyle(refs, selectedCat)
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -528,8 +526,8 @@ function ArticleFormFields({
         <div>
           <label className="label">Catégorie *</label>
           <select {...register('category')} className="input">
-            {Object.entries(CATEGORIES).map(([k, v]) => (
-              <option key={k} value={k}>{v.label}</option>
+            {refs.options('knowledge_category').map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
         </div>

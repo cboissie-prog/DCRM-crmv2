@@ -8,41 +8,24 @@ import { optionalNumber, requiredNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
 import { differenceInDays, parseISO, isAfter } from 'date-fns'
 import api from '../../lib/api'
-import { formatDate, formatCurrency, EQUIPMENT_TYPES, CONTRACT_STATUSES, CONTRACT_TYPES } from '../../lib/utils'
+import { formatDate, formatCurrency, CONTRACT_STATUSES } from '../../lib/utils'
 import { Badge } from '../../components/ui/Badge'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { Drawer } from '../../components/ui/Drawer'
 import { toast } from '../../components/ui/Toast'
 import { useAuthStore } from '../../store/authStore'
+import { useReferences } from '../../hooks/useReferences'
+import { ReferenceIcon, badgeClass, colorStyle } from '../../lib/referenceUi'
 import type { Equipment, License, Contract } from '../../types'
 import {
   ArrowLeft, Plus, Pencil, Trash2, AlertTriangle,
-  Monitor, Laptop, Server, Printer, ShoppingCart, Network,
-  Router, HardDrive, Tablet, Smartphone, HelpCircle, Key, FileText,
+  Monitor, Key, FileText,
 } from 'lucide-react'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const EQUIPMENT_STATUSES: Record<string, { label: string; color: string }> = {
-  ACTIVE:    { label: 'Actif',          color: 'badge-green'  },
-  IN_REPAIR: { label: 'En réparation',  color: 'badge-orange' },
-  RETIRED:   { label: 'Retraité',       color: 'badge-gray'   },
-  LOST:      { label: 'Perdu',          color: 'badge-red'    },
-}
-
-const LICENSE_TYPES: Record<string, string> = {
-  PERPETUAL:    'Perpétuelle',
-  ANNUAL:       'Annuelle',
-  MONTHLY:      'Mensuelle',
-  SUBSCRIPTION: 'Abonnement',
-}
-
-const CONTRACT_TYPE_OPTIONS = Object.entries(CONTRACT_TYPES)
 const CONTRACT_STATUS_OPTIONS = Object.entries(CONTRACT_STATUSES).map(([v, { label }]) => ({ value: v, label }))
-const EQUIPMENT_TYPE_OPTIONS  = Object.entries(EQUIPMENT_TYPES).map(([value, label]) => ({ value, label }))
-const LICENSE_TYPE_OPTIONS    = Object.entries(LICENSE_TYPES).map(([value, label]) => ({ value, label }))
-const EQUIPMENT_STATUS_OPTIONS = Object.entries(EQUIPMENT_STATUSES).map(([v, { label }]) => ({ value: v, label }))
 
 // ── Zod schemas ────────────────────────────────────────────────────────────────
 
@@ -91,24 +74,6 @@ const contractSchema = z.object({
 type ContractForm = z.infer<typeof contractSchema>
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-
-function EquipmentIcon({ type }: { type: string }) {
-  const cls = 'w-4 h-4 text-slate-400'
-  switch (type) {
-    case 'DESKTOP':       return <Monitor className={cls} />
-    case 'LAPTOP':        return <Laptop className={cls} />
-    case 'SERVER':        return <Server className={cls} />
-    case 'PRINTER':       return <Printer className={cls} />
-    case 'CASH_REGISTER': return <ShoppingCart className={cls} />
-    case 'SWITCH':        return <Network className={cls} />
-    case 'ROUTER':        return <Router className={cls} />
-    case 'NAS':           return <HardDrive className={cls} />
-    case 'SCREEN':        return <Monitor className={cls} />
-    case 'TABLET':        return <Tablet className={cls} />
-    case 'PHONE':         return <Smartphone className={cls} />
-    default:              return <HelpCircle className={cls} />
-  }
-}
 
 function expiryBadge(date?: string | null) {
   if (!date) return <span className="text-slate-300">—</span>
@@ -288,6 +253,7 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
   goTo: (tab: Tab, id: string) => void
 }) {
   const qc = useQueryClient()
+  const refs = useReferences()
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Equipment | null>(null)
   const [deleting, setDeleting] = useState<Equipment | null>(null)
@@ -372,28 +338,20 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
                 {/* Card header */}
                 <div className="px-4 pt-4 pb-3 flex items-start justify-between gap-2">
                   <div className="flex items-start gap-3 min-w-0">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                      eq.status === 'IN_REPAIR' ? 'bg-orange-100' :
-                      eq.status === 'RETIRED'   ? 'bg-slate-100' :
-                      eq.status === 'LOST'      ? 'bg-red-100'   : 'bg-blue-50'
-                    }`}>
-                      <div className={
-                        eq.status === 'IN_REPAIR' ? 'text-orange-500' :
-                        eq.status === 'RETIRED'   ? 'text-slate-400' :
-                        eq.status === 'LOST'      ? 'text-red-500'   : 'text-blue-500'
-                      }>
-                        <EquipmentIcon type={eq.type} />
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${colorStyle(refs.color('equipment_status', eq.status)).bg100}`}>
+                      <div className={colorStyle(refs.color('equipment_status', eq.status)).text700}>
+                        <ReferenceIcon name={refs.icon('equipment_type', eq.type)} className="w-4 h-4 text-slate-400" />
                       </div>
                     </div>
                     <div className="min-w-0">
                       <p className="font-semibold text-slate-900 leading-tight">
-                        {[eq.brand, eq.model].filter(Boolean).join(' ') || EQUIPMENT_TYPES[eq.type] || eq.type}
+                        {[eq.brand, eq.model].filter(Boolean).join(' ') || refs.label('equipment_type', eq.type) || eq.type}
                       </p>
-                      <p className="text-xs text-slate-400 mt-0.5">{EQUIPMENT_TYPES[eq.type] ?? eq.type}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{refs.label('equipment_type', eq.type)}</p>
                     </div>
                   </div>
-                  <Badge variant={EQUIPMENT_STATUSES[eq.status]?.color ?? 'badge-gray'} >
-                    {EQUIPMENT_STATUSES[eq.status]?.label ?? eq.status}
+                  <Badge variant={badgeClass(refs.color('equipment_status', eq.status))} >
+                    {refs.label('equipment_status', eq.status)}
                   </Badge>
                 </div>
 
@@ -507,7 +465,7 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
           <Drawer
             open={!!selectedEquipment}
             onClose={() => setSelectedEquipment(null)}
-            title={[eq.brand, eq.model].filter(Boolean).join(' ') || EQUIPMENT_TYPES[eq.type] || eq.type}
+            title={[eq.brand, eq.model].filter(Boolean).join(' ') || refs.label('equipment_type', eq.type) || eq.type}
             actions={canWrite ? (
               <button
                 className="btn-secondary btn-sm flex items-center gap-1.5"
@@ -520,23 +478,15 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
             <div className="p-4 sm:p-5 space-y-6">
               {/* Type + status */}
               <div className="flex items-center gap-3">
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                  eq.status === 'IN_REPAIR' ? 'bg-orange-100' :
-                  eq.status === 'RETIRED'   ? 'bg-slate-100' :
-                  eq.status === 'LOST'      ? 'bg-red-100'   : 'bg-blue-50'
-                }`}>
-                  <div className={`scale-150 ${
-                    eq.status === 'IN_REPAIR' ? 'text-orange-500' :
-                    eq.status === 'RETIRED'   ? 'text-slate-400' :
-                    eq.status === 'LOST'      ? 'text-red-500'   : 'text-blue-500'
-                  }`}>
-                    <EquipmentIcon type={eq.type} />
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${colorStyle(refs.color('equipment_status', eq.status)).bg100}`}>
+                  <div className={`scale-150 ${colorStyle(refs.color('equipment_status', eq.status)).text700}`}>
+                    <ReferenceIcon name={refs.icon('equipment_type', eq.type)} className="w-4 h-4 text-slate-400" />
                   </div>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">{EQUIPMENT_TYPES[eq.type] ?? eq.type}</p>
-                  <Badge variant={EQUIPMENT_STATUSES[eq.status]?.color ?? 'badge-gray'}>
-                    {EQUIPMENT_STATUSES[eq.status]?.label ?? eq.status}
+                  <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">{refs.label('equipment_type', eq.type)}</p>
+                  <Badge variant={badgeClass(refs.color('equipment_status', eq.status))}>
+                    {refs.label('equipment_status', eq.status)}
                   </Badge>
                 </div>
               </div>
@@ -682,14 +632,14 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
               <label className="label">Type *</label>
               <select {...register('type')} className={`input ${errors.type ? 'input-error' : ''}`}>
                 <option value="">Sélectionner</option>
-                {EQUIPMENT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {refs.options('equipment_type').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
               {errors.type && <p className="form-error">{errors.type.message}</p>}
             </div>
             <div className="form-group">
               <label className="label">Statut *</label>
               <select {...register('status')} className="input">
-                {EQUIPMENT_STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {refs.options('equipment_status').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div className="form-group">
@@ -738,7 +688,7 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
       </Modal>
 
       <Modal open={!!deleting} onClose={() => setDeleting(null)} title="Supprimer l'équipement" size="sm">
-        <p className="text-slate-600 mb-6">Supprimer <strong>{[deleting?.brand, deleting?.model].filter(Boolean).join(' ') || EQUIPMENT_TYPES[deleting?.type ?? ''] || 'cet équipement'}</strong> ? Cette action est irréversible.</p>
+        <p className="text-slate-600 mb-6">Supprimer <strong>{[deleting?.brand, deleting?.model].filter(Boolean).join(' ') || refs.label('equipment_type', deleting?.type) || 'cet équipement'}</strong> ? Cette action est irréversible.</p>
         <div className="flex justify-end gap-3">
           <button className="btn-secondary" onClick={() => setDeleting(null)}>Annuler</button>
           <button className="px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700" disabled={deleteMutation.isPending} onClick={() => deleting && deleteMutation.mutate(deleting.id)}>Supprimer</button>
@@ -760,6 +710,7 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
   highlightId: string | null
 }) {
   const qc = useQueryClient()
+  const refs = useReferences()
   const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({})
 
   useEffect(() => {
@@ -780,7 +731,7 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
   // Software catalog for quick prefill
   const { data: softwareCatalog } = useQuery<{ data: { id: string; name: string; supplier?: string; price: number; type: string }[] }>({
     queryKey: ['products-software'],
-    queryFn: async () => { const { data } = await api.get('/products', { params: { category: 'SOFTWARE', limit: 200 } }); return data },
+    queryFn: async () => { const { data } = await api.get('/products', { params: { category: 'SOFTWARE', isActive: 'true', limit: 200 } }); return data },
     staleTime: 120_000,
   })
 
@@ -856,15 +807,15 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
                 >
                   <td className="font-medium text-slate-900">{l.software}</td>
                   <td className="text-slate-500 text-sm">{l.vendor ?? '—'}</td>
-                  <td><Badge variant="badge-blue">{LICENSE_TYPES[l.type] ?? l.type}</Badge></td>
+                  <td><Badge variant="badge-blue">{refs.label('license_type', l.type)}</Badge></td>
                   <td className="text-slate-600 text-sm">{l.seats}</td>
                   <td>{expiryBadge(l.expiryDate)}</td>
                   <td className="text-slate-600 text-sm">{formatCurrency(l.cost)}</td>
                   <td>
                     {l.equipment ? (
                       <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded-md">
-                        <EquipmentIcon type={l.equipment.type} />
-                        {[l.equipment.brand, l.equipment.model].filter(Boolean).join(' ') || EQUIPMENT_TYPES[l.equipment.type] || l.equipment.type}
+                        <ReferenceIcon name={refs.icon('equipment_type', l.equipment.type)} className="w-4 h-4 text-slate-400" />
+                        {[l.equipment.brand, l.equipment.model].filter(Boolean).join(' ') || refs.label('equipment_type', l.equipment.type) || l.equipment.type}
                       </span>
                     ) : <span className="text-slate-300">—</span>}
                   </td>
@@ -923,7 +874,7 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
             <div className="form-group">
               <label className="label">Type *</label>
               <select {...register('type')} className="input">
-                {LICENSE_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {refs.options('license_type').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div className="form-group">
@@ -946,7 +897,7 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
               <label className="label">Équipement lié</label>
               <select {...register('equipmentId')} className="input">
                 <option value="">Aucun</option>
-                {equipments.map(eq => <option key={eq.id} value={eq.id}>{[eq.brand, eq.model].filter(Boolean).join(' ') || EQUIPMENT_TYPES[eq.type]}</option>)}
+                {equipments.map(eq => <option key={eq.id} value={eq.id}>{[eq.brand, eq.model].filter(Boolean).join(' ') || refs.label('equipment_type', eq.type)}</option>)}
               </select>
             </div>
             <div className="form-group sm:col-span-2">
@@ -985,6 +936,7 @@ function ContractsTab({ companyId, contracts, isLoading, canWrite, canDelete, hi
   highlightId: string | null
 }) {
   const qc = useQueryClient()
+  const refs = useReferences()
   const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({})
 
   useEffect(() => {
@@ -1005,7 +957,7 @@ function ContractsTab({ companyId, contracts, isLoading, canWrite, canDelete, hi
   // Contract template catalog
   const { data: contractTemplates } = useQuery<{ data: { id: string; name: string; description?: string; price: number; supplier?: string }[] }>({
     queryKey: ['products-contract-templates'],
-    queryFn: async () => { const { data } = await api.get('/products', { params: { category: 'CONTRACT_TEMPLATE', limit: 100 } }); return data },
+    queryFn: async () => { const { data } = await api.get('/products', { params: { category: 'CONTRACT_TEMPLATE', isActive: 'true', limit: 100 } }); return data },
     staleTime: 120_000,
   })
 
@@ -1079,7 +1031,7 @@ function ContractsTab({ companyId, contracts, isLoading, canWrite, canDelete, hi
                 >
                   <td className="font-mono text-xs text-slate-500">{c.reference}</td>
                   <td className="font-medium text-slate-900">{c.title}</td>
-                  <td className="text-slate-500 text-xs">{CONTRACT_TYPES[c.type] ?? c.type}</td>
+                  <td className="text-slate-500 text-xs">{refs.label('contract_type', c.type)}</td>
                   <td><Badge variant={CONTRACT_STATUSES[c.status]?.color ?? 'badge-gray'}>{CONTRACT_STATUSES[c.status]?.label ?? c.status}</Badge></td>
                   <td className="text-slate-400 text-xs">{formatDate(c.startDate)}</td>
                   <td className="text-slate-400 text-xs">{formatDate(c.endDate)}</td>
@@ -1127,7 +1079,7 @@ function ContractsTab({ companyId, contracts, isLoading, canWrite, canDelete, hi
             <div className="form-group">
               <label className="label">Type *</label>
               <select {...register('type')} className="input">
-                {CONTRACT_TYPE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                {refs.options('contract_type').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div className="form-group">

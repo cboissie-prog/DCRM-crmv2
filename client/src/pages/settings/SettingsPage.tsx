@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { User, Building2, Users, Lock, Save, Eye, EyeOff, ExternalLink, Settings2, Play, RefreshCw, Key, Plus, Trash2, Copy, CheckCheck, AlertTriangle, CalendarDays, X, GitBranch, Star, Pencil, ChevronRight } from 'lucide-react'
+import { User, Building2, Users, Lock, Save, Eye, EyeOff, ExternalLink, Settings2, Play, RefreshCw, Key, Plus, Trash2, Copy, CheckCheck, AlertTriangle, CalendarDays, X, GitBranch, Star, Pencil, ChevronRight, ListChecks } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import api from '../../lib/api'
 import { cn } from '../../lib/utils'
 import { toast } from '../../components/ui/Toast'
+import { useReferencesQuery } from '../../hooks/useReferences'
+import { colorStyle, COLOR_TOKENS, REFERENCE_ICONS, ReferenceIcon } from '../../lib/referenceUi'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -505,6 +507,75 @@ function SystemTab() {
                 className="form-input"
                 value={getValue('licenseExpiringSoonDays') || '30'}
                 onChange={e => setValue('licenseExpiringSoonDays', e.target.value)}
+              />
+              <span className="text-sm text-slate-400 flex-shrink-0">jours</span>
+            </div>
+          </div>
+          <div>
+            <label className="form-label">Garanties équipement expirant dans (jours)</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={365}
+                className="form-input"
+                value={getValue('warrantyExpiringSoonDays') || '60'}
+                onChange={e => setValue('warrantyExpiringSoonDays', e.target.value)}
+              />
+              <span className="text-sm text-slate-400 flex-shrink-0">jours</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* SLA tickets */}
+      <div className="space-y-4 pt-4 border-t border-slate-100">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800">SLA tickets par priorité</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Délai de résolution cible (en heures) appliqué à la création d'un ticket selon sa priorité.</p>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {([
+            ['slaHoursCritical', 'Critique', '4'],
+            ['slaHoursHigh', 'Élevée', '8'],
+            ['slaHoursNormal', 'Normale', '24'],
+            ['slaHoursLow', 'Faible', '72'],
+          ] as const).map(([key, label, def]) => (
+            <div key={key}>
+              <label className="form-label">{label}</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={720}
+                  className="form-input"
+                  value={getValue(key) || def}
+                  onChange={e => setValue(key, e.target.value)}
+                />
+                <span className="text-sm text-slate-400 flex-shrink-0">h</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Rétention RGPD */}
+      <div className="space-y-4 pt-4 border-t border-slate-100">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800">Enregistrements d'appels</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Durée de conservation avant purge automatique (RGPD).</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="form-label">Rétention des enregistrements</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={3650}
+                className="form-input"
+                value={getValue('callRecordingRetentionDays') || '180'}
+                onChange={e => setValue('callRecordingRetentionDays', e.target.value)}
               />
               <span className="text-sm text-slate-400 flex-shrink-0">jours</span>
             </div>
@@ -1414,9 +1485,258 @@ function PipelineTemplatesTab() {
   )
 }
 
+// ─── Références (listes personnalisées) tab ───────────────────────────────────
+
+function ReferencesTab() {
+  const qc = useQueryClient()
+  const { data: domains = [], isLoading } = useReferencesQuery()
+  const [selectedDomain, setSelectedDomain] = useState('')
+  const domain = domains.find(d => d.domain === selectedDomain) ?? domains[0]
+
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editLabel, setEditLabel] = useState('')
+  const [editColor, setEditColor] = useState<string | null>(null)
+  const [editIcon, setEditIcon] = useState<string | null>(null)
+  const [editPhysical, setEditPhysical] = useState(false)
+  const [newLabel, setNewLabel] = useState('')
+  const [newColor, setNewColor] = useState<string | null>(null)
+  const [newIcon, setNewIcon] = useState<string | null>(null)
+  const [newPhysical, setNewPhysical] = useState(false)
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['references'] })
+  const apiError = (err: unknown) =>
+    (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ?? 'Une erreur est survenue'
+
+  const createMut = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => api.post(`/references/${domain?.domain}`, payload),
+    onSuccess: () => { invalidate(); setNewLabel(''); setNewColor(null); setNewIcon(null); setNewPhysical(false); toast.success('Valeur ajoutée') },
+    onError: (err) => toast.error(apiError(err)),
+  })
+  const updateMut = useMutation({
+    mutationFn: ({ id, ...payload }: { id: string } & Record<string, unknown>) => api.put(`/references/${id}`, payload),
+    onSuccess: () => { invalidate(); setEditingId(null) },
+    onError: (err) => toast.error(apiError(err)),
+  })
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => api.delete(`/references/${id}`),
+    onSuccess: (res) => {
+      invalidate()
+      if (res.data?.data?.deactivated) toast.success(`Valeur utilisée par ${res.data.data.usage} fiche(s) : désactivée au lieu d'être supprimée`)
+      else toast.success('Valeur supprimée')
+    },
+    onError: (err) => toast.error(apiError(err)),
+  })
+  const reorderMut = useMutation({
+    mutationFn: (ids: string[]) => api.patch(`/references/${domain?.domain}/reorder`, { ids }),
+    onSuccess: invalidate,
+    onError: (err) => toast.error(apiError(err)),
+  })
+
+  if (isLoading || !domain) return <div className="py-8 text-center text-slate-400 text-sm">Chargement…</div>
+
+  const values = [...domain.values].sort((a, b) => a.order - b.order)
+  const isProductDomain = domain.domain === 'product_category'
+
+  const startEdit = (v: typeof values[number]) => {
+    setEditingId(v.id)
+    setEditLabel(v.label)
+    setEditColor(v.color)
+    setEditIcon(v.icon)
+    setEditPhysical(Boolean(v.meta?.isPhysical))
+  }
+  const saveEdit = () => {
+    if (!editingId || !editLabel.trim()) return
+    updateMut.mutate({
+      id: editingId,
+      label: editLabel.trim(),
+      ...(domain.hasColor ? { color: editColor } : {}),
+      ...(domain.hasIcon ? { icon: editIcon } : {}),
+      ...(isProductDomain ? { meta: { isPhysical: editPhysical } } : {}),
+    })
+  }
+  const move = (index: number, dir: -1 | 1) => {
+    const target = index + dir
+    if (target < 0 || target >= values.length) return
+    const ids = values.map(v => v.id)
+    ;[ids[index], ids[target]] = [ids[target], ids[index]]
+    reorderMut.mutate(ids)
+  }
+
+  const colorPicker = (value: string | null, onPick: (c: string) => void) => (
+    <div className="flex flex-wrap gap-1.5">
+      {COLOR_TOKENS.map(token => (
+        <button
+          key={token}
+          type="button"
+          title={token}
+          onClick={() => onPick(token)}
+          className={cn(
+            'w-5 h-5 rounded-full transition-transform',
+            colorStyle(token).bar,
+            value === token ? 'ring-2 ring-offset-1 ring-primary-500 scale-110' : 'hover:scale-110',
+          )}
+        />
+      ))}
+    </div>
+  )
+
+  const iconPicker = (value: string | null, onPick: (i: string) => void) => (
+    <div className="flex flex-wrap gap-1">
+      {Object.keys(REFERENCE_ICONS).map(name => (
+        <button
+          key={name}
+          type="button"
+          title={name}
+          onClick={() => onPick(name)}
+          className={cn(
+            'w-7 h-7 rounded-md flex items-center justify-center border transition-colors',
+            value === name ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50',
+          )}
+        >
+          <ReferenceIcon name={name} className="w-4 h-4" />
+        </button>
+      ))}
+    </div>
+  )
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-base font-semibold text-slate-900">Listes personnalisées</h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Catégories, types et statuts proposés dans les formulaires du CRM. Les valeurs marquées
+          <span className="mx-1 inline-flex text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold">SYSTÈME</span>
+          sont utilisées par le fonctionnement de l'application et ne peuvent pas être supprimées.
+        </p>
+      </div>
+
+      {/* Sélecteur de liste */}
+      <div className="max-w-xs">
+        <label className="form-label">Liste</label>
+        <select className="form-input" value={domain.domain} onChange={e => { setSelectedDomain(e.target.value); setEditingId(null) }}>
+          {domains.map(d => <option key={d.domain} value={d.domain}>{d.label}</option>)}
+        </select>
+        <p className="text-xs text-slate-400 mt-1">{domain.description}</p>
+      </div>
+
+      {/* Valeurs */}
+      <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden">
+        {values.map((v, i) => (
+          <div key={v.id} className={cn('px-4 py-2.5 bg-white', !v.isActive && 'opacity-50')}>
+            {editingId === v.id ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    className="form-input flex-1"
+                    value={editLabel}
+                    onChange={e => setEditLabel(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && saveEdit()}
+                    autoFocus
+                  />
+                  <button className="btn-primary text-sm" onClick={saveEdit} disabled={updateMut.isPending}>Enregistrer</button>
+                  <button className="btn-secondary text-sm" onClick={() => setEditingId(null)}>Annuler</button>
+                </div>
+                {domain.hasColor && colorPicker(editColor, setEditColor)}
+                {domain.hasIcon && iconPicker(editIcon, setEditIcon)}
+                {isProductDomain && (
+                  <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                    <input type="checkbox" checked={editPhysical} onChange={e => setEditPhysical(e.target.checked)} />
+                    Compte comme matériel (proposé lors de la création d'équipements depuis le catalogue)
+                  </label>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <div className="flex flex-col">
+                  <button className="text-slate-300 hover:text-slate-600 disabled:opacity-30" disabled={i === 0} onClick={() => move(i, -1)}>
+                    <ChevronRight className="w-3.5 h-3.5 -rotate-90" />
+                  </button>
+                  <button className="text-slate-300 hover:text-slate-600 disabled:opacity-30" disabled={i === values.length - 1} onClick={() => move(i, 1)}>
+                    <ChevronRight className="w-3.5 h-3.5 rotate-90" />
+                  </button>
+                </div>
+                {domain.hasIcon && <ReferenceIcon name={v.icon} className="w-4 h-4 text-slate-400" />}
+                {domain.hasColor && <span className={cn('w-3 h-3 rounded-full flex-shrink-0', colorStyle(v.color).bar)} />}
+                <span className="text-sm text-slate-800 font-medium">{v.label}</span>
+                <span className="text-xs text-slate-400 font-mono">{v.key}</span>
+                {v.isSystem && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold">SYSTÈME</span>}
+                {!v.isActive && <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-semibold">DÉSACTIVÉE</span>}
+                {isProductDomain && Boolean(v.meta?.isPhysical) && (
+                  <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-semibold">MATÉRIEL</span>
+                )}
+                <div className="ml-auto flex items-center gap-1">
+                  {!v.isSystem && (
+                    <button
+                      className="p-1.5 text-slate-400 hover:text-slate-700 rounded"
+                      title={v.isActive ? 'Désactiver (masquer des formulaires)' : 'Réactiver'}
+                      onClick={() => updateMut.mutate({ id: v.id, isActive: !v.isActive })}
+                    >
+                      {v.isActive ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  )}
+                  <button className="p-1.5 text-slate-400 hover:text-primary-600 rounded" title="Modifier" onClick={() => startEdit(v)}>
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  {!v.isSystem && (
+                    <button className="p-1.5 text-slate-400 hover:text-red-600 rounded" title="Supprimer" onClick={() => deleteMut.mutate(v.id)}>
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Ajout */}
+      <div className="space-y-3 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+        <h3 className="text-sm font-semibold text-slate-800">Ajouter une valeur</h3>
+        <div className="flex items-center gap-2">
+          <input
+            className="form-input flex-1"
+            placeholder="Libellé (ex : Vidéosurveillance)"
+            value={newLabel}
+            onChange={e => setNewLabel(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && newLabel.trim() && createMut.mutate({
+              label: newLabel.trim(),
+              ...(domain.hasColor && newColor ? { color: newColor } : {}),
+              ...(domain.hasIcon && newIcon ? { icon: newIcon } : {}),
+              ...(isProductDomain ? { meta: { isPhysical: newPhysical } } : {}),
+            })}
+          />
+          <button
+            className="btn-primary flex items-center gap-1.5 text-sm"
+            disabled={!newLabel.trim() || createMut.isPending}
+            onClick={() => createMut.mutate({
+              label: newLabel.trim(),
+              ...(domain.hasColor && newColor ? { color: newColor } : {}),
+              ...(domain.hasIcon && newIcon ? { icon: newIcon } : {}),
+              ...(isProductDomain ? { meta: { isPhysical: newPhysical } } : {}),
+            })}
+          >
+            <Plus className="w-4 h-4" /> Ajouter
+          </button>
+        </div>
+        {domain.hasColor && colorPicker(newColor, setNewColor)}
+        {domain.hasIcon && iconPicker(newIcon, setNewIcon)}
+        {isProductDomain && (
+          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={newPhysical} onChange={e => setNewPhysical(e.target.checked)} />
+            Compte comme matériel
+          </label>
+        )}
+        <p className="text-xs text-slate-400">
+          La suppression d'une valeur déjà utilisée par des fiches la désactive simplement : les données existantes gardent leur libellé.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = 'profile' | 'password' | 'apikeys' | 'company' | 'users' | 'system' | 'calendars' | 'pipelines'
+type Tab = 'profile' | 'password' | 'apikeys' | 'company' | 'users' | 'system' | 'calendars' | 'pipelines' | 'references'
 
 interface TabConfig {
   id: Tab
@@ -1433,6 +1753,7 @@ const TABS: TabConfig[] = [
   { id: 'company',    label: 'Entreprise',           icon: <Building2 className="w-4 h-4" />,   adminOnly: true },
   { id: 'users',      label: 'Utilisateurs',         icon: <Users className="w-4 h-4" />,       adminOnly: true },
   { id: 'pipelines',  label: 'Pipelines défaut',     icon: <GitBranch className="w-4 h-4" />,   adminOnly: true },
+  { id: 'references', label: 'Listes personnalisées', icon: <ListChecks className="w-4 h-4" />,  adminOnly: false, permission: 'references:manage' },
   { id: 'calendars',  label: 'Calendriers',          icon: <CalendarDays className="w-4 h-4" />, adminOnly: false, permission: 'calendars:manage_access' },
   { id: 'system',     label: 'Système',              icon: <Settings2 className="w-4 h-4" />,   adminOnly: true },
 ]
@@ -1442,12 +1763,14 @@ export function SettingsPage() {
   const isAdmin = user?.role === 'ADMIN'
   const canManageApiKeys = hasPermission('apikeys:manage')
   const canManageCalendars = hasPermission('calendars:manage_access')
+  const canManageReferences = hasPermission('references:manage')
   const [activeTab, setActiveTab] = useState<Tab>('profile')
 
   const visibleTabs = TABS.filter(t => {
     if (t.adminOnly && !isAdmin) return false
     if (t.permission === 'apikeys:manage' && !canManageApiKeys) return false
     if (t.permission === 'calendars:manage_access' && !canManageCalendars) return false
+    if (t.permission === 'references:manage' && !canManageReferences) return false
     return true
   })
 
@@ -1505,6 +1828,7 @@ export function SettingsPage() {
           {currentTab === 'company'    && (isAdmin ? <CompanyTab /> : <AccessDenied />)}
           {currentTab === 'users'      && (isAdmin ? <UsersTab /> : <AccessDenied />)}
           {currentTab === 'pipelines'  && (isAdmin ? <PipelineTemplatesTab /> : <AccessDenied />)}
+          {currentTab === 'references' && (canManageReferences ? <ReferencesTab /> : <AccessDenied />)}
           {currentTab === 'calendars'  && (canManageCalendars ? <CalendarsTab /> : <AccessDenied />)}
           {currentTab === 'system'     && (isAdmin ? <SystemTab /> : <AccessDenied />)}
         </div>

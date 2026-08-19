@@ -6,13 +6,15 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import type { Resolver } from 'react-hook-form'
 import api from '../../lib/api'
-import { formatDate, formatRelative, CONTACT_STATUSES, LEAD_SOURCES, ACTIVITY_TYPES, PIPELINE_STAGES, TICKET_STATUSES, TICKET_PRIORITIES, getScoreColor, getScoreBg } from '../../lib/utils'
+import { formatDate, formatRelative, ACTIVITY_TYPES, PIPELINE_STAGES, TICKET_STATUSES, TICKET_PRIORITIES, getScoreColor, getScoreBg } from '../../lib/utils'
 import { Badge } from '../../components/ui/Badge'
 import { Avatar } from '../../components/ui/Avatar'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
 import { useAuthStore } from '../../store/authStore'
+import { useReferences } from '../../hooks/useReferences'
+import { badgeClass } from '../../lib/referenceUi'
 import { ArrowLeft, Mail, Phone, Building2, Star, TrendingUp, Wrench, Clock, Pencil, Trash2 } from 'lucide-react'
 
 const contactSchema = z.object({
@@ -34,6 +36,7 @@ export function ContactDetailPage() {
   const qc = useQueryClient()
   const user = useAuthStore(s => s.user)
   const canEdit = ['ADMIN', 'MANAGER', 'COMMERCIAL'].includes(user?.role ?? '')
+  const refs = useReferences()
 
   const [showEdit, setShowEdit] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
@@ -119,7 +122,7 @@ export function ContactDetailPage() {
             <div className="flex items-center gap-4 mb-4">
               <Avatar firstName={contact.firstName} lastName={contact.lastName} size="lg" />
               <div>
-                <Badge variant={CONTACT_STATUSES[contact.status]?.color}>{CONTACT_STATUSES[contact.status]?.label}</Badge>
+                <Badge variant={badgeClass(refs.color('contact_status', contact.status))}>{refs.label('contact_status', contact.status)}</Badge>
                 <div className={`mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${getScoreBg(contact.leadScore)} ${getScoreColor(contact.leadScore)}`}>
                   <Star className="w-3 h-3" /> Score : {contact.leadScore}
                 </div>
@@ -152,7 +155,7 @@ export function ContactDetailPage() {
               )}
             </div>
             <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs text-slate-500">
-              <div><p className="font-medium text-slate-700">Source</p><p>{LEAD_SOURCES[contact.source]}</p></div>
+              <div><p className="font-medium text-slate-700">Source</p><p>{refs.label('lead_source', contact.source)}</p></div>
               <div><p className="font-medium text-slate-700">Créé le</p><p>{formatDate(contact.createdAt)}</p></div>
             </div>
             {contact.notes && (
@@ -285,13 +288,13 @@ export function ContactDetailPage() {
             <div className="form-group">
               <label className="label">Source</label>
               <select {...editForm.register('source')} className="input">
-                {Object.entries(LEAD_SOURCES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                {refs.options('lead_source').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div className="form-group">
               <label className="label">Statut</label>
               <select {...editForm.register('status')} className="input">
-                {Object.entries(CONTACT_STATUSES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                {refs.options('contact_status').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
           </div>

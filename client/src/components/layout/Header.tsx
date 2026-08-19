@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback, useDeferredValue } from 'react'
-import { Search, Bell, CheckCheck, Ticket, FileText, Monitor, Key, TrendingUp, Zap, ThumbsUp, Star, AlertTriangle, X, CalendarDays, Clock, Trash2, Building2, Users, Menu } from 'lucide-react'
+import { Search, Bell, CheckCheck, Ticket, FileText, Monitor, Key, TrendingUp, Zap, ThumbsUp, Star, AlertTriangle, X, CalendarDays, Clock, Trash2, Building2, Users, Menu, ListTodo } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import api from '../../lib/api'
@@ -48,6 +48,8 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
   CHURN_RISK:            <AlertTriangle className="w-4 h-4 text-red-500" />,
   APPOINTMENT_CREATED:   <CalendarDays className="w-4 h-4 text-indigo-500" />,
   APPOINTMENT_REMINDER:  <Clock className="w-4 h-4 text-indigo-500" />,
+  TODO_REMINDER:         <ListTodo className="w-4 h-4 text-rose-500" />,
+  TODO_DUE:              <ListTodo className="w-4 h-4 text-rose-500" />,
 }
 
 // ── Icon par type résultat ─────────────────────────────────────────────────────

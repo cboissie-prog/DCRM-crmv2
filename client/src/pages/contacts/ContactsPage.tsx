@@ -6,13 +6,15 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import type { Resolver } from 'react-hook-form'
 import api from '../../lib/api'
-import { formatDate, CONTACT_STATUSES, LEAD_SOURCES, getScoreColor, getScoreBg } from '../../lib/utils'
+import { formatDate, getScoreColor, getScoreBg } from '../../lib/utils'
 import { Badge } from '../../components/ui/Badge'
 import { Avatar } from '../../components/ui/Avatar'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
 import { useAuthStore } from '../../store/authStore'
+import { useReferences } from '../../hooks/useReferences'
+import { badgeClass } from '../../lib/referenceUi'
 import { Plus, Search, Mail, Phone, Building2, Pencil, Trash2, Download, Upload, X, Users } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import { ImportCsvModal } from '../../components/ui/ImportCsvModal'
@@ -47,6 +49,7 @@ export function ContactsPage() {
   const qc = useQueryClient()
   const user = useAuthStore(s => s.user)
   const canEdit = ['ADMIN', 'MANAGER', 'COMMERCIAL'].includes(user?.role ?? '')
+  const refs = useReferences()
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -200,7 +203,7 @@ export function ContactsPage() {
         </div>
         <select className="input w-auto" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}>
           <option value="">Tous les statuts</option>
-          {Object.entries(CONTACT_STATUSES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          {refs.options('contact_status').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         {(search || statusFilter) && (
           <button
@@ -250,11 +253,11 @@ export function ContactsPage() {
                     ) : <span className="text-slate-300">—</span>}
                   </td>
                   <td>
-                    <Badge variant={CONTACT_STATUSES[c.status]?.color || 'badge-gray'}>
-                      {CONTACT_STATUSES[c.status]?.label || c.status}
+                    <Badge variant={badgeClass(refs.color('contact_status', c.status))}>
+                      {refs.label('contact_status', c.status)}
                     </Badge>
                   </td>
-                  <td className="text-slate-500 text-xs">{LEAD_SOURCES[c.source] || c.source}</td>
+                  <td className="text-slate-500 text-xs">{refs.label('lead_source', c.source)}</td>
                   <td>
                     <div className="flex items-center gap-2">
                       <div className={`px-2 py-0.5 rounded-full text-xs font-bold ${getScoreBg(c.leadScore)} ${getScoreColor(c.leadScore)}`}>
@@ -380,6 +383,7 @@ function ContactFormFields({
 }) {
   const [newCompanyMode, setNewCompanyMode] = useState(false)
   const { register, handleSubmit, formState: { errors, isSubmitting } } = form
+  const refs = useReferences()
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -432,7 +436,10 @@ function ContactFormFields({
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <input {...register('newCompanyWebsite')} placeholder="Site web" className="input" />
-              <input {...register('newCompanySector')} placeholder="Secteur d'activité" className="input" />
+              <select {...register('newCompanySector')} className="input">
+                <option value="">— Secteur —</option>
+                {refs.options('sector').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <input {...register('newCompanyCity')} placeholder="Ville" className="input" />
@@ -479,13 +486,13 @@ function ContactFormFields({
         <div className="form-group">
           <label className="label">Source</label>
           <select {...register('source')} className="input">
-            {Object.entries(LEAD_SOURCES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            {refs.options('lead_source').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
         <div className="form-group">
           <label className="label">Statut</label>
           <select {...register('status')} className="input">
-            {Object.entries(CONTACT_STATUSES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            {refs.options('contact_status').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
       </div>

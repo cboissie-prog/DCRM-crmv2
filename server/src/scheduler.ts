@@ -5,23 +5,7 @@ import logger from './lib/logger'
 import { runOverdueTickets, runOpportunityInactive, runContractExpiring } from './automation-engine'
 import { runCalendarSync, renewExpiringChannels } from './services/google-calendar'
 import { runOvhVoipSync, isOvhConfigured } from './services/ovh-voip'
-
-// ─── Helper : lire un setting entier depuis la DB ─────────────────────────────
-
-async function getSettingInt(key: string, fallback: number): Promise<number> {
-  try {
-    const row = await prisma.setting.findUnique({ where: { key } })
-    const n = parseInt(row?.value ?? '', 10)
-    return isNaN(n) ? fallback : n
-  } catch { return fallback }
-}
-
-async function getSettingStr(key: string, fallback: string): Promise<string> {
-  try {
-    const row = await prisma.setting.findUnique({ where: { key } })
-    return row?.value ?? fallback
-  } catch { return fallback }
-}
+import { getSettingInt, getSettingStr } from './lib/settings'
 
 // ─── Job : mise à jour des statuts contrats ───────────────────────────────────
 
@@ -87,6 +71,62 @@ export async function runAppointmentReminders(): Promise<number> {
         },
       })
       sent++
+    }
+  }
+  return sent
+}
+
+// ─── Job : rappels todolist (J-1 et jour J, cron horaire) ─────────────────────
+
+export async function runTodoReminders(): Promise<number> {
+  const now = new Date()
+
+  const dueTodos = await prisma.todo.findMany({
+    where: { isDone: false, dueDate: { not: null } },
+    select: { id: true, title: true, dueDate: true, ownerId: true },
+  })
+
+  let sent = 0
+  for (const todo of dueTodos) {
+    if (!todo.dueDate) continue
+    const dayBefore = new Date(todo.dueDate.getTime() - 24 * 60 * 60 * 1000)
+
+    // Rappel jour J : priorité sur le rappel J-1 si les deux seuils sont dépassés
+    // (une tâche déjà en retard à sa création ne reçoit qu'un rappel de chaque type, cf. dédoublonnage)
+    if (now >= todo.dueDate) {
+      const exists = await prisma.notification.findFirst({
+        where: { todoId: todo.id, userId: todo.ownerId, type: 'TODO_DUE' },
+      })
+      if (!exists) {
+        await prisma.notification.create({
+          data: {
+            userId: todo.ownerId,
+            type: 'TODO_DUE',
+            title: 'Tâche à échéance',
+            message: `"${todo.title}" arrive à échéance aujourd'hui`,
+            link: '/todos',
+            todoId: todo.id,
+          },
+        })
+        sent++
+      }
+    } else if (now >= dayBefore) {
+      const exists = await prisma.notification.findFirst({
+        where: { todoId: todo.id, userId: todo.ownerId, type: 'TODO_REMINDER' },
+      })
+      if (!exists) {
+        await prisma.notification.create({
+          data: {
+            userId: todo.ownerId,
+            type: 'TODO_REMINDER',
+            title: 'Rappel tâche',
+            message: `"${todo.title}" arrive à échéance demain`,
+            link: '/todos',
+            todoId: todo.id,
+          },
+        })
+        sent++
+      }
     }
   }
   return sent
@@ -239,6 +279,14 @@ export async function startScheduler() {
       if (total > 0) logger.info(`⚡ Automatisations : ${overdue} tickets en retard, ${inactive} opps inactives, ${expiring} contrats expirants`)
     } catch (err) {
       logger.error({ err }, '  ❌ Erreur scheduler automatisations')
+    }
+
+    // Rappels todolist (J-1 et jour J)
+    try {
+      const sent = await runTodoReminders()
+      if (sent > 0) logger.info(`✅ Rappels todolist : ${sent} notification(s) envoyée(s)`)
+    } catch (err) {
+      logger.error({ err }, '  ❌ Erreur scheduler rappels todolist')
     }
 
     // Renouvellement des canaux watch Google Calendar expirant dans < 24 h

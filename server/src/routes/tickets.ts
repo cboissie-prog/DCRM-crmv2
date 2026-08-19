@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission, hasPermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { checkReferences } from '../lib/references'
 import { ciContains } from '../lib/query'
 import { fireAutomations } from '../automation-engine'
 import { csvEscape } from '../lib/csv'
@@ -163,6 +164,8 @@ router.get('/', requirePermission('tickets:read'), async (req: AuthRequest, res:
 router.post('/', requirePermission('tickets:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = ticketSchema.parse(req.body)
+    const refError = await checkReferences([{ domain: 'ticket_category', value: body.category }])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     if (body.assignedToId && body.assignedToId !== req.userId && !hasPermission(req, 'tickets:assign')) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Permission tickets:assign requise pour assigner un ticket à un autre utilisateur' } })
       return
@@ -310,6 +313,8 @@ router.get('/:id', requirePermission('tickets:read'), async (req: AuthRequest, r
 router.put('/:id', requirePermission('tickets:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = ticketSchema.partial().parse(req.body)
+    const refError = await checkReferences([{ domain: 'ticket_category', value: body.category }])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     const current = await prisma.ticket.findUnique({ where: { id: req.params.id } })
     if (!current) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ticket introuvable' } }); return }
 

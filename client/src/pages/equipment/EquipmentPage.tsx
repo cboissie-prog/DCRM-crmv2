@@ -2,16 +2,12 @@ import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAfter, parseISO } from 'date-fns'
 import api from '../../lib/api'
-import { formatDate, EQUIPMENT_TYPES, CONTRACT_TYPES, CONTRACT_STATUSES } from '../../lib/utils'
+import { formatDate, CONTRACT_STATUSES } from '../../lib/utils'
 import { Badge } from '../../components/ui/Badge'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
-import {
-  Plus, Pencil, Trash2,
-  Monitor, Laptop, Server, Printer, ShoppingCart,
-  Network, Router, HardDrive, Tablet, Smartphone, HelpCircle,
-} from 'lucide-react'
+import { Plus, Pencil, Trash2, HardDrive } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -20,21 +16,8 @@ import { requiredNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
 import type { Equipment, Company, Contract, Product, PaginatedResponse } from '../../types'
 import { useAuthStore } from '../../store/authStore'
-
-const EQUIPMENT_STATUSES: Record<string, { label: string; color: string }> = {
-  ACTIVE: { label: 'Actif', color: 'badge-green' },
-  IN_REPAIR: { label: 'En réparation', color: 'badge-orange' },
-  RETIRED: { label: 'Retraité', color: 'badge-gray' },
-  LOST: { label: 'Perdu', color: 'badge-red' },
-}
-
-const EQUIPMENT_TYPE_OPTIONS = Object.entries(EQUIPMENT_TYPES).map(([value, label]) => ({ value, label }))
-
-const EQUIPMENT_STATUS_OPTIONS = Object.entries(EQUIPMENT_STATUSES).map(([value, { label }]) => ({ value, label }))
-
-// Catégories du catalogue correspondant à du matériel physique inventoriable
-// (on exclut les logiciels, modèles de contrat, maintenance, sites web, formations).
-const EQUIPMENT_PRODUCT_CATEGORIES = ['HARDWARE', 'NETWORK', 'CASH_REGISTER', 'OTHER']
+import { useReferences } from '../../hooks/useReferences'
+import { ReferenceIcon, badgeClass } from '../../lib/referenceUi'
 
 // Devine le type d'équipement depuis un produit du catalogue (best-effort, modifiable ensuite).
 function inferEquipmentType(p: { name: string; category: string }): string {
@@ -55,24 +38,6 @@ function inferEquipmentType(p: { name: string; category: string }): string {
   return ''
 }
 
-function EquipmentTypeIcon({ type }: { type: string }) {
-  const cls = 'w-4 h-4 text-slate-400'
-  switch (type) {
-    case 'DESKTOP': return <Monitor className={cls} />
-    case 'LAPTOP': return <Laptop className={cls} />
-    case 'SERVER': return <Server className={cls} />
-    case 'PRINTER': return <Printer className={cls} />
-    case 'CASH_REGISTER': return <ShoppingCart className={cls} />
-    case 'SWITCH': return <Network className={cls} />
-    case 'ROUTER': return <Router className={cls} />
-    case 'NAS': return <HardDrive className={cls} />
-    case 'SCREEN': return <Monitor className={cls} />
-    case 'TABLET': return <Tablet className={cls} />
-    case 'PHONE': return <Smartphone className={cls} />
-    default: return <HelpCircle className={cls} />
-  }
-}
-
 const equipmentSchema = z.object({
   companyId: z.string().min(1, 'Entreprise requise'),
   contractId: z.string().optional(),
@@ -91,6 +56,7 @@ type EquipmentForm = z.infer<typeof equipmentSchema>
 
 export function EquipmentPage() {
   const qc = useQueryClient()
+  const refs = useReferences()
   const { user } = useAuthStore()
   const canCreate = user?.role === 'ADMIN' || user?.role === 'MANAGER' || user?.role === 'TECHNICIEN'
   const canDelete = user?.role === 'ADMIN' || user?.role === 'MANAGER'
@@ -141,14 +107,20 @@ export function EquipmentPage() {
   const { data: productsData } = useQuery<{ data: Product[] }>({
     queryKey: ['products-equipment-picker'],
     queryFn: async () => {
-      const { data } = await api.get('/products', { params: { limit: 200 } })
+      const { data } = await api.get('/products', { params: { isActive: 'true', limit: 200 } })
       return data
     },
     staleTime: 60_000,
   })
+  // Catégories du catalogue correspondant à du matériel physique inventoriable
+  // (on exclut les logiciels, modèles de contrat, maintenance, sites web, formations).
+  const equipmentProductCategories = refs.values('product_category')
+    .filter(v => v.meta?.isPhysical === true)
+    .map(v => v.key)
+
   // On ne propose dans le sélecteur que le matériel physique (produits réels, pas services/abonnements)
   const catalogProducts = (productsData?.data ?? []).filter(
-    p => p.isActive && p.type === 'PRODUCT' && EQUIPMENT_PRODUCT_CATEGORIES.includes(p.category),
+    p => p.isActive && p.type === 'PRODUCT' && equipmentProductCategories.includes(p.category),
   )
 
   const { register, handleSubmit, reset, setValue, getValues, watch, formState: { errors, isSubmitting } } = useForm<EquipmentForm>({
@@ -175,7 +147,8 @@ export function EquipmentPage() {
     setValue('model', p.name)
     if (p.supplier) setValue('brand', p.supplier)
     const inferred = inferEquipmentType(p)
-    if (inferred) setValue('type', inferred)
+    const activeTypes = refs.options('equipment_type').map(o => o.value)
+    if (inferred && activeTypes.includes(inferred)) setValue('type', inferred)
     if (p.reference && !getValues('notes')) setValue('notes', `Réf. catalogue : ${p.reference}`)
   }
 
@@ -283,7 +256,7 @@ export function EquipmentPage() {
           onChange={e => setTypeFilter(e.target.value)}
         >
           <option value="">Tous les types</option>
-          {EQUIPMENT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {refs.options('equipment_type').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         <select
           className="input flex-1 min-w-[140px]"
@@ -291,7 +264,7 @@ export function EquipmentPage() {
           onChange={e => setStatusFilter(e.target.value)}
         >
           <option value="">Tous les statuts</option>
-          {EQUIPMENT_STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {refs.options('equipment_status').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </div>
 
@@ -319,8 +292,8 @@ export function EquipmentPage() {
                   <td className="text-slate-700">{eq.company?.name ?? '—'}</td>
                   <td>
                     <div className="flex items-center gap-2 text-slate-600">
-                      <EquipmentTypeIcon type={eq.type} />
-                      <span className="text-xs">{EQUIPMENT_TYPES[eq.type] ?? eq.type}</span>
+                      <ReferenceIcon name={refs.icon('equipment_type', eq.type)} className="w-4 h-4 text-slate-400" />
+                      <span className="text-xs">{refs.label('equipment_type', eq.type)}</span>
                     </div>
                   </td>
                   <td className="font-medium text-slate-900">
@@ -336,8 +309,8 @@ export function EquipmentPage() {
                     ) : <span className="text-slate-300">—</span>}
                   </td>
                   <td>
-                    <Badge variant={EQUIPMENT_STATUSES[eq.status]?.color ?? 'badge-gray'}>
-                      {EQUIPMENT_STATUSES[eq.status]?.label ?? eq.status}
+                    <Badge variant={badgeClass(refs.color('equipment_status', eq.status))}>
+                      {refs.label('equipment_status', eq.status)}
                     </Badge>
                   </td>
                   <td>
@@ -436,14 +409,14 @@ export function EquipmentPage() {
               <label className="label">Type *</label>
               <select {...register('type')} className={`input ${errors.type ? 'input-error' : ''}`}>
                 <option value="">Sélectionner un type</option>
-                {EQUIPMENT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {refs.options('equipment_type').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
               {errors.type && <p className="form-error">{errors.type.message}</p>}
             </div>
             <div className="form-group">
               <label className="label">Statut *</label>
               <select {...register('status')} className="input">
-                {EQUIPMENT_STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {refs.options('equipment_status').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div className="form-group">
@@ -501,7 +474,7 @@ export function EquipmentPage() {
       <Modal open={!!deletingEquipment} onClose={() => setDeletingEquipment(null)} title="Supprimer l'équipement" size="sm">
         <p className="text-slate-600 mb-6">
           Êtes-vous sûr de vouloir supprimer l'équipement{' '}
-          <strong>{[deletingEquipment?.brand, deletingEquipment?.model].filter(Boolean).join(' ') || EQUIPMENT_TYPES[deletingEquipment?.type ?? ''] || 'cet équipement'}</strong> ?
+          <strong>{[deletingEquipment?.brand, deletingEquipment?.model].filter(Boolean).join(' ') || refs.label('equipment_type', deletingEquipment?.type) || 'cet équipement'}</strong> ?
           Cette action est irréversible.
         </p>
         <div className="flex justify-end gap-3">
@@ -520,7 +493,6 @@ export function EquipmentPage() {
 }
 
 // ─── Création rapide d'un contrat (depuis le formulaire équipement) ──────────────
-const CONTRACT_TYPE_OPTIONS = Object.entries(CONTRACT_TYPES).map(([value, label]) => ({ value, label }))
 const CONTRACT_STATUS_OPTIONS = Object.entries(CONTRACT_STATUSES).map(([value, { label }]) => ({ value, label }))
 
 const quickContractSchema = z.object({
@@ -543,6 +515,7 @@ interface QuickContractModalProps {
 
 function QuickContractModal({ open, onClose, companyId, onCreated }: QuickContractModalProps) {
   const qc = useQueryClient()
+  const refs = useReferences()
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<QuickContractForm>({
     resolver: zodResolver(quickContractSchema) as Resolver<QuickContractForm>,
     defaultValues: { status: 'ACTIVE', monthlyAmount: 0, annualAmount: 0 },
@@ -576,7 +549,7 @@ function QuickContractModal({ open, onClose, companyId, onCreated }: QuickContra
             <label className="label">Type *</label>
             <select {...register('type')} className={`input ${errors.type ? 'input-error' : ''}`}>
               <option value="">Sélectionner</option>
-              {CONTRACT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {refs.options('contract_type').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {errors.type && <p className="form-error">{errors.type.message}</p>}
           </div>

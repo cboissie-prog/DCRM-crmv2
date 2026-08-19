@@ -307,6 +307,21 @@ export interface Notification {
   createdAt: string
 }
 
+export interface Todo {
+  id: string
+  title: string
+  description?: string
+  priority: string
+  isDone: boolean
+  isPrivate: boolean
+  dueDate?: string
+  completedAt?: string
+  ownerId: string
+  owner: { id: string; firstName: string; lastName: string }
+  createdAt: string
+  updatedAt: string
+}
+
 export interface Call {
   id: string
   externalId?: string

@@ -4,6 +4,8 @@ import { optionalDateString } from '../lib/zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { checkReferences } from '../lib/references'
+import { getSettingInt } from '../lib/settings'
 import { ensureExists, fetchOrFail, ensureCompanyMatch } from '../lib/relationChecks'
 
 const router = Router()
@@ -34,9 +36,10 @@ router.get('/', requirePermission('equipment:read'), async (req: AuthRequest, re
     if (type) where.type = type
     if (status) where.status = status
     if (warrantyExpiringSoon === 'true') {
-      const in90Days = new Date()
-      in90Days.setDate(in90Days.getDate() + 90)
-      where.warrantyExpiry = { lte: in90Days, gte: new Date() }
+      const days = await getSettingInt('warrantyExpiringSoonDays', 60)
+      const threshold = new Date()
+      threshold.setDate(threshold.getDate() + days)
+      where.warrantyExpiry = { lte: threshold, gte: new Date() }
     }
     const [total, equipments] = await Promise.all([
       prisma.equipment.count({ where }),
@@ -58,6 +61,11 @@ router.get('/', requirePermission('equipment:read'), async (req: AuthRequest, re
 router.post('/', requirePermission('equipment:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = equipmentSchema.parse(req.body)
+    const refError = await checkReferences([
+      { domain: 'equipment_type', value: body.type },
+      { domain: 'equipment_status', value: body.status },
+    ])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     const data: Record<string, unknown> = { ...body }
     if (body.purchaseDate) data.purchaseDate = new Date(body.purchaseDate)
     if (body.warrantyExpiry) data.warrantyExpiry = new Date(body.warrantyExpiry)
@@ -105,6 +113,11 @@ router.get('/:id', requirePermission('equipment:read'), async (req: AuthRequest,
 router.put('/:id', requirePermission('equipment:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = equipmentSchema.partial().parse(req.body)
+    const refError = await checkReferences([
+      { domain: 'equipment_type', value: body.type },
+      { domain: 'equipment_status', value: body.status },
+    ])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     const current = await prisma.equipment.findUnique({ where: { id: req.params.id } })
     if (!current) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Équipement introuvable' } }); return }
 

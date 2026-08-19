@@ -16,4 +16,5 @@ export const moduleColors = {
   parc:       colors.cyan,     // Parc clients, Équipements, Licences, Contrats
   tickets:    colors.amber,    // Tickets SAV
   tools:      colors.fuchsia,  // Catalogue, Base de connaissance, Automatisations, NPS, Utilisateurs, Rôles
+  todo:       colors.rose,     // Todolist personnelle
 }

@@ -12,6 +12,7 @@ router.use(authenticate)
 const DEFAULTS: Record<string, { value: string; label: string }> = {
   contractExpiringSoonDays: { value: '60',      label: 'Alerte contrats expirant dans (jours)' },
   licenseExpiringSoonDays:  { value: '30',      label: 'Alerte licences expirant dans (jours)' },
+  warrantyExpiringSoonDays: { value: '60',      label: 'Alerte garanties équipement expirant dans (jours)' },
   schedulerEnabled:         { value: 'true',    label: 'Mise à jour automatique des statuts activée' },
   schedulerTime:            { value: '02:00',   label: 'Heure d\'exécution du job (HH:MM, heure serveur)' },
   companyName:              { value: 'DCB Technologies',  label: 'Nom de l\'entreprise' },

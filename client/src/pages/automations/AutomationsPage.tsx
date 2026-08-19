@@ -41,8 +41,8 @@ interface ActionDef { type: string; params: Record<string, string> }
 // ── Config ─────────────────────────────────────────────────────────────────────
 
 const TRIGGERS: Record<string, { label: string; description: string; category: 'event' | 'scheduled'; conditionFields: ConditionField[] }> = {
-  TICKET_CREATED:            { label: 'Ticket créé',               description: 'Se déclenche dès qu\'un ticket est ouvert',                     category: 'event',     conditionFields: [{ key: 'priority', label: 'Priorité', type: 'multiselect', options: ['LOW','MEDIUM','HIGH','CRITICAL'] }, { key: 'category', label: 'Catégorie', type: 'text' }] },
-  TICKET_RESOLVED:           { label: 'Ticket résolu',             description: 'Se déclenche quand un ticket passe en Résolu ou Fermé',          category: 'event',     conditionFields: [{ key: 'priority', label: 'Priorité', type: 'multiselect', options: ['LOW','MEDIUM','HIGH','CRITICAL'] }] },
+  TICKET_CREATED:            { label: 'Ticket créé',               description: 'Se déclenche dès qu\'un ticket est ouvert',                     category: 'event',     conditionFields: [{ key: 'priority', label: 'Priorité', type: 'multiselect', options: ['LOW','NORMAL','HIGH','CRITICAL'] }, { key: 'category', label: 'Catégorie', type: 'text' }] },
+  TICKET_RESOLVED:           { label: 'Ticket résolu',             description: 'Se déclenche quand un ticket passe en Résolu ou Fermé',          category: 'event',     conditionFields: [{ key: 'priority', label: 'Priorité', type: 'multiselect', options: ['LOW','NORMAL','HIGH','CRITICAL'] }] },
   TICKET_ASSIGNED:           { label: 'Ticket assigné',            description: 'Se déclenche quand un ticket est assigné à un technicien',       category: 'event',     conditionFields: [] },
   TICKET_OVERDUE:            { label: 'Ticket en retard',          description: 'Se déclenche si un ticket reste ouvert trop longtemps',          category: 'scheduled', conditionFields: [{ key: 'hoursOpen', label: 'Heures sans mise à jour', type: 'number', placeholder: '24' }] },
   OPPORTUNITY_CREATED:       { label: 'Opportunité créée',         description: 'Se déclenche quand une opportunité est créée ou un lead converti', category: 'event',    conditionFields: [] },
@@ -65,7 +65,7 @@ const ACTION_TYPES: Record<string, { label: string; description: string; paramFi
   NOTIFY_ROLE:             { label: 'Notifier un rôle entier',  description: 'Notifie tous les utilisateurs d\'un rôle', paramFields: [{ key: 'role', label: 'Rôle', type: 'select', options: [['ADMIN','Admin'],['MANAGER','Manager'],['COMMERCIAL','Commercial'],['TECHNICIEN','Technicien']] }, { key: 'message', label: 'Message', type: 'text', placeholder: 'Optionnel' }] },
   CREATE_ACTIVITY:         { label: 'Créer une activité',       description: 'Ajoute une activité sur le client',     paramFields: [{ key: 'title', label: 'Titre de l\'activité', type: 'text', placeholder: 'Relance client' }, { key: 'type', label: 'Type', type: 'select', options: [['CALL','Appel'],['EMAIL','Email'],['MEETING','Réunion'],['NOTE','Note'],['TASK','Tâche']] }] },
   CHANGE_TICKET_STATUS:    { label: 'Changer statut ticket',    description: 'Modifie le statut d\'un ticket',        paramFields: [{ key: 'status', label: 'Nouveau statut', type: 'select', options: [['IN_PROGRESS','En cours'],['WAITING_CLIENT','En attente client'],['RESOLVED','Résolu'],['CLOSED','Fermé']] }] },
-  CHANGE_TICKET_PRIORITY:  { label: 'Changer priorité ticket',  description: 'Modifie la priorité d\'un ticket',      paramFields: [{ key: 'priority', label: 'Nouvelle priorité', type: 'select', options: [['LOW','Basse'],['MEDIUM','Moyenne'],['HIGH','Haute'],['CRITICAL','Critique']] }] },
+  CHANGE_TICKET_PRIORITY:  { label: 'Changer priorité ticket',  description: 'Modifie la priorité d\'un ticket',      paramFields: [{ key: 'priority', label: 'Nouvelle priorité', type: 'select', options: [['LOW','Basse'],['NORMAL','Normal'],['HIGH','Haute'],['CRITICAL','Critique']] }] },
 }
 
 interface ParamField {
@@ -77,7 +77,7 @@ interface ParamField {
   showIf?:      { key: string; value: string }
 }
 
-const PRIORITY_LABELS: Record<string, string> = { LOW: 'Basse', MEDIUM: 'Moyenne', HIGH: 'Haute', CRITICAL: 'Critique' }
+const PRIORITY_LABELS: Record<string, string> = { LOW: 'Faible', NORMAL: 'Normal', HIGH: 'Élevé', CRITICAL: 'Critique' }
 
 const TEMPLATES: { name: string; trigger: string; conditions: Record<string, string | string[] | number>; actions: ActionDef[] }[] = [
   { name: 'Ticket critique → alerte manager', trigger: 'TICKET_CREATED', conditions: { priority: ['CRITICAL'] }, actions: [{ type: 'NOTIFY_ROLE', params: { role: 'MANAGER', message: 'Un ticket critique vient d\'être ouvert' } }] },

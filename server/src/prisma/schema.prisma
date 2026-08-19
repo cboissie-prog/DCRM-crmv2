@@ -52,6 +52,7 @@ model User {
   ticketEvents        TicketEvent[]
   ticketTimeEntries   TicketTimeEntry[]
   ticketAttachments   TicketAttachment[]
+  todos               Todo[]
 }
 
 model RefreshToken {
@@ -632,8 +633,33 @@ model Setting {
   updatedAt DateTime @updatedAt
 }
 
+// ─── RÉFÉRENTIELS PERSONNALISABLES ──────────────────────
+// Listes de valeurs métier gérables depuis Réglages > Listes
+// (catégories de tickets/appels/produits, types d'équipement/contrat/licence/RDV,
+//  statuts équipement/contact, sources de leads, secteurs, catégories de la base
+//  de connaissances). Les statuts/priorités câblés à de la logique (tickets,
+//  contrats, leads…) restent des constantes code — voir AUDIT-PERSONNALISATION.md.
+
+model ReferenceValue {
+  id        String   @id @default(cuid())
+  domain    String   // ticket_category, call_category, equipment_type, ...
+  key       String   // valeur stockée dans les entités (ex: HARDWARE_FAILURE)
+  label     String
+  color     String?  // jeton couleur badge (blue, green, orange, ...)
+  icon      String?  // nom d'icône lucide (Monitor, Printer, ...)
+  order     Int      @default(0)
+  isActive  Boolean  @default(true)  // désactivée = masquée des formulaires, libellé conservé
+  isSystem  Boolean  @default(false) // référencée par le code : ni supprimable ni désactivable
+  meta      String?  // JSON libre (ex: {"isPhysical":true} pour les catégories produit)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([domain, key])
+  @@index([domain])
+}
+
 // ─── NOTIFICATIONS ──────────────────────────────────────
-// type: TICKET_ASSIGNED | TICKET_URGENT | CONTRACT_EXPIRING | LICENSE_EXPIRING | WARRANTY_EXPIRING | OPPORTUNITY_INACTIVE | AUTOMATION_TRIGGERED | NPS_RECEIVED | LEAD_SCORED | CHURN_RISK | APPOINTMENT_CREATED | APPOINTMENT_REMINDER
+// type: TICKET_ASSIGNED | TICKET_URGENT | CONTRACT_EXPIRING | LICENSE_EXPIRING | WARRANTY_EXPIRING | OPPORTUNITY_INACTIVE | AUTOMATION_TRIGGERED | NPS_RECEIVED | LEAD_SCORED | CHURN_RISK | APPOINTMENT_CREATED | APPOINTMENT_REMINDER | TODO_REMINDER | TODO_DUE
 
 model Notification {
   id            String   @id @default(uuid())
@@ -643,6 +669,7 @@ model Notification {
   message       String
   link          String?
   appointmentId String?
+  todoId        String?
   isRead        Boolean  @default(false)
   createdAt     DateTime @default(now())
 }
@@ -785,4 +812,21 @@ model CalendarAccess {
   ownerId   String   // le propriétaire du calendrier vu
   createdAt DateTime @default(now())
   @@id([viewerId, ownerId])
+}
+
+// ─── TODOLIST PAR UTILISATEUR ───────────────────────────
+// priority: LOW | NORMAL | HIGH
+model Todo {
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  priority    String    @default("NORMAL")
+  isDone      Boolean   @default(false)
+  isPrivate   Boolean   @default(false)
+  dueDate     DateTime?
+  completedAt DateTime?
+  ownerId     String
+  owner       User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }

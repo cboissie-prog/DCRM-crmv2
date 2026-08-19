@@ -5,6 +5,8 @@ import { Prisma } from '@prisma/client'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { checkReferences } from '../lib/references'
+import { getSettingInt } from '../lib/settings'
 
 const router = Router()
 router.use(authenticate)
@@ -42,9 +44,10 @@ router.get('/', requirePermission('contracts:read'), async (req: AuthRequest, re
     if (type) where.type = type
     if (companyId) where.companyId = companyId
     if (expiringSoon === 'true') {
-      const in60Days = new Date()
-      in60Days.setDate(in60Days.getDate() + 60)
-      where.endDate = { lte: in60Days }
+      const days = await getSettingInt('contractExpiringSoonDays', 60)
+      const threshold = new Date()
+      threshold.setDate(threshold.getDate() + days)
+      where.endDate = { lte: threshold }
       where.status = 'ACTIVE'
     }
     const [total, contracts] = await Promise.all([
@@ -62,6 +65,8 @@ router.get('/', requirePermission('contracts:read'), async (req: AuthRequest, re
 router.post('/', requirePermission('contracts:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = contractSchema.parse(req.body)
+    const refError = await checkReferences([{ domain: 'contract_type', value: body.type }])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     const contract = await prisma.$transaction(async (tx) => {
       const reference = await generateContractRef(tx)
       return tx.contract.create({
@@ -99,6 +104,8 @@ router.get('/:id', requirePermission('contracts:read'), async (req: AuthRequest,
 router.put('/:id', requirePermission('contracts:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = contractSchema.partial().parse(req.body)
+    const refError = await checkReferences([{ domain: 'contract_type', value: body.type }])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     const data: Record<string, unknown> = { ...body }
     if (body.startDate) data.startDate = new Date(body.startDate)
     if (body.endDate) data.endDate = new Date(body.endDate)

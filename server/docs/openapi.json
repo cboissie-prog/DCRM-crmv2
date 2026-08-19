@@ -1289,6 +1289,269 @@
         }
       }
     },
+    "/references": {
+      "get": {
+        "tags": [
+          "Référentiels"
+        ],
+        "summary": "Tous les domaines de listes personnalisables et leurs valeurs (actives et désactivées)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "data: [{ domain, label, description, validate, keyStyle, hasColor, hasIcon, values: [{ id, key, label, color, icon, order, isActive, isSystem, meta }] }]"
+          }
+        }
+      }
+    },
+    "/references/{domain}": {
+      "post": {
+        "tags": [
+          "Référentiels"
+        ],
+        "summary": "Ajoute une valeur à un domaine (clé générée du libellé si absente)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "references:manage",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["ticket_category", "call_category", "equipment_type", "equipment_status", "contract_type", "license_type", "contact_status", "lead_source", "sector", "appointment_type", "knowledge_category", "product_category"]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "label"
+                ],
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  "key": {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  "color": {
+                    "type": "string",
+                    "enum": ["gray", "slate", "blue", "indigo", "violet", "purple", "pink", "red", "orange", "amber", "yellow", "green", "emerald", "cyan"],
+                    "nullable": true
+                  },
+                  "icon": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "nullable": true
+                  },
+                  "meta": {
+                    "type": "object",
+                    "nullable": true,
+                    "description": "JSON libre — ex. { \"isPhysical\": true } sur product_category"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ReferenceValue créée"
+          },
+          "400": {
+            "description": "INVALID_KEY / VALIDATION_ERROR"
+          },
+          "404": {
+            "description": "NOT_FOUND — domaine inconnu"
+          },
+          "409": {
+            "description": "DUPLICATE — clé déjà présente dans le domaine"
+          }
+        }
+      }
+    },
+    "/references/{id}": {
+      "put": {
+        "tags": [
+          "Référentiels"
+        ],
+        "summary": "Modifie libellé/couleur/icône/meta/actif d'une valeur (clé immuable ; valeurs système non désactivables)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "references:manage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  "color": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "icon": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "meta": {
+                    "type": "object",
+                    "nullable": true
+                  },
+                  "isActive": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ReferenceValue mise à jour"
+          },
+          "400": {
+            "description": "SYSTEM_VALUE — valeur système non désactivable / VALIDATION_ERROR"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Référentiels"
+        ],
+        "summary": "Supprime une valeur — ou la désactive si elle est utilisée par des données existantes",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "references:manage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ deleted: true } ou { deactivated: true, usage: n }"
+          },
+          "400": {
+            "description": "SYSTEM_VALUE — valeur système non supprimable"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          }
+        }
+      }
+    },
+    "/references/{domain}/reorder": {
+      "patch": {
+        "tags": [
+          "Référentiels"
+        ],
+        "summary": "Réordonne les valeurs d'un domaine",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "references:manage",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "ids"
+                ],
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ reordered: n }"
+          },
+          "404": {
+            "description": "NOT_FOUND — domaine inconnu"
+          }
+        }
+      }
+    },
     "/companies": {
       "get": {
         "tags": [
@@ -2523,6 +2786,255 @@
           }
         },
         "x-permission": "notifications:read"
+      }
+    },
+    "/todos": {
+      "get": {
+        "tags": [
+          "Todo"
+        ],
+        "summary": "Liste des tâches du propriétaire ciblé (soi par défaut)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "todos:read",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Défaut = utilisateur connecté ; consulter la liste d'un autre utilisateur exige la permission todos:read_all"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["todo", "done"]
+            }
+          },
+          {
+            "name": "priority",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["LOW", "NORMAL", "HIGH"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "data: tableau de tâches (avec owner), triées non faites d'abord puis priorité décroissante puis échéance croissante. Les tâches privées d'un autre utilisateur sont toujours exclues, même avec todos:read_all."
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "FORBIDDEN — todos:read_all manquante pour consulter la liste d'un autre utilisateur"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Todo"
+        ],
+        "summary": "Créer une tâche (pour soi, ou pour autrui avec todos:write_all)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "todos:read",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "title"
+                ],
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "nullable": true
+                  },
+                  "priority": {
+                    "type": "string",
+                    "enum": ["LOW", "NORMAL", "HIGH"],
+                    "default": "NORMAL"
+                  },
+                  "dueDate": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": true
+                  },
+                  "isPrivate": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Forcé à false si la tâche est créée pour un autre utilisateur (ownerId)"
+                  },
+                  "ownerId": {
+                    "type": "string",
+                    "description": "Défaut = utilisateur connecté ; créer pour un autre utilisateur exige la permission todos:write_all"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Tâche créée (avec owner)"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR ; OWNER_NOT_FOUND si ownerId est fourni mais introuvable ou inactif"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "FORBIDDEN — todos:write_all manquante pour créer une tâche pour un autre utilisateur"
+          }
+        }
+      }
+    },
+    "/todos/{id}": {
+      "patch": {
+        "tags": [
+          "Todo"
+        ],
+        "summary": "Modifier une tâche (propriétaire, sinon todos:write_all)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "todos:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "nullable": true
+                  },
+                  "priority": {
+                    "type": "string",
+                    "enum": ["LOW", "NORMAL", "HIGH"]
+                  },
+                  "dueDate": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": true
+                  },
+                  "isPrivate": {
+                    "type": "boolean",
+                    "description": "Réservé au propriétaire de la tâche"
+                  },
+                  "isDone": {
+                    "type": "boolean",
+                    "description": "Renseigne automatiquement completedAt (ou le vide au décochage)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tâche mise à jour (avec owner)"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "FORBIDDEN — tâche d'un autre utilisateur sans todos:write_all, ou isPrivate modifié par un non-propriétaire"
+          },
+          "404": {
+            "description": "NOT_FOUND — introuvable, ou tâche privée appartenant à un autre utilisateur (volontairement, pour ne pas révéler son existence)"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Todo"
+        ],
+        "summary": "Supprimer une tâche (propriétaire, sinon todos:write_all)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "todos:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "data: { message: \"Tâche supprimée\" }. Supprime aussi les notifications liées (Notification.todoId)."
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "FORBIDDEN — tâche d'un autre utilisateur sans todos:write_all"
+          },
+          "404": {
+            "description": "NOT_FOUND — introuvable, ou tâche privée appartenant à un autre utilisateur"
+          }
+        }
       }
     },
     "/dashboard/today": {
@@ -5080,6 +5592,15 @@
             "in": "query",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "isActive",
+            "in": "query",
+            "description": "'true' = actifs seuls, 'false' = inactifs seuls, absent = tous",
+            "schema": {
+              "type": "string",
+              "enum": ["true", "false"]
             }
           },
           {

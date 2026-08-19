@@ -17,6 +17,8 @@ import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
 import { useAuthStore } from '../../store/authStore'
+import { useReferences } from '../../hooks/useReferences'
+import { badgeClass } from '../../lib/referenceUi'
 import {
   ArrowLeft, Pencil, Trash2, Building2, Globe, MapPin,
   Users, FileText, TrendingUp, Wrench, Monitor,
@@ -42,12 +44,6 @@ const companySchema = z.object({
 })
 type CompanyForm = z.infer<typeof companySchema>
 
-const SECTORS = [
-  'Commerce alimentaire', 'Pharmacie', 'Restauration', 'Santé',
-  'Commerce habillement', 'Informatique', 'Immobilier', 'Automobile',
-  'Industrie', 'Services', 'Autre',
-]
-
 type Tab = 'info' | 'contacts' | 'opportunities' | 'tickets' | 'contracts' | 'equipments'
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -58,6 +54,7 @@ export function CompanyDetailPage() {
   const qc = useQueryClient()
   const user = useAuthStore(s => s.user)
   const canEdit = ['ADMIN', 'MANAGER'].includes(user?.role ?? '')
+  const refs = useReferences()
 
   const [tab, setTab] = useState<Tab>('info')
   const [showEdit, setShowEdit] = useState(false)
@@ -99,9 +96,12 @@ export function CompanyDetailPage() {
 
   // ── Form ───────────────────────────────────────────────────────────────────
 
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<CompanyForm>({
+  const { register, handleSubmit, reset, watch, formState: { errors, isSubmitting } } = useForm<CompanyForm>({
     resolver: zodResolver(companySchema) as Resolver<CompanyForm>,
   })
+  const sectorOptions = refs.options('sector')
+  const currentSector = watch('sector')
+  const sectorIsUnknown = !!currentSector && !sectorOptions.some(o => o.value === currentSector)
 
   const openEdit = () => {
     if (!company) return
@@ -234,7 +234,8 @@ export function CompanyDetailPage() {
               <label className="label">Secteur</label>
               <select {...register('sector')} className="input">
                 <option value="">Choisir...</option>
-                {SECTORS.map(s => <option key={s} value={s}>{s}</option>)}
+                {sectorIsUnknown && <option value={currentSector}>{currentSector}</option>}
+                {sectorOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
           </div>
@@ -377,6 +378,7 @@ function TabInfo({ company }: { company: Record<string, unknown> }) {
 // ── Tab: Contacts ─────────────────────────────────────────────────────────────
 
 function TabContacts({ contacts, onNavigate }: { contacts: Record<string, unknown>[]; onNavigate: (path: string) => void }) {
+  const refs = useReferences()
   if (contacts.length === 0) return <EmptyTab icon={<Users className="w-10 h-10 text-slate-200" />} label="Aucun contact" />
   return (
     <div className="table-container">
@@ -400,7 +402,7 @@ function TabContacts({ contacts, onNavigate }: { contacts: Record<string, unknow
                 <td className="text-slate-500 text-sm">{contact.email || '—'}</td>
                 <td className="text-slate-500 text-sm">{contact.phone || '—'}</td>
                 <td>
-                  <Badge variant="badge-blue">{contact.status}</Badge>
+                  <Badge variant={badgeClass(refs.color('contact_status', contact.status))}>{refs.label('contact_status', contact.status)}</Badge>
                 </td>
               </tr>
             )
@@ -527,6 +529,7 @@ function TabContracts({ contracts }: { contracts: Record<string, unknown>[] }) {
 // ── Tab: Équipements ──────────────────────────────────────────────────────────
 
 function TabEquipments({ equipments }: { equipments: Record<string, unknown>[] }) {
+  const refs = useReferences()
   if (equipments.length === 0) return <EmptyTab icon={<Monitor className="w-10 h-10 text-slate-200" />} label="Aucun équipement" />
   return (
     <div className="table-container">
@@ -549,7 +552,7 @@ function TabEquipments({ equipments }: { equipments: Record<string, unknown>[] }
                 <td className="text-slate-500 text-sm">{eq.brand || '—'}</td>
                 <td className="text-slate-500 text-sm">{eq.model || '—'}</td>
                 <td>
-                  <Badge variant="badge-gray">{eq.status}</Badge>
+                  <Badge variant={badgeClass(refs.color('equipment_status', eq.status))}>{refs.label('equipment_status', eq.status)}</Badge>
                 </td>
                 <td className="text-slate-400 text-sm">{eq.location || '—'}</td>
               </tr>

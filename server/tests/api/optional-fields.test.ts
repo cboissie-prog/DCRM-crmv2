@@ -61,7 +61,7 @@ describe('Champs optionnels vides', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({
         companyId,
-        type: 'Poste de travail',
+        type: 'DESKTOP', // clé du référentiel equipment_type (les types sont désormais validés)
         purchaseDate: '',
         warrantyExpiry: '',
       })
@@ -77,7 +77,7 @@ describe('Champs optionnels vides', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({
         companyId,
-        type: 'Serveur',
+        type: 'SERVER', // clé du référentiel equipment_type
         purchaseDate: '2026-01-15',
       })
 

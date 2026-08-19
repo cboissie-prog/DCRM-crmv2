@@ -3,6 +3,7 @@ import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { checkReferences } from '../lib/references'
 import { fireAutomations } from '../automation-engine'
 import { getWonLostStageKeys } from '../services/pipelineService'
 import { ensureExists, fetchOrFail, ensureCompanyMatch } from '../lib/relationChecks'
@@ -60,6 +61,8 @@ router.get('/leads', requirePermission('pipeline:read'), async (req: AuthRequest
 router.post('/leads', requirePermission('pipeline:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = leadSchema.parse(req.body)
+    const refError = await checkReferences([{ domain: 'lead_source', value: body.source }])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     if (!await ensureExists(res, body.contactId, 'CONTACT_NOT_FOUND', 'Contact introuvable', id => prisma.contact.findUnique({ where: { id }, select: { id: true } }))) return
     const lead = await prisma.lead.create({ data: body, include: { contact: { include: { company: { select: { id: true, name: true } } } } } })
     if (lead.score > 0) {
@@ -75,6 +78,8 @@ router.post('/leads', requirePermission('pipeline:create'), async (req: AuthRequ
 router.put('/leads/:id', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = leadSchema.partial().parse(req.body)
+    const refError = await checkReferences([{ domain: 'lead_source', value: body.source }])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     const lead = await prisma.lead.update({ where: { id: req.params.id }, data: body, include: { contact: true } })
     if (body.score !== undefined && lead.score > 0) {
       fireAutomations('LEAD_SCORE_THRESHOLD', {

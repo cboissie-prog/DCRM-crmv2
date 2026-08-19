@@ -5,10 +5,11 @@ import { useNavigate, useParams } from 'react-router-dom'
 import api from '../../lib/api'
 import { useUsersList } from '../../hooks/useApi'
 import { usePermissions } from '../../hooks/usePermission'
+import { useReferences } from '../../hooks/useReferences'
 import {
   formatDate, formatDateTime, formatRelative, formatDuration,
-  CALL_DIRECTIONS, CALL_STATUSES, CALL_CATEGORIES, CALL_PRIORITIES,
-  TICKET_CATEGORIES, TICKET_PRIORITIES,
+  CALL_DIRECTIONS, CALL_STATUSES, CALL_PRIORITIES,
+  TICKET_PRIORITIES,
 } from '../../lib/utils'
 import { Badge } from '../../components/ui/Badge'
 import { Avatar } from '../../components/ui/Avatar'
@@ -57,6 +58,7 @@ export function CallsPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [diagReport, setDiagReport] = useState<string | null>(null)
   const { user } = useAuthStore()
+  const refs = useReferences()
 
   const { data, isLoading } = useQuery<PaginatedResponse<Call>>({
     queryKey: ['calls', { search, dirFilter, statusFilter, catFilter, dateFrom, dateTo, page }],
@@ -190,7 +192,7 @@ export function CallsPage() {
         </select>
         <select className="input flex-none w-40" value={catFilter} onChange={e => { setCat(e.target.value); setPage(1) }}>
           <option value="">Catégorie</option>
-          {Object.entries(CALL_CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          {refs.options('call_category').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         <div className="flex items-center gap-1.5 flex-none">
           <input type="date" className="input w-36 text-xs" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1) }} />
@@ -278,7 +280,7 @@ export function CallsPage() {
                   </td>
                   <td>
                     {call.category
-                      ? <span className="text-xs text-slate-600">{CALL_CATEGORIES[call.category] ?? call.category}</span>
+                      ? <span className="text-xs text-slate-600">{refs.label('call_category', call.category)}</span>
                       : <span className="text-slate-300">—</span>}
                   </td>
                   <td>
@@ -376,6 +378,7 @@ export function CallDetailPage() {
   const [showLeadModal, setShowLead]      = useState(false)
   const [activeTab, setActiveTab]         = useState<'info' | 'notes' | 'recording'>('info')
   const [showStatusMenu, setShowStatusMenu] = useState(false)
+  const refs = useReferences()
 
   const { data: callData, isLoading } = useQuery({
     queryKey: ['call', id],
@@ -455,7 +458,7 @@ export function CallDetailPage() {
               </span>
             </Badge>
             {call.category && (
-              <Badge variant="badge-gray">{CALL_CATEGORIES[call.category] ?? call.category}</Badge>
+              <Badge variant="badge-gray">{refs.label('call_category', call.category)}</Badge>
             )}
             {call.priority && call.priority !== 'NORMAL' && (
               <Badge variant={CALL_PRIORITIES[call.priority]?.color ?? 'badge-gray'}>
@@ -906,6 +909,7 @@ interface CallFormModalProps {
 function CallFormModal({ open, onClose, call, onSuccess }: CallFormModalProps) {
   const qc = useQueryClient()
   const perms = usePermissions(['contacts:create', 'companies:create'])
+  const refs = useReferences()
   const canCreateContact = perms['contacts:create']
   const canCreateCompany = perms['companies:create']
   const { register, handleSubmit, reset, control, setValue, formState: { errors, isSubmitting } } = useForm<CallFormData>({
@@ -1095,7 +1099,7 @@ function CallFormModal({ open, onClose, call, onSuccess }: CallFormModalProps) {
             <label className="label">Catégorie</label>
             <select {...register('category')} className="input">
               <option value="">— Aucune —</option>
-              {Object.entries(CALL_CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              {refs.options('call_category').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -1257,20 +1261,26 @@ function TicketFromCallModal({ open, call, onClose, onSuccess }: { open: boolean
 function TicketFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose: () => void; onSuccess: () => void }) {
   const { user } = useAuthStore()
   const canAssign = user?.role === 'ADMIN' || user?.role === 'MANAGER'
+  const refs = useReferences()
 
   const defaultTitle = call.category
-    ? `[${CALL_CATEGORIES[call.category] ?? call.category}] Appel du ${formatDate(call.startedAt)}`
+    ? `[${refs.label('call_category', call.category)}] Appel du ${formatDate(call.startedAt)}`
     : `Appel du ${formatDateTime(call.startedAt)}${call.callerName ? ` — ${call.callerName}` : ` — ${call.callerNumber}`}`
 
   const defaultDesc = call.notes
     ? `Appel du ${formatDateTime(call.startedAt)} (${call.callerNumber}).\n\n${call.notes}`
     : `Appel du ${formatDateTime(call.startedAt)}.\nNuméro : ${call.callerNumber}${call.callerName ? `\nNom : ${call.callerName}` : ''}`
 
+  // Mapping catégorie d'appel → catégorie de ticket ; garde-fou si la valeur
+  // calculée ne correspond à aucune catégorie de ticket active (référentiel en base)
+  const mappedCategory = call.category === 'INCIDENT' ? 'HARDWARE_FAILURE' : 'OTHER'
+  const defaultCategory = refs.options('ticket_category').some(o => o.value === mappedCategory) ? mappedCategory : 'OTHER'
+
   const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm<TicketFromCallData>({
     resolver: zodResolver(ticketFromCallSchema) as Resolver<TicketFromCallData>,
     defaultValues: {
       title: defaultTitle, description: defaultDesc,
-      category: call.category === 'INCIDENT' ? 'HARDWARE_FAILURE' : 'OTHER',
+      category: defaultCategory,
       priority: call.priority === 'URGENT' ? 'CRITICAL' : call.priority === 'HIGH' ? 'HIGH' : 'NORMAL',
       companyId: call.companyId ?? '',
     },
@@ -1338,7 +1348,7 @@ function TicketFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose:
           <div className="form-group">
             <label className="label">Catégorie *</label>
             <select {...register('category')} className="input">
-              {Object.entries(TICKET_CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              {refs.options('ticket_category').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -1401,9 +1411,12 @@ function LeadFromCallModal({ open, call, onClose, onSuccess }: { open: boolean; 
 }
 
 function LeadFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose: () => void; onSuccess: () => void }) {
+  const refs = useReferences()
+  // Préselection selon le sens de l'appel : entrant → prospect qui a appelé, sortant → prospection à froid
+  const defaultSource = call.direction === 'OUTBOUND' ? 'COLD_CALL' : 'PHONE_INBOUND'
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LeadFromCallData>({
     resolver: zodResolver(leadFromCallSchema) as Resolver<LeadFromCallData>,
-    defaultValues: { title: `Lead — ${call.callerName ?? call.callerNumber} — ${formatDate(call.startedAt)}`, description: call.notes ?? '', source: 'PHONE_INBOUND' },
+    defaultValues: { title: `Lead — ${call.callerName ?? call.callerNumber} — ${formatDate(call.startedAt)}`, description: call.notes ?? '', source: defaultSource },
   })
   const [picker, setPicker] = useState<ContactPickerValue>(() => pickerDefaultsFromCall(call))
   const [pickerError, setPickerError] = useState<string | null>(null)
@@ -1443,9 +1456,7 @@ function LeadFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose: (
         <div className="form-group">
           <label className="label">Source</label>
           <select {...register('source')} className="input">
-            <option value="PHONE_INBOUND">Appel entrant</option>
-            <option value="COLD_CALL">Appel sortant (prospection)</option>
-            <option value="OTHER">Autre</option>
+            {refs.options('lead_source').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
         <div className="form-group">

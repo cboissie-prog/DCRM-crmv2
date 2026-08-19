@@ -3,6 +3,7 @@ import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { checkReferences } from '../lib/references'
 import { pushAppointmentToAll, pushRemovedParticipants, pushAppointmentForUser } from '../services/google-calendar'
 import { getVisibleOwnerIds, appointmentVisibilityWhere } from '../lib/calendar-visibility'
 import { ensureExists } from '../lib/relationChecks'
@@ -113,6 +114,8 @@ router.get('/', requirePermission('appointments:read'), async (req: AuthRequest,
 router.post('/', requirePermission('appointments:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = appointmentSchema.parse(req.body)
+    const refError = await checkReferences([{ domain: 'appointment_type', value: body.type }])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     const { userIds = [], contactIds = [], ...rest } = body
 
     if (!await ensureExists(res, rest.ticketId, 'TICKET_NOT_FOUND', 'Ticket introuvable', id => prisma.ticket.findUnique({ where: { id }, select: { id: true } }))) return
@@ -220,6 +223,8 @@ router.put('/:id', requirePermission('appointments:update'), async (req: AuthReq
     // `isVisibleByUser`. Se déclarer créateur rendait l'accès permanent, même après révocation
     // du partage de calendrier.
     const { userIds, contactIds, ...rest } = appointmentSchema.partial().parse(req.body)
+    const refError = await checkReferences([{ domain: 'appointment_type', value: rest.type }])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     const appointmentId = req.params.id
 
     if (rest.ticketId !== undefined) {

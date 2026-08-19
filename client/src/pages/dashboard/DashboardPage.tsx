@@ -10,6 +10,8 @@ import { Users, Building2, Wrench, FileText, TrendingUp, AlertTriangle, Euro, Ar
 import type { DashboardStats } from '../../types'
 import { moduleTheme, type ModuleKey } from '../../lib/moduleTheme'
 import { PageIcon } from '../../components/ui/PageIcon'
+import { useReferences } from '../../hooks/useReferences'
+import { colorStyle } from '../../lib/referenceUi'
 
 function KpiCard({ icon, label, value, sub, trend, module }: {
   icon: React.ReactNode; label: string; value: string; sub?: string
@@ -120,18 +122,9 @@ function CardSkeleton({ height = 'h-48' }: { height?: string }) {
 
 const PRIORITY_CONFIG: Record<string, { label: string; className: string }> = {
   LOW:      { label: 'Basse',    className: 'bg-slate-100 text-slate-500' },
-  MEDIUM:   { label: 'Moyenne',  className: 'bg-blue-100 text-blue-600' },
+  NORMAL:   { label: 'Normal',   className: 'bg-blue-100 text-blue-600' },
   HIGH:     { label: 'Haute',    className: 'bg-amber-100 text-amber-700' },
   CRITICAL: { label: 'Critique', className: 'bg-red-100 text-red-600' },
-}
-
-const APPT_TYPE_COLORS: Record<string, string> = {
-  CLIENT_MEETING: 'bg-blue-500',
-  INTERVENTION:   'bg-violet-500',
-  CALL:           'bg-emerald-500',
-  TRAINING:       'bg-amber-500',
-  DELIVERY:       'bg-indigo-500',
-  OTHER:          'bg-slate-400',
 }
 
 function fmtTime(iso: string) {
@@ -157,6 +150,7 @@ interface TodayData {
 }
 
 function TodayWidget({ today }: { today?: TodayData }) {
+  const refs = useReferences()
   const appts = today?.appointments ?? []
   const tickets = today?.urgentTickets ?? []
   const activities = today?.overdueActivities ?? []
@@ -189,7 +183,7 @@ function TodayWidget({ today }: { today?: TodayData }) {
           {/* RDV du jour */}
           {appts.map(a => (
             <Link key={a.id} to="/appointments" className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50 transition-colors group">
-              <div className={`w-1 self-stretch rounded-full flex-shrink-0 ${APPT_TYPE_COLORS[a.type] ?? 'bg-slate-400'}`} />
+              <div className={`w-1 self-stretch rounded-full flex-shrink-0 ${colorStyle(refs.color('appointment_type', a.type)).bar}`} />
               <div className="w-8 h-8 rounded-lg bg-module-agenda-50 flex items-center justify-center flex-shrink-0">
                 <CalendarDays className="w-4 h-4 text-module-agenda-600" />
               </div>
@@ -217,7 +211,7 @@ function TodayWidget({ today }: { today?: TodayData }) {
 
           {/* Tickets urgents */}
           {tickets.map(t => {
-            const p = PRIORITY_CONFIG[t.priority] ?? PRIORITY_CONFIG.MEDIUM
+            const p = PRIORITY_CONFIG[t.priority] ?? PRIORITY_CONFIG.NORMAL
             return (
               <Link key={t.id} to={`/tickets/${t.id}`} className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50 transition-colors group">
                 <div className="w-1 self-stretch rounded-full flex-shrink-0 bg-module-tickets-400" />

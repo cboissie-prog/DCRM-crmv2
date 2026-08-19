@@ -3,6 +3,7 @@ import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { checkReferences } from '../lib/references'
 import { ciContains } from '../lib/query'
 import { csvEscape } from '../lib/csv'
 import { normalizePhone } from '../lib/phone'
@@ -63,6 +64,11 @@ router.get('/', requirePermission('contacts:read'), async (req: AuthRequest, res
 router.post('/', requirePermission('contacts:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = contactSchema.parse(req.body)
+    const refError = await checkReferences([
+      { domain: 'contact_status', value: body.status },
+      { domain: 'lead_source', value: body.source },
+    ])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     if (!await ensureExists(res, body.companyId, 'COMPANY_NOT_FOUND', 'Entreprise introuvable', id => prisma.company.findUnique({ where: { id }, select: { id: true } }))) return
     const contact = await prisma.contact.create({
       data: {
@@ -218,6 +224,11 @@ router.get('/:id', requirePermission('contacts:read'), async (req: AuthRequest, 
 router.put('/:id', requirePermission('contacts:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = contactSchema.partial().parse(req.body)
+    const refError = await checkReferences([
+      { domain: 'contact_status', value: body.status },
+      { domain: 'lead_source', value: body.source },
+    ])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     if (!await ensureExists(res, body.companyId, 'COMPANY_NOT_FOUND', 'Entreprise introuvable', id => prisma.company.findUnique({ where: { id }, select: { id: true } }))) return
     const updateData: typeof body & { phoneNormalized?: string | null; mobileNormalized?: string | null } = { ...body }
     if ('phone'  in body) updateData.phoneNormalized  = normalizePhone(body.phone)

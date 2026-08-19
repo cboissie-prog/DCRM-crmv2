@@ -3,6 +3,7 @@ import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { checkReferences } from '../lib/references'
 import { ciContains } from '../lib/query'
 
 const router = Router()
@@ -25,12 +26,14 @@ const productSchema = z.object({
 
 router.get('/', requirePermission('products:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { search, category, type, page, limit } = req.query as Record<string, string>
+    const { search, category, type, isActive, page, limit } = req.query as Record<string, string>
     const pageNum = Math.max(1, parseInt(page) || 1)
     const limitNum = Math.min(200, Math.max(1, parseInt(limit) || 50))
     const where: Record<string, unknown> = {}
     if (category) where.category = category
     if (type) where.type = type
+    if (isActive === 'true') where.isActive = true
+    else if (isActive === 'false') where.isActive = false
     if (search) where.OR = [
       { name: ciContains(search) },
       { reference: ciContains(search) },
@@ -47,6 +50,8 @@ router.get('/', requirePermission('products:read'), async (req: AuthRequest, res
 router.post('/', requirePermission('products:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = productSchema.parse(req.body)
+    const refError = await checkReferences([{ domain: 'product_category', value: body.category }])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     const product = await prisma.product.create({ data: body })
     res.status(201).json({ success: true, data: product })
   } catch (err) { handleRouteError(err, res) }
@@ -63,6 +68,8 @@ router.get('/:id', requirePermission('products:read'), async (req: AuthRequest, 
 router.put('/:id', requirePermission('products:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = productSchema.partial().parse(req.body)
+    const refError = await checkReferences([{ domain: 'product_category', value: body.category }])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     const product = await prisma.product.update({ where: { id: req.params.id }, data: body })
     res.json({ success: true, data: product })
   } catch (err) { handleRouteError(err, res) }

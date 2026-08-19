@@ -26,6 +26,7 @@ import targetsRoutes from './routes/targets'
 import parcRoutes from './routes/parc'
 import pipelinesRoutes from './routes/pipelines'
 import settingsRoutes from './routes/settings'
+import referencesRoutes from './routes/references'
 import searchRoutes from './routes/search'
 import rolesRoutes from './routes/roles'
 import apikeysRoutes from './routes/apikeys'
@@ -33,6 +34,7 @@ import callsRoutes from './routes/calls'
 import googleRoutes from './routes/google'
 import calendarAccessRoutes from './routes/calendar-access'
 import docsRoutes from './routes/docs'
+import todosRoutes from './routes/todos'
 import prisma from './prisma/client'
 import { authenticate, requirePermission } from './middleware/auth'
 import { errorHandler, notFound } from './middleware/errorHandler'
@@ -125,6 +127,7 @@ export function createApp(opts: CreateAppOptions = {}): express.Express {
   app.use('/api/parc', parcRoutes)
   app.use('/api/pipelines', pipelinesRoutes)
   app.use('/api/settings', settingsRoutes)
+  app.use('/api/references', referencesRoutes)
   app.use('/api/search', searchRoutes)
   app.use('/api/roles', authenticate, rolesRoutes)
   app.use('/api/apikeys', authenticate, apikeysRoutes)
@@ -132,6 +135,7 @@ export function createApp(opts: CreateAppOptions = {}): express.Express {
   app.use('/api/google', googleRoutes)
   app.use('/api/calendar-access', calendarAccessRoutes)
   app.use('/api/docs', authenticate, docsRoutes)
+  app.use('/api/todos', todosRoutes)
 
   // GET /api/permissions — liste toutes les permissions disponibles, groupées par catégorie
   app.get('/api/permissions', authenticate, requirePermission('settings:roles'), async (_req, res) => {

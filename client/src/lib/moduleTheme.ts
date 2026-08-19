@@ -12,6 +12,7 @@ export type ModuleKey =
   | 'parc'
   | 'tickets'
   | 'tools'
+  | 'todo'
 
 export interface ModuleTheme {
   /** Trait d'icône seul (sidebar) — teinte 600 */
@@ -72,5 +73,11 @@ export const moduleTheme: Record<ModuleKey, ModuleTheme> = {
     bg: 'bg-module-tools-50',
     activeBg: 'bg-module-tools-50',
     activeText: 'text-module-tools-700',
+  },
+  todo: {
+    icon: 'text-module-todo-600',
+    bg: 'bg-module-todo-50',
+    activeBg: 'bg-module-todo-50',
+    activeText: 'text-module-todo-700',
   },
 }

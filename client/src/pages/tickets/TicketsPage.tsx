@@ -4,9 +4,10 @@ import { useNavigate, useParams, useLocation, useSearchParams } from 'react-rout
 import api from '../../lib/api'
 import { useUsersList } from '../../hooks/useApi'
 import { usePermissions } from '../../hooks/usePermission'
+import { useReferences } from '../../hooks/useReferences'
 import {
   formatDate, formatDateTime, formatRelative,
-  TICKET_STATUSES, TICKET_PRIORITIES, TICKET_CATEGORIES,
+  TICKET_STATUSES, TICKET_PRIORITIES,
 } from '../../lib/utils'
 import { Badge } from '../../components/ui/Badge'
 import { Avatar } from '../../components/ui/Avatar'
@@ -211,6 +212,7 @@ export function TicketsListView() {
   const qc = useQueryClient()
   const [searchParams] = useSearchParams()
   const perms = usePermissions(['tickets:export', 'tickets:delete', 'tickets:assign', 'tickets:update'])
+  const refs = useReferences()
 
   const [searchInput, setSearchInput] = useState(searchParams.get('search') ?? '')
   const [search, setSearch] = useState(searchInput)
@@ -448,7 +450,7 @@ export function TicketsListView() {
         </select>
         <select className="input w-auto" value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }}>
           <option value="">Toutes catégories</option>
-          {Object.entries(TICKET_CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          {refs.options('ticket_category').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         {perms['tickets:assign'] && usersData && (
           <select className="input w-auto" value={assignedFilter} onChange={e => { setAssignedFilter(e.target.value); setPage(1) }}>
@@ -515,7 +517,7 @@ export function TicketsListView() {
                   </td>
                   <td>
                     <p className="font-medium text-slate-900 max-w-xs truncate">{t.title}</p>
-                    <p className="text-xs text-slate-400">{TICKET_CATEGORIES[t.category] || t.category}</p>
+                    <p className="text-xs text-slate-400">{refs.label('ticket_category', t.category)}</p>
                   </td>
                   <td>
                     <div className="text-sm">
@@ -618,6 +620,7 @@ function TicketCard({ ticket: t, timerActive, onClick, onDelete }: {
   onClick: () => void
   onDelete?: (e: React.MouseEvent) => void
 }) {
+  const refs = useReferences()
   return (
     <div
       className="card card-body cursor-pointer hover:shadow-md transition-shadow space-y-3 relative group"
@@ -638,7 +641,7 @@ function TicketCard({ ticket: t, timerActive, onClick, onDelete }: {
 
       <div>
         <p className="font-medium text-slate-900 line-clamp-2">{t.title}</p>
-        <p className="text-xs text-slate-400 mt-0.5">{TICKET_CATEGORIES[t.category] || t.category}</p>
+        <p className="text-xs text-slate-400 mt-0.5">{refs.label('ticket_category', t.category)}</p>
       </div>
 
       {(t.company || t.contact) && (
@@ -693,6 +696,7 @@ export function TicketDetailPage() {
   const qc = useQueryClient()
   const { user } = useAuthStore()
   const perms = usePermissions(['tickets:update', 'tickets:delete', 'tickets:assign'])
+  const refs = useReferences()
 
   const [showEdit, setShowEdit] = useState(false)
   const [showStatusMenu, setShowStatusMenu] = useState(false)
@@ -886,7 +890,7 @@ export function TicketDetailPage() {
             <div className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-slate-500">Catégorie</span>
-                <span className="text-slate-800 font-medium">{TICKET_CATEGORIES[ticket.category] || ticket.category}</span>
+                <span className="text-slate-800 font-medium">{refs.label('ticket_category', ticket.category)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Priorité</span>
@@ -1299,6 +1303,7 @@ interface TicketFormModalProps {
 
 function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalProps) {
   const perms = usePermissions(['tickets:assign', 'contacts:create', 'companies:create'])
+  const refs = useReferences()
   const canAssign = perms['tickets:assign']
   const canCreateContact = perms['contacts:create']
   const canCreateCompany = perms['companies:create']
@@ -1424,7 +1429,7 @@ function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalPr
           <div className="form-group">
             <label className="label">Catégorie *</label>
             <select {...register('category')} className="input">
-              {Object.entries(TICKET_CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              {refs.options('ticket_category').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
           <div className="form-group">

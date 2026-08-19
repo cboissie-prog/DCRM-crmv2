@@ -31,6 +31,8 @@ import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
 import { useAuthStore } from '../../store/authStore'
 import { usePermission } from '../../hooks/usePermission'
+import { useReferences, type ReferencesHelpers } from '../../hooks/useReferences'
+import { colorStyle } from '../../lib/referenceUi'
 import type { Appointment, User, Contact, Ticket } from '../../types'
 
 // ── Types calendrier partagé ───────────────────────────────────────────────────
@@ -44,13 +46,15 @@ interface CalendarUser {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-const APPOINTMENT_TYPES: Record<string, { label: string; color: string; bg: string; dot: string }> = {
-  CLIENT_MEETING: { label: 'RDV Client',    color: 'text-indigo-700', bg: 'bg-indigo-100', dot: 'bg-indigo-500' },
-  INTERVENTION:   { label: 'Intervention',  color: 'text-orange-700', bg: 'bg-orange-100', dot: 'bg-orange-500' },
-  CALL:           { label: 'Appel',         color: 'text-green-700',  bg: 'bg-green-100',  dot: 'bg-green-500'  },
-  TRAINING:       { label: 'Formation',     color: 'text-purple-700', bg: 'bg-purple-100', dot: 'bg-purple-500' },
-  DELIVERY:       { label: 'Livraison',     color: 'text-blue-700',   bg: 'bg-blue-100',   dot: 'bg-blue-500'   },
-  OTHER:          { label: 'Autre',         color: 'text-slate-700',  bg: 'bg-slate-100',  dot: 'bg-slate-400'  },
+/** Style d'un type de rendez-vous (référentiel `appointment_type`) — équivalent de l'ancien Record en dur. */
+function typeStyle(refs: ReferencesHelpers, key: string) {
+  const style = colorStyle(refs.color('appointment_type', key))
+  return {
+    label: refs.label('appointment_type', key),
+    color: style.text700,
+    bg:    style.bg100,
+    dot:   style.dot,
+  }
 }
 
 const FRENCH_MONTHS = [
@@ -274,6 +278,7 @@ export function AppointmentsPage() {
   const qc = useQueryClient()
   const user = useAuthStore(s => s.user)
   const isAdmin = user?.role === 'ADMIN'
+  const refs = useReferences()
 
   // ── View state ─────────────────────────────────────────────────────────────
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
@@ -622,8 +627,8 @@ export function AppointmentsPage() {
       <div className="flex gap-3 flex-wrap items-center">
         <select className="input w-auto" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
           <option value="">Tous les types</option>
-          {Object.entries(APPOINTMENT_TYPES).map(([k, v]) => (
-            <option key={k} value={k}>{v.label}</option>
+          {refs.options('appointment_type').map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
         {isAdmin && (
@@ -743,7 +748,7 @@ export function AppointmentsPage() {
 
                         {/* Appointments */}
                         {dayAppts.map(a => {
-                          const meta = APPOINTMENT_TYPES[a.type] ?? APPOINTMENT_TYPES.OTHER
+                          const meta = typeStyle(refs, a.type)
                           const style = apptPositionStyle(a)
                           const start = new Date(a.startAt)
                           const end   = new Date(a.endAt)
@@ -795,7 +800,7 @@ export function AppointmentsPage() {
                   {sortedAppointments.length === 0 ? (
                     <tr><td colSpan={6} className="text-center py-12 text-slate-400">Aucun rendez-vous trouvé</td></tr>
                   ) : sortedAppointments.map(a => {
-                    const meta = APPOINTMENT_TYPES[a.type] ?? APPOINTMENT_TYPES.OTHER
+                    const meta = typeStyle(refs, a.type)
                     return (
                       <tr key={a.id} className="cursor-pointer" onClick={() => setDetailAppt(a)}>
                         <td className="whitespace-nowrap">
@@ -931,7 +936,8 @@ function AppointmentDetailModal({
   onEdit: () => void
   onDelete: () => void
 }) {
-  const meta = APPOINTMENT_TYPES[a.type] ?? APPOINTMENT_TYPES.OTHER
+  const refs = useReferences()
+  const meta = typeStyle(refs, a.type)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-end p-4">
@@ -1057,6 +1063,7 @@ function AppointmentFormFields({
   contacts: Contact[]
   tickets: Ticket[]
 }) {
+  const refs = useReferences()
   const { register, handleSubmit, control, watch, formState: { errors, isSubmitting } } = form
 
   // Ticket sélectionné → suggestion (non bloquante) des contacts de la même entreprise
@@ -1096,8 +1103,8 @@ function AppointmentFormFields({
         <div className="form-group col-span-2 sm:col-span-1">
           <label className="label">Type *</label>
           <select {...register('type')} className={`input ${errors.type ? 'input-error' : ''}`}>
-            {Object.entries(APPOINTMENT_TYPES).map(([k, v]) => (
-              <option key={k} value={k}>{v.label}</option>
+            {refs.options('appointment_type').map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
           {errors.type && <p className="form-error">{errors.type.message}</p>}

@@ -13,7 +13,8 @@ import {
 import { PageIcon } from '../../components/ui/PageIcon'
 import api from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
-import { formatDate, formatRelative, LEAD_SOURCES, getScoreColor, getScoreBg, cn } from '../../lib/utils'
+import { formatDate, formatRelative, getScoreColor, getScoreBg, cn } from '../../lib/utils'
+import { useReferences } from '../../hooks/useReferences'
 import { Badge } from '../../components/ui/Badge'
 import { Avatar } from '../../components/ui/Avatar'
 import { PageSpinner } from '../../components/ui/Spinner'
@@ -232,6 +233,7 @@ export function LeadsPage() {
   const user = useAuthStore(s => s.user)
   const qc = useQueryClient()
   const canEdit = ['ADMIN', 'MANAGER', 'COMMERCIAL'].includes(user?.role ?? '')
+  const refs = useReferences()
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -455,7 +457,7 @@ export function LeadsPage() {
                       </div>
                     ) : <span className="text-slate-300">—</span>}
                   </td>
-                  <td className="text-slate-500 text-xs">{LEAD_SOURCES[lead.source] || lead.source}</td>
+                  <td className="text-slate-500 text-xs">{refs.label('lead_source', lead.source)}</td>
                   <td>
                     <div className="flex items-center gap-2">
                       <div className={cn('px-2 py-0.5 rounded-full text-xs font-bold', getScoreBg(lead.score), getScoreColor(lead.score))}>
@@ -594,6 +596,7 @@ function LeadFormFields({
   const [picker, setPicker] = useState<ContactPickerValue>(() => makeContactPickerValue())
   const [pickerError, setPickerError] = useState<string | null>(null)
   const { register, handleSubmit, formState: { errors, isSubmitting } } = form
+  const refs = useReferences()
 
   const handleFormSubmit = (v: LeadForm) => {
     if (!editMode) {
@@ -645,7 +648,7 @@ function LeadFormFields({
         <div className="form-group">
           <label className="label">Source</label>
           <select {...register('source')} className="input">
-            {Object.entries(LEAD_SOURCES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            {refs.options('lead_source').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
         <div className="form-group">

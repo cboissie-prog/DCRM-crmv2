@@ -2,7 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, TrendingUp,
   Wrench, Calendar, Settings,
-  ChevronDown, Monitor, LogOut, LayoutGrid, X, Phone,
+  ChevronDown, Monitor, LogOut, LayoutGrid, X, Phone, ListTodo,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { moduleTheme, type ModuleKey } from '../../lib/moduleTheme'
@@ -17,6 +17,7 @@ interface NavItem {
   to?: string
   children?: { label: string; to: string; roles?: string[]; permission?: string }[]
   roles?: string[]
+  permission?: string
 }
 
 const navItems: NavItem[] = [
@@ -29,6 +30,7 @@ const navItems: NavItem[] = [
   ]},
   { label: 'Tickets', module: 'tickets', icon: <Wrench className="w-4 h-4" />, to: '/tickets' },
   { label: 'Agenda', module: 'agenda', icon: <Calendar className="w-4 h-4" />, to: '/appointments' },
+  { label: 'Todo', module: 'todo', icon: <ListTodo className="w-4 h-4" />, to: '/todos', permission: 'todos:read' },
   { label: 'Contacts', module: 'contacts', icon: <Users className="w-4 h-4" />, children: [
     { label: 'Tous les contacts', to: '/contacts' },
     { label: 'Entreprises',       to: '/companies' },
@@ -137,7 +139,8 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   function renderItem(item: NavItem) {
           if (item.to) {
-            if (item.roles && !(user?.role && item.roles.includes(user.role))) return null
+            if (item.permission) { if (!hasPermission(item.permission)) return null }
+            else if (item.roles && !(user?.role && item.roles.includes(user.role))) return null
             return (
               <NavLink
                 key={item.to}

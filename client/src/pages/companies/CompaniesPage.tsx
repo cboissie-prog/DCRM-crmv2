@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { optionalNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
 import api from '../../lib/api'
+import { useReferences } from '../../hooks/useReferences'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
@@ -31,8 +32,6 @@ const schema = z.object({
   notes: z.string().optional(),
 })
 type Form = z.infer<typeof schema>
-
-const SECTORS = ['Commerce alimentaire', 'Pharmacie', 'Restauration', 'Santé', 'Commerce habillement', 'Informatique', 'Immobilier', 'Automobile', 'Industrie', 'Services', 'Autre']
 
 export function CompaniesPage() {
   const navigate = useNavigate()
@@ -327,7 +326,11 @@ function CompanyForm({
   submitLabel: string
   withSearch?: boolean
 }) {
-  const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } = form
+  const { register, handleSubmit, setValue, watch, formState: { errors, isSubmitting } } = form
+  const refs = useReferences()
+  const sectorOptions = refs.options('sector')
+  const currentSector = watch('sector')
+  const sectorIsUnknown = !!currentSector && !sectorOptions.some(o => o.value === currentSector)
 
   const applyPrefill = (p: SocietePrefill) => {
     setValue('name', p.name, { shouldValidate: true })
@@ -366,7 +369,8 @@ function CompanyForm({
           <label className="label">Secteur</label>
           <select {...register('sector')} className="input">
             <option value="">Choisir...</option>
-            {SECTORS.map(s => <option key={s} value={s}>{s}</option>)}
+            {sectorIsUnknown && <option value={currentSector}>{currentSector}</option>}
+            {sectorOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
         <div className="form-group">

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { differenceInDays, parseISO } from 'date-fns'
 import api from '../../lib/api'
-import { formatDate, formatCurrency, EQUIPMENT_TYPES } from '../../lib/utils'
+import { formatDate, formatCurrency } from '../../lib/utils'
 import { Badge } from '../../components/ui/Badge'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
@@ -17,15 +17,7 @@ import { optionalNumber, requiredNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
 import type { License, Company, Equipment } from '../../types'
 import { useAuthStore } from '../../store/authStore'
-
-const LICENSE_TYPES: Record<string, string> = {
-  PERPETUAL: 'Perpétuelle',
-  ANNUAL: 'Annuelle',
-  MONTHLY: 'Mensuelle',
-  SUBSCRIPTION: 'Abonnement',
-}
-
-const LICENSE_TYPE_OPTIONS = Object.entries(LICENSE_TYPES).map(([value, label]) => ({ value, label }))
+import { useReferences } from '../../hooks/useReferences'
 
 const licenseSchema = z.object({
   companyId: z.string().min(1, 'Entreprise requise'),
@@ -53,6 +45,7 @@ function expiryBadge(date?: string | null) {
 
 export function LicensesPage() {
   const qc = useQueryClient()
+  const refs = useReferences()
   const { user } = useAuthStore()
   const canCreate = user?.role === 'ADMIN' || user?.role === 'MANAGER' || user?.role === 'TECHNICIEN'
   const canDelete = user?.role === 'ADMIN' || user?.role === 'MANAGER'
@@ -117,7 +110,7 @@ export function LicensesPage() {
 
   const { data: softwareCatalog } = useQuery<{ data: { id: string; name: string; supplier?: string; price: number; type: string }[] }>({
     queryKey: ['products-software'],
-    queryFn: async () => { const { data } = await api.get('/products', { params: { category: 'SOFTWARE', limit: 200 } }); return data },
+    queryFn: async () => { const { data } = await api.get('/products', { params: { category: 'SOFTWARE', isActive: 'true', limit: 200 } }); return data },
     staleTime: 120_000,
   })
 
@@ -261,7 +254,7 @@ export function LicensesPage() {
                   <td className="font-medium text-slate-900">{lic.software}</td>
                   <td className="text-slate-500 text-sm">{lic.vendor ?? '—'}</td>
                   <td>
-                    <Badge variant="badge-blue">{LICENSE_TYPES[lic.type] ?? lic.type}</Badge>
+                    <Badge variant="badge-blue">{refs.label('license_type', lic.type)}</Badge>
                   </td>
                   <td className="text-slate-600 text-sm">{lic.seats}</td>
                   <td>{expiryBadge(lic.expiryDate)}</td>
@@ -382,7 +375,7 @@ export function LicensesPage() {
             <div className="form-group">
               <label className="label">Type *</label>
               <select {...register('type')} className="input">
-                {LICENSE_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {refs.options('license_type').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div className="form-group">
@@ -468,6 +461,7 @@ interface QuickEquipmentModalProps {
 
 function QuickEquipmentModal({ open, onClose, companyId, onCreated }: QuickEquipmentModalProps) {
   const qc = useQueryClient()
+  const refs = useReferences()
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<QuickEquipmentForm>({
     resolver: zodResolver(quickEquipmentSchema) as Resolver<QuickEquipmentForm>,
   })
@@ -494,8 +488,8 @@ function QuickEquipmentModal({ open, onClose, companyId, onCreated }: QuickEquip
           <label className="label">Type *</label>
           <select {...register('type')} className={`input ${errors.type ? 'input-error' : ''}`}>
             <option value="">Sélectionner un type</option>
-            {Object.entries(EQUIPMENT_TYPES).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
+            {refs.options('equipment_type').map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
           {errors.type && <p className="form-error">{errors.type.message}</p>}

@@ -2,11 +2,10 @@ import { Router, Response } from 'express'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { getSettingInt } from '../lib/settings'
 
 const router = Router()
 router.use(authenticate)
-
-const ALERT_DAYS = 60 // jours avant expiration = alerte
 
 // ── GET /parc/overview ─────────────────────────────────────────────────────────
 // Retourne les entreprises ayant au moins un équipement, une licence ou un contrat,
@@ -14,8 +13,14 @@ const ALERT_DAYS = 60 // jours avant expiration = alerte
 
 router.get('/overview', requirePermission('equipment:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const alertThreshold = new Date()
-    alertThreshold.setDate(alertThreshold.getDate() + ALERT_DAYS)
+    const [warrantyDays, licenseDays] = await Promise.all([
+      getSettingInt('warrantyExpiringSoonDays', 60),
+      getSettingInt('licenseExpiringSoonDays', 30),
+    ])
+    const warrantyThreshold = new Date()
+    warrantyThreshold.setDate(warrantyThreshold.getDate() + warrantyDays)
+    const licenseThreshold = new Date()
+    licenseThreshold.setDate(licenseThreshold.getDate() + licenseDays)
 
     const companies = await prisma.company.findMany({
       where: {
@@ -52,7 +57,7 @@ router.get('/overview', requirePermission('equipment:read'), async (_req: AuthRe
       const warrantyExpiring = company.equipments.filter(
         e => e.warrantyExpiry
           && new Date(e.warrantyExpiry) >= now
-          && new Date(e.warrantyExpiry) <= alertThreshold
+          && new Date(e.warrantyExpiry) <= warrantyThreshold
       ).length
 
       const licenseExpired = company.licenses.filter(
@@ -62,7 +67,7 @@ router.get('/overview', requirePermission('equipment:read'), async (_req: AuthRe
       const licenseExpiring = company.licenses.filter(
         l => l.expiryDate
           && new Date(l.expiryDate) >= now
-          && new Date(l.expiryDate) <= alertThreshold
+          && new Date(l.expiryDate) <= licenseThreshold
       ).length
 
       const activeContracts = company.contracts.filter(c => c.status === 'ACTIVE').length

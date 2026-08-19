@@ -4,6 +4,7 @@ import api from '../../lib/api'
 import { cn } from '../../lib/utils'
 import { CompanySearchInput } from './CompanySearchInput'
 import { EMPTY_PICKER_COMPANY, type ContactPickerCompany, type ContactPickerValue } from '../../lib/contactPicker'
+import { useReferences } from '../../hooks/useReferences'
 
 /**
  * Bloc « Contact » réutilisable dans les formulaires de création (lead, ticket…) :
@@ -29,6 +30,7 @@ export function ContactInlinePicker({
   allowNone?: boolean
   error?: string | null
 }) {
+  const refs = useReferences()
   const set = (patch: Partial<ContactPickerValue>) => onChange({ ...value, ...patch })
   const setCompany = (patch: Partial<ContactPickerCompany>) => onChange({ ...value, company: { ...value.company, ...patch } })
 
@@ -138,7 +140,10 @@ export function ContactInlinePicker({
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input value={value.company.website} onChange={e => setCompany({ website: e.target.value })} placeholder="Site web" className="input" />
-                <input value={value.company.sector} onChange={e => setCompany({ sector: e.target.value })} placeholder="Secteur d'activité" className="input" />
+                <select value={value.company.sector} onChange={e => setCompany({ sector: e.target.value })} className="input">
+                  <option value="">— Secteur —</option>
+                  {refs.options('sector').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input value={value.company.city} onChange={e => setCompany({ city: e.target.value })} placeholder="Ville" className="input" />

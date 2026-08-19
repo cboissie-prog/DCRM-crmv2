@@ -7,6 +7,7 @@ import crypto from 'crypto'
 import prisma from '../prisma/client'
 import { authenticate, requirePermission, requireRole, AuthRequest } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { checkReferences } from '../lib/references'
 import { ciContains } from '../lib/query'
 import { normalizePhone } from '../lib/phone'
 import { audit } from '../lib/audit'
@@ -283,6 +284,8 @@ const callSchema = z.object({
 router.post('/', requirePermission('calls:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = callSchema.parse(req.body)
+    const refError = await checkReferences([{ domain: 'call_category', value: body.category }])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
 
     // ── Cohérence inter-entités ─────────────────────────────────────────────
     const effectiveCompanyId = body.companyId || null
@@ -328,6 +331,8 @@ router.post('/', requirePermission('calls:create'), async (req: AuthRequest, res
 router.put('/:id', requirePermission('calls:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = callSchema.partial().parse(req.body)
+    const refError = await checkReferences([{ domain: 'call_category', value: body.category }])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     const current = await prisma.call.findUnique({ where: { id: req.params.id } })
     if (!current) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Appel introuvable' } }); return }
 

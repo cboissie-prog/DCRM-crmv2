@@ -359,7 +359,9 @@ Toutes les routes exigent `authenticate` (posé via `router.use(authenticate)`).
 | PUT | `/settings/:key` | Permission `settings:write` (clés sensibles → rôle ADMIN uniquement) | Met à jour un paramètre |
 | POST | `/settings/actions/run-contract-update` | Permission `settings:write` | Déclenche manuellement le job de mise à jour des statuts de contrats |
 
-Clés connues (`DEFAULTS`) : `contractExpiringSoonDays`, `licenseExpiringSoonDays`, `schedulerEnabled`, `schedulerTime`, `companyName`, `companyLogoUrl`, `companyAddress`, `companyContactEmail`, `companyPhone`, `companySiret`, `companyVatNumber`, `callRecordingRetentionDays`, `slaHoursCritical`, `slaHoursHigh`, `slaHoursNormal`, `slaHoursLow`, `googleAllowedDomain`, `googleAutoCreateRole`.
+Clés connues (`DEFAULTS`) : `contractExpiringSoonDays`, `licenseExpiringSoonDays`, `warrantyExpiringSoonDays`, `schedulerEnabled`, `schedulerTime`, `companyName`, `companyLogoUrl`, `companyAddress`, `companyContactEmail`, `companyPhone`, `companySiret`, `companyVatNumber`, `callRecordingRetentionDays`, `slaHoursCritical`, `slaHoursHigh`, `slaHoursNormal`, `slaHoursLow`, `googleAllowedDomain`, `googleAutoCreateRole`.
+
+Les seuils `contractExpiringSoonDays`, `licenseExpiringSoonDays` et `warrantyExpiringSoonDays` pilotent désormais les filtres `expiringSoon`/`warrantyExpiringSoon` des routes contrats/licences/équipements, les compteurs et alertes du dashboard et la vue Parc (plus aucun seuil 60/90 jours codé en dur).
 
 **GET /settings**
 Réponse : `data: [{ key, value, label }]` pour toutes les clés de `DEFAULTS` (valeur DB si présente, sinon valeur par défaut).
@@ -378,6 +380,48 @@ Erreurs : `404 NOT_FOUND` (clé hors `DEFAULTS`), `403 FORBIDDEN` (clé sensible
 
 **POST /settings/actions/run-contract-update**
 Pas de corps. Réponse : `data` = résultat brut retourné par `runContractStatusUpdate()` (voir `server/src/scheduler.ts`, non typé ici).
+
+---
+
+### Référentiels personnalisables `/api/references`
+
+Listes de valeurs métier gérables depuis Réglages > Listes personnalisées (catégories de tickets/appels/produits/base de connaissances, types d'équipement/contrat/licence/RDV, statuts d'équipement/contact, sources de leads, secteurs d'activité). Domaines : `ticket_category`, `call_category`, `equipment_type`, `equipment_status`, `contract_type`, `license_type`, `contact_status`, `lead_source`, `sector`, `appointment_type`, `knowledge_category`, `product_category`.
+
+Toutes les routes exigent `authenticate` (posé via `router.use(authenticate)`).
+
+| Méthode | Route | Accès | Description |
+|---------|-------|-------|-------------|
+| GET | `/references` | Tout utilisateur connecté | Tous les domaines et leurs valeurs (actives et désactivées) |
+| POST | `/references/:domain` | Permission `references:manage` | Ajoute une valeur au domaine |
+| PUT | `/references/:id` | Permission `references:manage` | Modifie libellé/couleur/icône/meta/actif (la clé est immuable) |
+| PATCH | `/references/:domain/reorder` | Permission `references:manage` | Réordonne les valeurs du domaine |
+| DELETE | `/references/:id` | Permission `references:manage` | Supprime — ou désactive si la valeur est utilisée par des données |
+
+**GET /references**
+Réponse : `data: [{ domain, label, description, validate, keyStyle, hasColor, hasIcon, values: [{ id, key, label, color, icon, order, isActive, isSystem, meta }] }]`.
+`validate: true` = la clé est vérifiée à l'écriture des entités du domaine (400 `INVALID_REFERENCE` sur valeur inconnue) ; `sector` est indicatif (`validate: false`, champ libre — import SIRENE/CSV). Les valeurs désactivées restent acceptées à l'écriture (données anciennes) mais sont masquées des formulaires.
+
+**POST /references/:domain**
+```json
+{ "label": "string", "key": "string?", "color": "string?", "icon": "string?", "meta": {}? }
+```
+`key` générée du libellé si absente (MAJUSCULES_UNDERSCORE sans accents ; pour `sector`, la clé est le libellé lui-même). `color` ∈ jetons (`gray`, `slate`, `blue`, `indigo`, `violet`, `purple`, `pink`, `red`, `orange`, `amber`, `yellow`, `green`, `emerald`, `cyan`). `meta` : JSON libre — ex. `{ "isPhysical": true }` sur `product_category` (catégorie proposée à la création d'équipements depuis le catalogue).
+Réponse `201` : objet `ReferenceValue`. Erreurs : `404 NOT_FOUND` (domaine inconnu), `409 DUPLICATE`, `400 INVALID_KEY`.
+
+**PUT /references/:id**
+```json
+{ "label": "string?", "color": "string|null?", "icon": "string|null?", "meta": {}|null?, "isActive": "boolean?" }
+```
+Les valeurs `isSystem` (référencées par le code : fallbacks, valeurs par défaut, règles) ne peuvent être ni désactivées ni supprimées (`400 SYSTEM_VALUE`), seul leur rendu (libellé/couleur/icône) est modifiable.
+
+**PATCH /references/:domain/reorder**
+```json
+{ "ids": ["id1", "id2", "..."] }
+```
+Réponse : `{ reordered: n }`.
+
+**DELETE /references/:id**
+Si la valeur est référencée par des données existantes : désactivation (`isActive: false`) et réponse `{ deactivated: true, usage: n }` ; sinon suppression (`{ deleted: true }`). Erreur : `400 SYSTEM_VALUE`, `404 NOT_FOUND`.
 
 ---
 
@@ -568,6 +612,67 @@ Réponse `data: { message: "Notification lue" }`. Erreur `NOT_FOUND` (404) si la
 
 **DELETE /notifications/:id**
 Suppression physique (`deleteMany`, scopée à l'utilisateur) — silencieuse si l'id n'existe pas ou n'appartient pas à l'utilisateur (pas de 404 renvoyé). Réponse : `data: { message: "Notification supprimée" }`.
+
+---
+
+### Todo `/api/todos`
+
+Todolist par utilisateur. Chaque utilisateur gère sa propre liste ; selon ses permissions, il peut aussi consulter et/ou gérer la liste d'un autre utilisateur. Une tâche peut être marquée **privée** : elle n'est alors jamais visible que par son propriétaire, quels que soient le rôle ou les permissions de l'observateur (y compris ADMIN — ce filtre est basé sur la propriété, pas sur les permissions, et n'est donc pas contourné par le bypass `*`).
+
+Permissions du module :
+
+| Clé | Effet |
+|-----|-------|
+| `todos:read` | Accès de base au module : voir et gérer (CRUD) **sa propre** liste (exigée par `router.use()` sur toutes les routes) |
+| `todos:read_all` | Consulter la liste d'un autre utilisateur (lecture seule, `GET ?userId=`) |
+| `todos:write_all` | Créer/modifier/cocher/supprimer des tâches dans la liste d'un autre utilisateur |
+
+| Méthode | Route | Accès | Description |
+|---------|-------|-------|-------------|
+| GET | `/todos` | Permission `todos:read` (+ `todos:read_all` si `userId` ≠ soi) | Liste des tâches du propriétaire ciblé (soi par défaut) |
+| POST | `/todos` | Permission `todos:read` (+ `todos:write_all` si `ownerId` ≠ soi) | Crée une tâche |
+| PATCH | `/todos/:id` | Propriétaire de la tâche, sinon permission `todos:write_all` | Modifie une tâche |
+| DELETE | `/todos/:id` | Propriétaire de la tâche, sinon permission `todos:write_all` | Supprime une tâche (et ses notifications liées) |
+
+**GET /todos**
+Query : `userId` (optionnel, défaut = utilisateur connecté ; consulter la liste d'un autre utilisateur exige `todos:read_all`, sinon `403 FORBIDDEN`), `status` (`todo` | `done`, filtre `isDone`), `priority` (`LOW` | `NORMAL` | `HIGH`).
+Réponse : `data` = tableau de tâches (avec `owner { id, firstName, lastName }`), triées non faites d'abord, puis par priorité décroissante (`HIGH` → `NORMAL` → `LOW`), puis par échéance croissante (tâches sans échéance en dernier). Les tâches privées d'un autre utilisateur sont **toujours exclues** de la liste (même avec `todos:read_all`).
+
+**POST /todos**
+```json
+{
+  "title": "string 1-200 car. (obligatoire)",
+  "description": "string ≤2000 car. (optionnel, nullable)",
+  "priority": "LOW | NORMAL | HIGH (optionnel, défaut NORMAL)",
+  "dueDate": "string ISO datetime (optionnel, nullable)",
+  "isPrivate": "boolean (optionnel, défaut false)",
+  "ownerId": "string (optionnel, défaut soi-même)"
+}
+```
+Réponse `201` : la tâche créée (avec `owner`). Si `ownerId` désigne un autre utilisateur : exige la permission `todos:write_all` (sinon `403 FORBIDDEN`) ; l'owner ciblé doit exister et être actif (sinon `400 OWNER_NOT_FOUND`) ; **`isPrivate` est forcé à `false`** — on ne crée pas pour autrui une tâche que son créateur ne pourrait plus jamais consulter ensuite.
+
+**PATCH /todos/:id**
+```json
+{
+  "title": "string 1-200 car.",
+  "description": "string ≤2000 car., nullable",
+  "priority": "LOW | NORMAL | HIGH",
+  "dueDate": "string ISO datetime, nullable",
+  "isPrivate": "boolean",
+  "isDone": "boolean"
+}
+```
+Tous les champs sont optionnels. Réponse : la tâche mise à jour (avec `owner`). `isDone: true` renseigne automatiquement `completedAt` (horodatage courant) ; repasser `isDone: false` le remet à `null`. Seul le **propriétaire** de la tâche peut modifier `isPrivate` (sinon `403 FORBIDDEN`, même avec `todos:write_all`). Le changement de propriétaire (`ownerId`) n'est pas supporté par cet endpoint. Erreurs : `404 NOT_FOUND` si la tâche n'existe pas **ou** si elle est privée et appartient à un autre utilisateur (volontairement, pour ne pas révéler son existence) ; `403 FORBIDDEN` si la tâche appartient à un autre utilisateur (non privée) et que l'appelant n'a pas `todos:write_all`.
+
+**DELETE /todos/:id**
+Réponse : `data: { message: "Tâche supprimée" }`. Supprime aussi toutes les notifications liées à la tâche (`Notification.todoId`, `deleteMany`). Mêmes règles d'accès et mêmes erreurs (`404 NOT_FOUND` privée d'autrui, `403 FORBIDDEN` non privée d'autrui sans `todos:write_all`) que PATCH.
+
+**Rappels automatiques (scheduler)**
+Le job horaire (`runTodoReminders()` dans `server/src/scheduler.ts`, exécuté par le cron `0 * * * *` Europe/Paris avec les autres jobs planifiés) parcourt les tâches non faites avec `dueDate` renseignée et crée, pour le **propriétaire** de la tâche uniquement (y compris si elle est privée — la notification ne fuite jamais vers un autre utilisateur), une notification de type :
+- `TODO_REMINDER` — dès que `now ≥ dueDate - 24h` et `now < dueDate` (« J-1 »). Message : `"{titre}" arrive à échéance demain`.
+- `TODO_DUE` — dès que `now ≥ dueDate` (« jour J »). Message : `"{titre}" arrive à échéance aujourd'hui`.
+
+Les deux notifications portent `link: '/todos'` et `todoId` (renseigné pour permettre le dédoublonnage et la suppression en cascade). Dédoublonnage par `findFirst({ todoId, userId, type })` avant création : au plus une notification de chaque type par tâche, même si le cron tourne plusieurs fois après l'échéance.
 
 ---
 
@@ -1245,7 +1350,7 @@ Calcul sur les contrats `status: ACTIVE` uniquement, `monthlyAmount` prioritaire
 | PUT | `/products/:id` | Permission `products:update` | Mise à jour partielle |
 | DELETE | `/products/:id` | Permission `products:delete` | Désactivation (soft delete) |
 
-**GET /products** — Query : `search` (nom/référence/fournisseur), `category`, `type`, `page` (défaut 1), `limit` (défaut 50, max 200). Réponse : tableau de produits + `meta`, triés par `name asc`.
+**GET /products** — Query : `search` (nom/référence/fournisseur), `category`, `type`, `isActive` (`'true'` = actifs seuls, `'false'` = inactifs seuls, absent = tous), `page` (défaut 1), `limit` (défaut 50, max 200). Réponse : tableau de produits + `meta`, triés par `name asc`.
 
 **POST /products**
 ```json

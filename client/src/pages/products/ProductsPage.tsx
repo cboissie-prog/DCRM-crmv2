@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -12,9 +12,10 @@ import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
 import { useAuthStore } from '../../store/authStore'
-import { Plus, Search, Pencil, Trash2, Package, Tag, Key, FileText, Monitor, Wrench, Globe, GraduationCap } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, Power, Package, Tag } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
-import { CONTRACT_TYPES } from '../../lib/utils'
+import { useReferences } from '../../hooks/useReferences'
+import { badgeClass, ReferenceIcon } from '../../lib/referenceUi'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -35,29 +36,6 @@ interface Product {
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
-
-const CATEGORIES: Record<string, { label: string; color: string; icon: ReactNode }> = {
-  HARDWARE:          { label: 'Matériel',           color: 'badge-blue',   icon: <Monitor className="w-4 h-4" /> },
-  SOFTWARE:          { label: 'Logiciel / Licence',  color: 'badge-purple', icon: <Key className="w-4 h-4" /> },
-  CONTRACT_TEMPLATE: { label: 'Modèle de contrat',   color: 'badge-indigo', icon: <FileText className="w-4 h-4" /> },
-  NETWORK:           { label: 'Réseau',              color: 'badge-cyan',   icon: <Globe className="w-4 h-4" /> },
-  CASH_REGISTER:     { label: 'Caisse',              color: 'badge-orange', icon: <Package className="w-4 h-4" /> },
-  MAINTENANCE:       { label: 'Maintenance',         color: 'badge-yellow', icon: <Wrench className="w-4 h-4" /> },
-  WEBSITE:           { label: 'Site web',            color: 'badge-indigo', icon: <Globe className="w-4 h-4" /> },
-  TRAINING:          { label: 'Formation',           color: 'badge-green',  icon: <GraduationCap className="w-4 h-4" /> },
-  OTHER:             { label: 'Autre',               color: 'badge-gray',   icon: <Package className="w-4 h-4" /> },
-}
-
-// Tab groups for the filter bar
-const CATEGORY_TABS = [
-  { key: '',                  label: 'Tout' },
-  { key: 'HARDWARE',          label: 'Matériel' },
-  { key: 'SOFTWARE',          label: 'Logiciels & Licences' },
-  { key: 'CONTRACT_TEMPLATE', label: 'Modèles de contrat' },
-  { key: 'NETWORK',           label: 'Réseau' },
-  { key: 'MAINTENANCE',       label: 'Maintenance' },
-  { key: 'OTHER_MISC',        label: 'Autres', keys: ['CASH_REGISTER', 'WEBSITE', 'TRAINING', 'OTHER'] },
-]
 
 const TYPES: Record<string, { label: string; color: string }> = {
   PRODUCT: { label: 'Produit', color: 'badge-blue' },
@@ -88,23 +66,28 @@ export function ProductsPage() {
   const qc = useQueryClient()
   const user = useAuthStore(s => s.user)
   const canEdit = ['ADMIN', 'MANAGER'].includes(user?.role ?? '')
+  const refs = useReferences()
+  const productCategoryOptions = refs.options('product_category')
+  const defaultCategory = productCategoryOptions.some(o => o.value === 'HARDWARE') ? 'HARDWARE' : (productCategoryOptions[0]?.value ?? 'HARDWARE')
 
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
+  const [activeFilter, setActiveFilter] = useState('true')
   const [page, setPage] = useState(1)
   const [showCreate, setShowCreate] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null)
 
   const { data, isLoading } = useQuery<{ success: boolean; data: Product[]; meta: { total: number } }>({
-    queryKey: ['products', { search, categoryFilter, typeFilter, page }],
+    queryKey: ['products', { search, categoryFilter, typeFilter, activeFilter, page }],
     queryFn: async () => {
       const { data } = await api.get('/products', {
         params: {
           search: search || undefined,
           category: categoryFilter || undefined,
           type: typeFilter || undefined,
+          isActive: activeFilter || undefined,
           page,
           limit: 50,
         },
@@ -134,11 +117,17 @@ export function ProductsPage() {
     onError: () => toast.error('Erreur lors de la suppression'),
   })
 
+  const activateMutation = useMutation({
+    mutationFn: (id: string) => api.put(`/products/${id}`, { isActive: true }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); toast.success('Produit réactivé') },
+    onError: () => toast.error('Erreur lors de la réactivation'),
+  })
+
   // ── Forms ────────────────────────────────────────────────────────────────────
 
   const createForm = useForm<ProductForm>({
     resolver: zodResolver(productSchema) as Resolver<ProductForm>,
-    defaultValues: { type: 'PRODUCT', category: 'HARDWARE', vatRate: 20, unit: 'unité', isActive: true },
+    defaultValues: { type: 'PRODUCT', category: defaultCategory, vatRate: 20, unit: 'unité', isActive: true },
   })
   const editForm = useForm<ProductForm>({
     resolver: zodResolver(productSchema) as Resolver<ProductForm>,
@@ -176,7 +165,7 @@ export function ProductsPage() {
           </div>
         </div>
         {canEdit && (
-          <button className="btn-primary" onClick={() => { createForm.reset({ type: 'PRODUCT', category: 'HARDWARE', vatRate: 20, unit: 'unité', isActive: true }); setShowCreate(true) }}>
+          <button className="btn-primary" onClick={() => { createForm.reset({ type: 'PRODUCT', category: defaultCategory, vatRate: 20, unit: 'unité', isActive: true }); setShowCreate(true) }}>
             <Plus className="w-4 h-4" /> Nouveau produit
           </button>
         )}
@@ -184,22 +173,25 @@ export function ProductsPage() {
 
       {/* Category tabs */}
       <div className="bg-slate-100 rounded-xl p-1 flex gap-1 flex-wrap">
-        {CATEGORY_TABS.map(tab => {
-          const tabActive = tab.key === 'OTHER_MISC'
-            ? ['CASH_REGISTER', 'WEBSITE', 'TRAINING', 'OTHER'].includes(categoryFilter)
-            : categoryFilter === tab.key
-          return (
-            <button
-              key={tab.key}
-              onClick={() => { setCategoryFilter(tab.key === 'OTHER_MISC' ? 'OTHER' : tab.key); setPage(1) }}
-              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                tabActive ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-800 hover:bg-white/60'
-              }`}
-            >
-              {tab.label}
-            </button>
-          )
-        })}
+        <button
+          onClick={() => { setCategoryFilter(''); setPage(1) }}
+          className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+            categoryFilter === '' ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-800 hover:bg-white/60'
+          }`}
+        >
+          Tout
+        </button>
+        {refs.values('product_category').map(cat => (
+          <button
+            key={cat.key}
+            onClick={() => { setCategoryFilter(cat.key); setPage(1) }}
+            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+              categoryFilter === cat.key ? 'bg-white text-primary-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-800 hover:bg-white/60'
+            }`}
+          >
+            {cat.label}
+          </button>
+        ))}
       </div>
 
       {/* Search + type filter */}
@@ -211,6 +203,11 @@ export function ProductsPage() {
         <select className="input w-auto" value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1) }}>
           <option value="">Tous les types</option>
           {Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+        <select className="input w-auto" value={activeFilter} onChange={e => { setActiveFilter(e.target.value); setPage(1) }}>
+          <option value="true">Actifs</option>
+          <option value="false">Inactifs</option>
+          <option value="">Actifs & inactifs</option>
         </select>
       </div>
 
@@ -232,10 +229,10 @@ export function ProductsPage() {
                   p.category === 'HARDWARE' ? 'bg-blue-50 text-blue-500' :
                   'bg-slate-100 text-slate-500'
                 }`}>
-                  {CATEGORIES[p.category]?.icon ?? <Package className="w-5 h-5" />}
+                  <ReferenceIcon name={refs.icon('product_category', p.category)} className="w-5 h-5" />
                 </div>
                 <div className="flex flex-col items-end gap-1">
-                  <Badge variant={CATEGORIES[p.category]?.color ?? 'badge-gray'}>{CATEGORIES[p.category]?.label ?? p.category}</Badge>
+                  <Badge variant={badgeClass(refs.color('product_category', p.category))}>{refs.label('product_category', p.category)}</Badge>
                   {!p.isActive && <Badge variant="badge-gray">Inactif</Badge>}
                 </div>
               </div>
@@ -272,7 +269,7 @@ export function ProductsPage() {
                 <p className="mt-2 text-xs text-slate-400 flex items-center gap-1">
                   <Tag className="w-3 h-3" />
                   {p.category === 'CONTRACT_TEMPLATE'
-                    ? (CONTRACT_TYPES[p.supplier as keyof typeof CONTRACT_TYPES] ?? p.supplier)
+                    ? refs.label('contract_type', p.supplier)
                     : p.supplier}
                 </p>
               )}
@@ -289,13 +286,24 @@ export function ProductsPage() {
                     >
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
-                    <button
-                      className="btn-ghost btn-sm p-1.5 rounded-lg text-slate-400 hover:text-red-500"
-                      title="Désactiver"
-                      onClick={() => setDeletingProduct(p)}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {p.isActive ? (
+                      <button
+                        className="btn-ghost btn-sm p-1.5 rounded-lg text-slate-400 hover:text-red-500"
+                        title="Désactiver"
+                        onClick={() => setDeletingProduct(p)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <button
+                        className="btn-ghost btn-sm p-1.5 rounded-lg text-slate-400 hover:text-emerald-600"
+                        title="Réactiver"
+                        onClick={() => activateMutation.mutate(p.id)}
+                        disabled={activateMutation.isPending}
+                      >
+                        <Power className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -375,6 +383,7 @@ function ProductFormFields({
   submitLabel: string
 }) {
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = form
+  const refs = useReferences()
   const watchedCategory = watch('category')
   const isContractTemplate = watchedCategory === 'CONTRACT_TEMPLATE'
   const isSoftware = watchedCategory === 'SOFTWARE'
@@ -402,7 +411,7 @@ function ProductFormFields({
         <div className="form-group">
           <label className="label">Catégorie *</label>
           <select {...register('category')} className={`input ${errors.category ? 'input-error' : ''}`}>
-            {Object.entries(CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            {refs.options('product_category').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
         {!isContractTemplate && (
@@ -447,7 +456,7 @@ function ProductFormFields({
           {isContractTemplate ? (
             <select {...register('supplier')} className="input">
               <option value="">— Sélectionner —</option>
-              {Object.entries(CONTRACT_TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              {refs.options('contract_type').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           ) : (
             <input {...register('supplier')} className="input" placeholder={isSoftware ? 'Microsoft, Adobe, Bitdefender...' : ''} />

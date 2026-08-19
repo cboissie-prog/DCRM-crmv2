@@ -104,6 +104,9 @@ const NpsSurveyPage = lazy(() =>
 const ApiDocsPage = lazy(() =>
   import('./pages/docs/ApiDocsPage').then(m => ({ default: m.ApiDocsPage }))
 )
+const TodosPage = lazy(() =>
+  import('./pages/todos/TodosPage').then(m => ({ default: m.TodosPage }))
+)
 
 // ── Query client ─────────────────────────────────────────────────────────────
 const queryClient = new QueryClient({
@@ -245,6 +248,11 @@ export default function App() {
               <Route element={<ProtectedRoute permission="calls:read" />}>
                 <Route path="/calls" element={<CallsPage />} />
                 <Route path="/calls/:id" element={<CallDetailPage />} />
+              </Route>
+
+              {/* todos:read */}
+              <Route element={<ProtectedRoute permission="todos:read" />}>
+                <Route path="/todos" element={<TodosPage />} />
               </Route>
             </Route>
 

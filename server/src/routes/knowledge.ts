@@ -3,6 +3,7 @@ import { z } from 'zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { checkReferences } from '../lib/references'
 import { ciContains } from '../lib/query'
 
 const router = Router()
@@ -51,6 +52,8 @@ router.get('/', requirePermission('knowledge:read'), async (req: AuthRequest, re
 router.post('/', requirePermission('knowledge:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = articleSchema.parse(req.body)
+    const refError = await checkReferences([{ domain: 'knowledge_category', value: body.category }])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     const article = await prisma.knowledgeArticle.create({ data: body })
     res.status(201).json({ success: true, data: article })
   } catch (err) { handleRouteError(err, res) }
@@ -68,6 +71,8 @@ router.get('/:id', requirePermission('knowledge:read'), async (req: AuthRequest,
 router.put('/:id', requirePermission('knowledge:update'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = articleSchema.partial().parse(req.body)
+    const refError = await checkReferences([{ domain: 'knowledge_category', value: body.category }])
+    if (refError) { res.status(400).json({ success: false, error: { code: 'INVALID_REFERENCE', message: refError } }); return }
     const article = await prisma.knowledgeArticle.update({ where: { id: req.params.id }, data: body })
     res.json({ success: true, data: article })
   } catch (err) { handleRouteError(err, res) }

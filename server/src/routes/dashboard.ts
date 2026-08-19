@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { getSettingInt } from '../lib/settings'
 import { getWonLostStageKeys } from '../services/pipelineService'
 
 const router = Router()
@@ -68,7 +69,14 @@ router.get('/stats', requirePermission('dashboard:read'), async (_req: AuthReque
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0)
-    const in60Days = new Date(); in60Days.setDate(now.getDate() + 60)
+    const [contractDays, licenseDays, warrantyDays] = await Promise.all([
+      getSettingInt('contractExpiringSoonDays', 60),
+      getSettingInt('licenseExpiringSoonDays', 30),
+      getSettingInt('warrantyExpiringSoonDays', 60),
+    ])
+    const contractThreshold = new Date(now.getTime() + contractDays * 24 * 60 * 60 * 1000)
+    const licenseThreshold = new Date(now.getTime() + licenseDays * 24 * 60 * 60 * 1000)
+    const warrantyThreshold = new Date(now.getTime() + warrantyDays * 24 * 60 * 60 * 1000)
     const { wonKeys, lostKeys } = await getWonLostStageKeys()
 
     const [
@@ -98,11 +106,11 @@ router.get('/stats', requirePermission('dashboard:read'), async (_req: AuthReque
       prisma.ticket.count({ where: { status: { in: ['NEW', 'IN_PROGRESS'] }, priority: 'CRITICAL' } }),
       prisma.ticket.count({ where: { createdAt: { gte: startOfMonth } } }),
       prisma.contract.count({ where: { status: 'ACTIVE' } }),
-      prisma.contract.count({ where: { status: { in: ['ACTIVE', 'EXPIRING_SOON'] }, endDate: { lte: in60Days } } }),
+      prisma.contract.count({ where: { status: { in: ['ACTIVE', 'EXPIRING_SOON'] }, endDate: { lte: contractThreshold } } }),
       prisma.opportunity.count({ where: { stage: { notIn: [...wonKeys, ...lostKeys] } } }),
       prisma.opportunity.count({ where: { stage: { in: wonKeys }, closedAt: { gte: startOfMonth } } }),
-      prisma.license.count({ where: { expiryDate: { lte: in60Days, gte: now } } }),
-      prisma.equipment.count({ where: { warrantyExpiry: { lte: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000), gte: now } } }),
+      prisma.license.count({ where: { expiryDate: { lte: licenseThreshold, gte: now } } }),
+      prisma.equipment.count({ where: { warrantyExpiry: { lte: warrantyThreshold, gte: now } } }),
       prisma.activity.findMany({
         orderBy: { createdAt: 'desc' }, take: 10,
         include: {
@@ -309,7 +317,8 @@ router.get('/charts', requirePermission('dashboard:read'), async (_req: AuthRequ
 router.get('/alerts', requirePermission('dashboard:read'), async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const now = new Date()
-    const in60Days = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000)
+    const contractDays = await getSettingInt('contractExpiringSoonDays', 60)
+    const in60Days = new Date(now.getTime() + contractDays * 24 * 60 * 60 * 1000)
     const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
     const { wonKeys, lostKeys } = await getWonLostStageKeys()
 
