@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { moduleColors } from '../../module.colors.js'
 import { moduleTheme } from './moduleTheme'
 
-const EXPECTED_KEYS = ['dashboard', 'calls', 'commercial', 'agenda', 'contacts', 'parc', 'tickets', 'tools']
+const EXPECTED_KEYS = ['agenda', 'calls', 'commercial', 'contacts', 'dashboard', 'parc', 'tickets', 'todo', 'tools']
 
 describe('module.colors.js', () => {
-  it('définit une palette pour chacun des 8 modules', () => {
+  it('définit une palette pour chacun des 9 modules', () => {
     expect(Object.keys(moduleColors).sort()).toEqual([...EXPECTED_KEYS].sort())
   })
 
