@@ -14,7 +14,8 @@ import { Avatar } from '../../components/ui/Avatar'
 import { PageSpinner, Spinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
-import { SearchSelect } from '../../components/ui/SearchSelect'
+import { EntityPicker } from '../../components/ui/EntityPicker'
+import type { SearchSelectOption } from '../../components/ui/SearchSelect'
 import {
   Plus, Search, ArrowLeft, Clock, MessageSquare,
   ChevronDown, Send, Lock, Unlock, Trash2, Edit2, Timer, Download, X, CalendarPlus, Wrench,
@@ -134,49 +135,6 @@ function slaRemainingLabel(slaDeadline: string): { label: string; className: str
   return { label: `Reste ${formatTime(Math.max(1, Math.round(remaining / 60000)))}`, className: remaining < 60 * 60 * 1000 ? 'text-orange-500' : 'text-emerald-600' }
 }
 
-// Recherches distantes pour les SearchSelect
-interface ContactRow { id: string; firstName: string; lastName: string; company?: { id: string; name: string } | null }
-
-/** Métadonnées portées par une option contact : entreprise liée (pour l'auto-remplissage) */
-export interface ContactOptionMeta { companyId: string | null; companyName: string | null }
-
-function toContactOption(c: ContactRow) {
-  return {
-    id: c.id,
-    label: `${c.firstName} ${c.lastName}`,
-    sublabel: c.company?.name,
-    meta: { companyId: c.company?.id ?? null, companyName: c.company?.name ?? null } satisfies ContactOptionMeta,
-  }
-}
-
-/**
- * Recherche « souple » : si une entreprise est fournie, priorise ses contacts
- * tout en gardant visibles les contacts sans société (filtre non bloquant).
- */
-async function searchContacts(q: string, companyId?: string) {
-  const search = q || undefined
-  if (!companyId) {
-    const { data } = await api.get('/contacts', { params: { search, limit: 20 } })
-    return (data.data as ContactRow[]).map(toContactOption)
-  }
-  const [companyRes, generalRes] = await Promise.all([
-    api.get('/contacts', { params: { search, companyId, limit: 15 } }),
-    api.get('/contacts', { params: { search, limit: 30 } }),
-  ])
-  const companyContacts = companyRes.data.data as ContactRow[]
-  const noCompanyContacts = (generalRes.data.data as ContactRow[]).filter(c => !c.company)
-  const merged = [
-    ...companyContacts,
-    ...noCompanyContacts.filter(c => !companyContacts.some(cc => cc.id === c.id)),
-  ].slice(0, 20)
-  return merged.map(toContactOption)
-}
-async function searchCompanies(q: string) {
-  const { data } = await api.get('/companies', { params: { search: q || undefined, limit: 20 } })
-  return (data.data as { id: string; name: string; city?: string }[]).map(c => ({
-    id: c.id, label: c.name, sublabel: c.city,
-  }))
-}
 
 // ─── Page liste ─────────────────────────────────────────────────────────────
 
@@ -1302,11 +1260,19 @@ interface TicketFormModalProps {
 }
 
 function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalProps) {
-  const perms = usePermissions(['tickets:assign', 'contacts:create', 'companies:create'])
+  // Le formulaire est un enfant de Modal : démonté à la fermeture, il repart
+  // toujours de valeurs fraîches (pas d'effet de reset nécessaire).
+  return (
+    <Modal open={open} onClose={onClose} title={ticket ? 'Modifier le ticket' : 'Nouveau ticket'} size="lg">
+      <TicketForm ticket={ticket} onClose={onClose} onSuccess={onSuccess} />
+    </Modal>
+  )
+}
+
+function TicketForm({ ticket, onClose, onSuccess }: { ticket?: Ticket; onClose: () => void; onSuccess: () => void }) {
+  const perms = usePermissions(['tickets:assign'])
   const refs = useReferences()
   const canAssign = perms['tickets:assign']
-  const canCreateContact = perms['contacts:create']
-  const canCreateCompany = perms['companies:create']
 
   const defaults = (t?: Ticket): TicketForm => t ? {
     title: t.title,
@@ -1318,39 +1284,23 @@ function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalPr
     assignedToId: t.assignedToId || '',
   } : { title: '', description: '', priority: 'NORMAL', category: 'OTHER', contactId: '', companyId: '', assignedToId: '' }
 
-  const { register, handleSubmit, reset, setValue, control, formState: { errors, isSubmitting } } = useForm<TicketForm>({
+  const { register, handleSubmit, setValue, control, formState: { errors, isSubmitting } } = useForm<TicketForm>({
     resolver: zodResolver(ticketSchema),
     defaultValues: defaults(ticket),
   })
   const contactId = useWatch({ control, name: 'contactId' })
   const companyId = useWatch({ control, name: 'companyId' })
 
-  // Libellés des sélections : dérivés du ticket édité ou de la dernière option choisie
-  // companyId : entreprise du contact sélectionné (connue une fois le contact choisi via la recherche),
-  // utilisée pour réinitialiser le contact si l'entreprise est ensuite changée pour une autre incompatible.
-  const [pickedContact, setPickedContact] = useState<{ id: string; label: string; companyId: string | null } | null>(null)
-  const [pickedCompany, setPickedCompany] = useState<{ id: string; label: string } | null>(null)
-  const contactLabel = contactId
-    ? pickedContact?.id === contactId
-      ? pickedContact.label
-      : ticket?.contactId === contactId && ticket?.contact
-        ? `${ticket.contact.firstName} ${ticket.contact.lastName}`
-        : undefined
-    : undefined
-  const companyLabel = companyId
-    ? pickedCompany?.id === companyId
-      ? pickedCompany.label
-      : ticket?.companyId === companyId
-        ? ticket?.company?.name
-        : undefined
-    : undefined
+  // Libellés affichés par les EntityPicker — dérivés du ticket édité, puis
+  // tenus à jour à chaque sélection (calculés une seule fois au montage, le
+  // formulaire étant démonté à chaque fermeture de la modale).
+  const [contactLabel, setContactLabel] = useState(ticket?.contact ? `${ticket.contact.firstName} ${ticket.contact.lastName}` : undefined)
+  const [companyLabel, setCompanyLabel] = useState(ticket?.company?.name)
+  // Entreprise du contact actuellement sélectionné, pour réinitialiser le
+  // contact si l'entreprise est ensuite changée pour une autre incompatible.
+  const [contactCompanyId, setContactCompanyId] = useState<string | undefined>(undefined)
 
-  // Reset quand la modal s'ouvre
-  useEffect(() => {
-    if (open) reset(defaults(ticket))
-  }, [open, ticket, reset])
-
-  const { data: usersData } = useUsersList({ enabled: open && canAssign })
+  const { data: usersData } = useUsersList({ enabled: canAssign })
 
   const mutation = useMutation({
     mutationFn: (values: TicketForm) => {
@@ -1370,48 +1320,29 @@ function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalPr
     onError: () => toast.error('Erreur lors de l\'enregistrement'),
   })
 
-  // Création à la volée : petits formulaires repliables sous les SearchSelect
-  const [showNewContact, setShowNewContact] = useState(false)
-  const [newContact, setNewContact] = useState({ firstName: '', lastName: '' })
-  const [showNewCompany, setShowNewCompany] = useState(false)
-  const [newCompanyName, setNewCompanyName] = useState('')
+  const handleContactChange = (id: string | null, option?: SearchSelectOption) => {
+    setValue('contactId', id ?? '')
+    setContactLabel(option?.label)
+    const meta = option?.meta as { company?: { id: string; name: string } | null } | undefined
+    setContactCompanyId(meta?.company?.id)
+    if (meta?.company) {
+      setValue('companyId', meta.company.id)
+      setCompanyLabel(meta.company.name)
+    }
+  }
 
-  const createContactMutation = useMutation({
-    mutationFn: () => api.post('/contacts', {
-      firstName: newContact.firstName.trim(),
-      lastName: newContact.lastName.trim() || '—',
-      companyId: companyId || undefined,
-    }),
-    onSuccess: ({ data }) => {
-      const c = data.data as { id: string; firstName: string; lastName: string; companyId?: string | null; company?: { id: string; name: string } | null }
-      setValue('contactId', c.id)
-      setPickedContact({ id: c.id, label: `${c.firstName} ${c.lastName}`, companyId: c.companyId ?? null })
-      if (c.company && !companyId) {
-        setValue('companyId', c.company.id)
-        setPickedCompany({ id: c.company.id, label: c.company.name })
-      }
-      setShowNewContact(false)
-      setNewContact({ firstName: '', lastName: '' })
-      toast.success('Contact créé')
-    },
-    onError: () => toast.error('Erreur lors de la création du contact'),
-  })
-
-  const createCompanyMutation = useMutation({
-    mutationFn: () => api.post('/companies', { name: newCompanyName.trim() }),
-    onSuccess: ({ data }) => {
-      const c = data.data as { id: string; name: string }
-      setValue('companyId', c.id)
-      setPickedCompany({ id: c.id, label: c.name })
-      setShowNewCompany(false)
-      setNewCompanyName('')
-      toast.success('Entreprise créée')
-    },
-    onError: () => toast.error('Erreur lors de la création de l\'entreprise'),
-  })
+  const handleCompanyChange = (id: string | null, option?: SearchSelectOption) => {
+    setValue('companyId', id ?? '')
+    setCompanyLabel(option?.label)
+    // Le contact choisi appartient à une autre entreprise : incohérent, on le réinitialise
+    if (id && contactCompanyId && contactCompanyId !== id) {
+      setValue('contactId', '')
+      setContactLabel(undefined)
+      setContactCompanyId(undefined)
+    }
+  }
 
   return (
-    <Modal open={open} onClose={onClose} title={ticket ? 'Modifier le ticket' : 'Nouveau ticket'} size="lg">
       <form onSubmit={handleSubmit(v => mutation.mutate(v))} className="space-y-4">
         <div className="form-group">
           <label className="label">Titre *</label>
@@ -1443,109 +1374,24 @@ function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalPr
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="form-group">
             <label className="label">Contact</label>
-            <SearchSelect
+            <EntityPicker
+              entity="contact"
               value={contactId || null}
               valueLabel={contactLabel}
-              placeholder="Rechercher un contact…"
-              onSearch={q => searchContacts(q, companyId || undefined)}
-              onChange={(id, option) => {
-                setValue('contactId', id ?? '')
-                if (id && option) {
-                  const meta = option.meta as ContactOptionMeta | undefined
-                  setPickedContact({ id, label: option.label, companyId: meta?.companyId ?? null })
-                  // Auto-remplissage de l'entreprise depuis le contact choisi
-                  if (meta?.companyId) {
-                    setValue('companyId', meta.companyId)
-                    setPickedCompany({ id: meta.companyId, label: meta.companyName || '' })
-                  }
-                } else {
-                  setPickedContact(null)
-                }
-              }}
+              onChange={handleContactChange}
+              context={{ companyId: companyId || undefined }}
+              allowNone
             />
-            {canCreateContact && (
-              showNewContact ? (
-                <div className="mt-2 p-2.5 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      value={newContact.firstName}
-                      onChange={e => setNewContact(v => ({ ...v, firstName: e.target.value }))}
-                      placeholder="Prénom *"
-                      className="input"
-                      autoFocus
-                    />
-                    <input
-                      value={newContact.lastName}
-                      onChange={e => setNewContact(v => ({ ...v, lastName: e.target.value }))}
-                      placeholder="Nom"
-                      className="input"
-                    />
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <button type="button" className="btn-secondary text-xs px-2 py-1" onClick={() => setShowNewContact(false)}>Annuler</button>
-                    <button
-                      type="button"
-                      className="btn-primary text-xs px-2 py-1"
-                      disabled={!newContact.firstName.trim() || createContactMutation.isPending}
-                      onClick={() => createContactMutation.mutate()}
-                    >
-                      {createContactMutation.isPending ? <Spinner className="w-3.5 h-3.5" /> : 'Créer'}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button type="button" onClick={() => setShowNewContact(true)} className="mt-1 text-xs text-primary-600 hover:text-primary-700 inline-flex items-center gap-1">
-                  <PlusCircle className="w-3.5 h-3.5" /> Nouveau contact
-                </button>
-              )
-            )}
           </div>
           <div className="form-group">
             <label className="label">Entreprise</label>
-            <SearchSelect
+            <EntityPicker
+              entity="company"
               value={companyId || null}
               valueLabel={companyLabel}
-              placeholder="Rechercher une entreprise…"
-              onSearch={searchCompanies}
-              onChange={(id, option) => {
-                setValue('companyId', id ?? '')
-                if (id && option) setPickedCompany({ id, label: option.label })
-                else setPickedCompany(null)
-                // Le contact choisi appartient à une autre entreprise : incohérent, on le réinitialise
-                if (id && pickedContact?.companyId && pickedContact.companyId !== id) {
-                  setValue('contactId', '')
-                  setPickedContact(null)
-                }
-              }}
+              onChange={handleCompanyChange}
+              allowNone
             />
-            {canCreateCompany && (
-              showNewCompany ? (
-                <div className="mt-2 p-2.5 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
-                  <input
-                    value={newCompanyName}
-                    onChange={e => setNewCompanyName(e.target.value)}
-                    placeholder="Nom de l'entreprise *"
-                    className="input"
-                    autoFocus
-                  />
-                  <div className="flex justify-end gap-2">
-                    <button type="button" className="btn-secondary text-xs px-2 py-1" onClick={() => setShowNewCompany(false)}>Annuler</button>
-                    <button
-                      type="button"
-                      className="btn-primary text-xs px-2 py-1"
-                      disabled={!newCompanyName.trim() || createCompanyMutation.isPending}
-                      onClick={() => createCompanyMutation.mutate()}
-                    >
-                      {createCompanyMutation.isPending ? <Spinner className="w-3.5 h-3.5" /> : 'Créer'}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button type="button" onClick={() => setShowNewCompany(true)} className="mt-1 text-xs text-primary-600 hover:text-primary-700 inline-flex items-center gap-1">
-                  <PlusCircle className="w-3.5 h-3.5" /> Nouvelle entreprise
-                </button>
-              )
-            )}
           </div>
         </div>
 
@@ -1567,7 +1413,6 @@ function TicketFormModal({ open, onClose, ticket, onSuccess }: TicketFormModalPr
           </button>
         </div>
       </form>
-    </Modal>
   )
 }
 

@@ -20,11 +20,7 @@ import { Avatar } from '../../components/ui/Avatar'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
-import { ContactInlinePicker } from '../../components/ui/ContactInlinePicker'
-import {
-  makeContactPickerValue, validateContactPicker, resolveContactPicker,
-  type ContactPickerValue,
-} from '../../lib/contactPicker'
+import { EntityPicker } from '../../components/ui/EntityPicker'
 import type { Lead } from '../../types'
 
 const LEAD_STATUSES: Record<string, { label: string; color: string }> = {
@@ -254,24 +250,13 @@ export function LeadsPage() {
     staleTime: 30_000,
   })
 
-  const { data: contacts = [] } = useQuery<{ id: string; firstName: string; lastName: string; company?: { name: string } }[]>({
-    queryKey: ['contacts-light'],
-    queryFn: async () => {
-      const { data } = await api.get('/contacts', { params: { limit: 200 } })
-      return data.data ?? []
-    },
-    staleTime: 60_000,
-  })
-
   // ── Mutations ──────────────────────────────────────────────────────────────
 
   const createMutation = useMutation({
-    mutationFn: async ({ values, picker }: { values: LeadForm; picker: ContactPickerValue }) => {
-      // Crée entreprise + contact à la volée si le mode « nouveau contact » est utilisé
-      const { contactId } = await resolveContactPicker(picker)
-      if (!contactId) throw new Error('Contact requis')
+    mutationFn: (values: LeadForm) => {
+      if (!values.contactId) throw new Error('Contact requis')
       return api.post('/pipeline/leads', {
-        contactId,
+        contactId: values.contactId,
         title: values.title,
         description: values.description,
         source: values.source,
@@ -281,8 +266,6 @@ export function LeadsPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pipeline-leads'] })
-      qc.invalidateQueries({ queryKey: ['contacts-light'] })
-      qc.invalidateQueries({ queryKey: ['companies-light'] })
       setShowCreate(false)
       toast.success('Lead créé')
     },
@@ -530,8 +513,7 @@ export function LeadsPage() {
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Nouveau lead">
         <LeadFormFields
           form={createForm}
-          contacts={contacts}
-          onSubmit={(v, picker) => createMutation.mutate({ values: v, picker })}
+          onSubmit={v => createMutation.mutate(v)}
           isPending={createMutation.isPending}
           onCancel={() => setShowCreate(false)}
           submitLabel="Créer le lead"
@@ -542,13 +524,13 @@ export function LeadsPage() {
       <Modal open={!!editingLead} onClose={() => setEditingLead(null)} title="Modifier le lead">
         <LeadFormFields
           form={editForm}
-          contacts={contacts}
           onSubmit={v => editingLead && editMutation.mutate({ id: editingLead.id, values: v })}
           isPending={editMutation.isPending}
           onCancel={() => setEditingLead(null)}
           submitLabel="Enregistrer"
           showStatus
           editMode
+          contactLabel={editingLead ? `${editingLead.contact.firstName} ${editingLead.contact.lastName}` : undefined}
         />
       </Modal>
 
@@ -575,63 +557,60 @@ export function LeadsPage() {
 
 function LeadFormFields({
   form,
-  contacts,
   onSubmit,
   isPending,
   onCancel,
   submitLabel,
   showStatus = false,
   editMode = false,
+  contactLabel,
 }: {
   form: ReturnType<typeof useForm<LeadForm>>
-  contacts: { id: string; firstName: string; lastName: string; company?: { name: string } }[]
-  onSubmit: (v: LeadForm, picker: ContactPickerValue) => void
+  onSubmit: (v: LeadForm) => void
   isPending: boolean
   onCancel: () => void
   submitLabel: string
   showStatus?: boolean
   editMode?: boolean
+  /** Libellé du contact courant en mode édition, pour l'afficher sans recharger */
+  contactLabel?: string
 }) {
-  // État local : la modale démonte le formulaire à la fermeture, le picker se réinitialise seul
-  const [picker, setPicker] = useState<ContactPickerValue>(() => makeContactPickerValue())
-  const [pickerError, setPickerError] = useState<string | null>(null)
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = form
+  const [contactError, setContactError] = useState<string | null>(null)
+  // État local pour le libellé affiché : initialisé depuis le lead en édition,
+  // puis tenu à jour à chaque sélection (le composant est remonté à chaque
+  // ouverture de la modale, donc pas de désynchronisation entre deux leads).
+  const [localContactLabel, setLocalContactLabel] = useState(contactLabel)
+  const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = form
   const refs = useReferences()
+  const contactId = watch('contactId')
 
   const handleFormSubmit = (v: LeadForm) => {
-    if (!editMode) {
-      const err = validateContactPicker(picker, true)
-      setPickerError(err)
-      if (err) return
+    if (!editMode && !v.contactId) {
+      setContactError('Sélectionnez un contact')
+      return
     }
-    onSubmit(v, picker)
+    onSubmit(v)
   }
 
   return (
     <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
 
-      {/* Contact — création inline possible, masqué en mode édition */}
-      {!editMode && (
-        <div className="form-group">
-          <label className="label">Contact *</label>
-          <ContactInlinePicker value={picker} onChange={v => { setPicker(v); setPickerError(null) }} error={pickerError} />
-        </div>
-      )}
-
-      {/* En mode édition, contact simple (non modifiable) */}
-      {editMode && (
-        <div className="form-group">
-          <label className="label">Contact</label>
-          <select {...register('contactId')} className="input">
-            <option value="">Choisir un contact</option>
-            {contacts.map(c => (
-              <option key={c.id} value={c.id}>
-                {c.firstName} {c.lastName}{c.company ? ` — ${c.company.name}` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      {/* Contact — existant ou créé à la volée */}
+      <div className="form-group">
+        <label className="label">Contact{!editMode && ' *'}</label>
+        <EntityPicker
+          entity="contact"
+          value={contactId ?? null}
+          valueLabel={localContactLabel}
+          onChange={(id, option) => {
+            setValue('contactId', id ?? undefined, { shouldValidate: true })
+            setLocalContactLabel(option?.label)
+            setContactError(null)
+          }}
+          allowNone={editMode}
+          error={contactError ?? undefined}
+        />
+      </div>
 
       <div className="form-group">
         <label className="label">Titre *</label>

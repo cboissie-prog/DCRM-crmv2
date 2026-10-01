@@ -4,7 +4,6 @@ import { isAxiosError } from 'axios'
 import { useNavigate, useParams } from 'react-router-dom'
 import api from '../../lib/api'
 import { useUsersList } from '../../hooks/useApi'
-import { usePermissions } from '../../hooks/usePermission'
 import { useReferences } from '../../hooks/useReferences'
 import {
   formatDate, formatDateTime, formatRelative, formatDuration,
@@ -20,7 +19,7 @@ import {
   Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed,
   Plus, Search, X, Edit2, Trash2, ArrowLeft, RefreshCw,
   Upload, FileText, Ticket, TrendingUp,
-  Download, Clock, Building2, User, ChevronDown, PlusCircle,
+  Download, Clock, Building2, User, ChevronDown,
 } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import { useForm, useWatch, type Resolver } from 'react-hook-form'
@@ -29,11 +28,8 @@ import { z } from 'zod'
 import { optionalNumber } from '../../lib/formFields'
 import { useAuthStore } from '../../store/authStore'
 import { CanDo } from '../../components/CanDo'
-import { ContactInlinePicker } from '../../components/ui/ContactInlinePicker'
-import {
-  makeContactPickerValue, validateContactPicker, resolveContactPicker,
-  splitFullName, toNationalPhone, type ContactPickerValue,
-} from '../../lib/contactPicker'
+import { EntityPicker } from '../../components/ui/EntityPicker'
+import type { SearchSelectOption } from '../../components/ui/SearchSelect'
 import type { Call, PaginatedResponse } from '../../types'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -710,8 +706,6 @@ export function CallDetailPage() {
         onClose={() => setShowTicket(false)}
         onSuccess={() => {
           qc.invalidateQueries({ queryKey: ['call', id] })
-          qc.invalidateQueries({ queryKey: ['contacts-light'] })
-          qc.invalidateQueries({ queryKey: ['companies-light'] })
           setShowTicket(false); toast.success('Ticket créé')
         }}
       />
@@ -721,8 +715,6 @@ export function CallDetailPage() {
         onClose={() => setShowLead(false)}
         onSuccess={() => {
           qc.invalidateQueries({ queryKey: ['call', id] })
-          qc.invalidateQueries({ queryKey: ['contacts-light'] })
-          qc.invalidateQueries({ queryKey: ['companies-light'] })
           setShowLead(false); toast.success('Lead créé')
         }}
       />
@@ -907,12 +899,18 @@ interface CallFormModalProps {
 }
 
 function CallFormModal({ open, onClose, call, onSuccess }: CallFormModalProps) {
-  const qc = useQueryClient()
-  const perms = usePermissions(['contacts:create', 'companies:create'])
+  // Le formulaire est un enfant de Modal : démonté à la fermeture, il repart
+  // toujours de valeurs fraîches (pas d'effet de reset nécessaire).
+  return (
+    <Modal open={open} onClose={onClose} title={call ? 'Modifier l\'appel' : 'Nouvel appel'} size="lg">
+      <CallForm call={call} onClose={onClose} onSuccess={onSuccess} />
+    </Modal>
+  )
+}
+
+function CallForm({ onClose, call, onSuccess }: { onClose: () => void; call?: Call; onSuccess: () => void }) {
   const refs = useReferences()
-  const canCreateContact = perms['contacts:create']
-  const canCreateCompany = perms['companies:create']
-  const { register, handleSubmit, reset, control, setValue, formState: { errors, isSubmitting } } = useForm<CallFormData>({
+  const { register, handleSubmit, control, setValue, formState: { errors, isSubmitting } } = useForm<CallFormData>({
     resolver: zodResolver(callFormSchema) as Resolver<CallFormData>,
     defaultValues: call ? {
       callerNumber:   call.callerNumber,
@@ -936,113 +934,33 @@ function CallFormModal({ open, onClose, call, onSuccess }: CallFormModalProps) {
     },
   })
 
-  useEffect(() => {
-    if (open) {
-      reset(call ? {
-        callerNumber:   call.callerNumber,
-        callerName:     call.callerName ?? '',
-        receiverNumber: call.receiverNumber ?? '',
-        direction:      call.direction,
-        status:         call.status,
-        category:       call.category ?? '',
-        priority:       call.priority,
-        duration:       call.duration,
-        startedAt:      call.startedAt ? call.startedAt.slice(0, 16) : '',
-        notes:          call.notes ?? '',
-        contactId:      call.contactId ?? '',
-        companyId:      call.companyId ?? '',
-        assignedToId:   call.assignedToId ?? '',
-      } : {
-        direction: 'INBOUND',
-        status:    'ANSWERED',
-        priority:  'NORMAL',
-        startedAt: new Date().toISOString().slice(0, 16),
-      })
-    }
-  }, [open, call, reset])
+  // Libellés affichés par les EntityPicker contact/entreprise — calculés une
+  // seule fois au montage (le formulaire est démonté à chaque fermeture).
+  const [contactLabel, setContactLabel] = useState<string | undefined>(
+    call?.contact ? `${call.contact.firstName} ${call.contact.lastName}` : undefined,
+  )
+  const [companyLabel, setCompanyLabel] = useState<string | undefined>(call?.company?.name)
 
-  const { data: contactsData } = useQuery({
-    queryKey: ['contacts-select'],
-    queryFn: async () => {
-      const { data } = await api.get('/contacts', { params: { limit: 200 } })
-      return data.data as { id: string; firstName: string; lastName: string; companyId?: string | null; company?: { id: string; name: string } | null }[]
-    },
-    enabled: open,
-    staleTime: 60_000,
-  })
-  const { data: companiesData } = useQuery({
-    queryKey: ['companies-select'],
-    queryFn: async () => { const { data } = await api.get('/companies', { params: { limit: 200 } }); return data.data as { id: string; name: string }[] },
-    enabled: open,
-    staleTime: 60_000,
-  })
-  const { data: usersData } = useUsersList({ enabled: open })
+  const { data: usersData } = useUsersList({})
 
   const contactId = useWatch({ control, name: 'contactId' })
   const companyId = useWatch({ control, name: 'companyId' })
 
-  // Filtre souple : contacts de l'entreprise sélectionnée + contacts sans société (non bloquant)
-  const filteredContacts = companyId
-    ? (contactsData ?? []).filter(c => !c.companyId || c.companyId === companyId)
-    : (contactsData ?? [])
-
-  // Auto-remplissage : sélectionner un contact ayant une entreprise renseigne le champ entreprise
-  useEffect(() => {
-    if (!contactId) return
-    const c = contactsData?.find(x => x.id === contactId)
-    if (c?.companyId && c.companyId !== companyId) setValue('companyId', c.companyId)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contactId, contactsData])
-
-  // Incohérence : l'entreprise change pour une autre que celle du contact sélectionné → on le réinitialise
-  const prevCompanyIdRef = useRef(companyId)
-  useEffect(() => {
-    if (prevCompanyIdRef.current !== companyId) {
-      prevCompanyIdRef.current = companyId
-      if (companyId && contactId) {
-        const c = contactsData?.find(x => x.id === contactId)
-        if (c?.companyId && c.companyId !== companyId) setValue('contactId', '')
-      }
+  // Choisir un contact ayant une entreprise renseigne le champ entreprise
+  const handleContactChange = (id: string | null, option?: SearchSelectOption) => {
+    setValue('contactId', id ?? undefined, { shouldValidate: true })
+    setContactLabel(option?.label)
+    const metaCompany = (option?.meta as { company?: { id: string; name: string } | null } | undefined)?.company
+    if (metaCompany && metaCompany.id !== companyId) {
+      setValue('companyId', metaCompany.id)
+      setCompanyLabel(metaCompany.name)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId])
+  }
 
-  // Création à la volée : petits formulaires repliables sous les listes contact/entreprise
-  const [showNewContact, setShowNewContact] = useState(false)
-  const [newContact, setNewContact] = useState({ firstName: '', lastName: '' })
-  const [showNewCompany, setShowNewCompany] = useState(false)
-  const [newCompanyName, setNewCompanyName] = useState('')
-
-  const createContactMutation = useMutation({
-    mutationFn: () => api.post('/contacts', {
-      firstName: newContact.firstName.trim(),
-      lastName: newContact.lastName.trim() || '—',
-      companyId: companyId || undefined,
-    }),
-    onSuccess: ({ data }) => {
-      const c = data.data as { id: string; company?: { id: string; name: string } | null }
-      qc.invalidateQueries({ queryKey: ['contacts-select'] })
-      setValue('contactId', c.id)
-      if (c.company && !companyId) setValue('companyId', c.company.id)
-      setShowNewContact(false)
-      setNewContact({ firstName: '', lastName: '' })
-      toast.success('Contact créé')
-    },
-    onError: () => toast.error('Erreur lors de la création du contact'),
-  })
-
-  const createCompanyMutation = useMutation({
-    mutationFn: () => api.post('/companies', { name: newCompanyName.trim() }),
-    onSuccess: ({ data }) => {
-      const c = data.data as { id: string; name: string }
-      qc.invalidateQueries({ queryKey: ['companies-select'] })
-      setValue('companyId', c.id)
-      setShowNewCompany(false)
-      setNewCompanyName('')
-      toast.success('Entreprise créée')
-    },
-    onError: () => toast.error('Erreur lors de la création de l\'entreprise'),
-  })
+  const handleCompanyChange = (id: string | null, option?: SearchSelectOption) => {
+    setValue('companyId', id ?? undefined)
+    setCompanyLabel(option?.label)
+  }
 
   const mutation = useMutation({
     mutationFn: (values: CallFormData) => {
@@ -1061,7 +979,6 @@ function CallFormModal({ open, onClose, call, onSuccess }: CallFormModalProps) {
   })
 
   return (
-    <Modal open={open} onClose={onClose} title={call ? 'Modifier l\'appel' : 'Nouvel appel'} size="lg">
       <form onSubmit={handleSubmit(v => mutation.mutate(v))} className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="form-group">
@@ -1120,88 +1037,24 @@ function CallFormModal({ open, onClose, call, onSuccess }: CallFormModalProps) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="form-group">
             <label className="label">Contact</label>
-            <select {...register('contactId')} className="input">
-              <option value="">— Aucun —</option>
-              {filteredContacts.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.firstName} {c.lastName}{!companyId && c.company ? ` — ${c.company.name}` : ''}
-                </option>
-              ))}
-            </select>
-            {companyId && filteredContacts.length === 0 && (
-              <p className="text-xs text-slate-400 mt-1">Aucun contact lié à cette entreprise</p>
-            )}
-            {canCreateContact && (
-              showNewContact ? (
-                <div className="mt-2 p-2.5 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      value={newContact.firstName}
-                      onChange={e => setNewContact(v => ({ ...v, firstName: e.target.value }))}
-                      placeholder="Prénom *"
-                      className="input"
-                      autoFocus
-                    />
-                    <input
-                      value={newContact.lastName}
-                      onChange={e => setNewContact(v => ({ ...v, lastName: e.target.value }))}
-                      placeholder="Nom"
-                      className="input"
-                    />
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <button type="button" className="btn-secondary text-xs px-2 py-1" onClick={() => setShowNewContact(false)}>Annuler</button>
-                    <button
-                      type="button"
-                      className="btn-primary text-xs px-2 py-1"
-                      disabled={!newContact.firstName.trim() || createContactMutation.isPending}
-                      onClick={() => createContactMutation.mutate()}
-                    >
-                      {createContactMutation.isPending ? <Spinner className="w-3.5 h-3.5" /> : 'Créer'}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button type="button" onClick={() => setShowNewContact(true)} className="mt-1 text-xs text-primary-600 hover:text-primary-700 inline-flex items-center gap-1">
-                  <PlusCircle className="w-3.5 h-3.5" /> Nouveau contact
-                </button>
-              )
-            )}
+            <EntityPicker
+              entity="contact"
+              value={contactId ?? null}
+              valueLabel={contactLabel}
+              onChange={handleContactChange}
+              context={{ companyId }}
+              allowNone
+            />
           </div>
           <div className="form-group">
             <label className="label">Entreprise</label>
-            <select {...register('companyId')} className="input">
-              <option value="">— Aucune —</option>
-              {companiesData?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            {canCreateCompany && (
-              showNewCompany ? (
-                <div className="mt-2 p-2.5 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
-                  <input
-                    value={newCompanyName}
-                    onChange={e => setNewCompanyName(e.target.value)}
-                    placeholder="Nom de l'entreprise *"
-                    className="input"
-                    autoFocus
-                  />
-                  <div className="flex justify-end gap-2">
-                    <button type="button" className="btn-secondary text-xs px-2 py-1" onClick={() => setShowNewCompany(false)}>Annuler</button>
-                    <button
-                      type="button"
-                      className="btn-primary text-xs px-2 py-1"
-                      disabled={!newCompanyName.trim() || createCompanyMutation.isPending}
-                      onClick={() => createCompanyMutation.mutate()}
-                    >
-                      {createCompanyMutation.isPending ? <Spinner className="w-3.5 h-3.5" /> : 'Créer'}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button type="button" onClick={() => setShowNewCompany(true)} className="mt-1 text-xs text-primary-600 hover:text-primary-700 inline-flex items-center gap-1">
-                  <PlusCircle className="w-3.5 h-3.5" /> Nouvelle entreprise
-                </button>
-              )
-            )}
+            <EntityPicker
+              entity="company"
+              value={companyId ?? null}
+              valueLabel={companyLabel}
+              onChange={handleCompanyChange}
+              allowNone
+            />
           </div>
         </div>
         <div className="form-group">
@@ -1223,7 +1076,6 @@ function CallFormModal({ open, onClose, call, onSuccess }: CallFormModalProps) {
           </button>
         </div>
       </form>
-    </Modal>
   )
 }
 
@@ -1234,19 +1086,11 @@ const ticketFromCallSchema = z.object({
   description:  z.string().min(1, 'Description requise'),
   category:     z.string().min(1),
   priority:     z.string().min(1),
+  contactId:    z.string().optional(),
   companyId:    z.string().optional(),
   assignedToId: z.string().optional(),
 })
 type TicketFromCallData = z.infer<typeof ticketFromCallSchema>
-
-/** Pré-remplissage du bloc « nouveau contact » depuis les infos de l'appel */
-function pickerDefaultsFromCall(call: Call): ContactPickerValue {
-  return makeContactPickerValue({
-    contactId: call.contactId ?? '',
-    ...splitFullName(call.callerName),
-    phone: toNationalPhone(call.direction === 'OUTBOUND' ? call.receiverNumber : call.callerNumber),
-  })
-}
 
 function TicketFromCallModal({ open, call, onClose, onSuccess }: { open: boolean; call: Call; onClose: () => void; onSuccess: () => void }) {
   // Le formulaire est un enfant de Modal : démonté à la fermeture, il repart
@@ -1276,48 +1120,45 @@ function TicketFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose:
   const mappedCategory = call.category === 'INCIDENT' ? 'HARDWARE_FAILURE' : 'OTHER'
   const defaultCategory = refs.options('ticket_category').some(o => o.value === mappedCategory) ? mappedCategory : 'OTHER'
 
-  const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm<TicketFromCallData>({
+  const { register, handleSubmit, control, setValue, formState: { errors, isSubmitting } } = useForm<TicketFromCallData>({
     resolver: zodResolver(ticketFromCallSchema) as Resolver<TicketFromCallData>,
     defaultValues: {
       title: defaultTitle, description: defaultDesc,
       category: defaultCategory,
       priority: call.priority === 'URGENT' ? 'CRITICAL' : call.priority === 'HIGH' ? 'HIGH' : 'NORMAL',
+      contactId: call.contactId ?? '',
       companyId: call.companyId ?? '',
     },
   })
-  const [picker, setPicker] = useState<ContactPickerValue>(() => pickerDefaultsFromCall(call))
-  const [pickerError, setPickerError] = useState<string | null>(null)
+  // Le formulaire est démonté à la fermeture de la modale (cf. TicketFromCallModal) :
+  // pas besoin de resynchroniser ces libellés, ils ne sont calculés qu'au montage.
+  const [contactLabel, setContactLabel] = useState(call.contact ? `${call.contact.firstName} ${call.contact.lastName}` : undefined)
+  const [companyLabel, setCompanyLabel] = useState(call.company?.name)
 
-  const { data: companiesData } = useQuery({ queryKey: ['companies-light'], queryFn: async () => { const { data } = await api.get('/companies', { params: { limit: 200 } }); return data.data as { id: string; name: string }[] }, staleTime: 60_000 })
   const { data: usersData } = useUsersList({ enabled: canAssign })
 
-  // Partage le cache avec ContactInlinePicker (même queryKey) pour connaître l'entreprise du contact choisi
-  const { data: contactsLight } = useQuery<{ id: string; firstName: string; lastName: string; company?: { id: string; name: string } | null }[]>({
-    queryKey: ['contacts-light'],
-    queryFn: async () => { const { data } = await api.get('/contacts', { params: { limit: 200 } }); return data.data ?? [] },
-    enabled: picker.mode === 'existing',
-    staleTime: 60_000,
-  })
+  const contactId = useWatch({ control, name: 'contactId' })
+  const companyId = useWatch({ control, name: 'companyId' })
 
-  // Contact existant avec une entreprise → synchronise le champ entreprise du ticket
-  useEffect(() => {
-    if (picker.mode !== 'existing' || !picker.contactId) return
-    const c = contactsLight?.find(x => x.id === picker.contactId)
-    if (c?.company) setValue('companyId', c.company.id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [picker.mode, picker.contactId, contactsLight])
+  // Choisir un contact ayant une entreprise synchronise le champ entreprise du ticket
+  const handleContactChange = (id: string | null, option?: SearchSelectOption) => {
+    setValue('contactId', id ?? undefined)
+    setContactLabel(option?.label)
+    const metaCompany = (option?.meta as { company?: { id: string; name: string } | null } | undefined)?.company
+    if (metaCompany) {
+      setValue('companyId', metaCompany.id)
+      setCompanyLabel(metaCompany.name)
+    }
+  }
 
   const mutation = useMutation({
     mutationFn: async (values: TicketFromCallData) => {
-      // Crée entreprise + contact à la volée si le mode « nouveau contact » est utilisé
-      const resolved = await resolveContactPicker(picker)
-      const companyId = picker.mode === 'new' ? resolved.companyId : (values.companyId || undefined)
       const { data } = await api.post('/tickets', {
         title: values.title, description: values.description,
         category: values.category, priority: values.priority,
         callId: call.id,
-        contactId: resolved.contactId,
-        companyId,
+        contactId: values.contactId || undefined,
+        companyId: values.companyId || undefined,
         assignedToId: values.assignedToId || undefined,
       })
       return data
@@ -1325,12 +1166,7 @@ function TicketFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose:
     onSuccess, onError: () => toast.error('Erreur lors de la création du ticket'),
   })
 
-  const submit = (values: TicketFromCallData) => {
-    const err = validateContactPicker(picker, false)
-    setPickerError(err)
-    if (err) return
-    mutation.mutate(values)
-  }
+  const submit = (values: TicketFromCallData) => mutation.mutate(values)
 
   return (
     <form onSubmit={handleSubmit(submit)} className="space-y-4">
@@ -1358,19 +1194,29 @@ function TicketFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose:
             </select>
           </div>
         </div>
-        <div className="form-group">
-          <label className="label">Contact</label>
-          <ContactInlinePicker value={picker} onChange={v => { setPicker(v); setPickerError(null) }} allowNone error={pickerError} />
-        </div>
-        {picker.mode === 'existing' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="form-group">
+            <label className="label">Contact</label>
+            <EntityPicker
+              entity="contact"
+              value={contactId ?? null}
+              valueLabel={contactLabel}
+              onChange={handleContactChange}
+              context={{ companyId }}
+              allowNone
+            />
+          </div>
           <div className="form-group">
             <label className="label">Entreprise</label>
-            <select {...register('companyId')} className="input">
-              <option value="">— Aucune —</option>
-              {companiesData?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <EntityPicker
+              entity="company"
+              value={companyId ?? null}
+              valueLabel={companyLabel}
+              onChange={(id, option) => { setValue('companyId', id ?? undefined); setCompanyLabel(option?.label) }}
+              allowNone
+            />
           </div>
-        )}
+        </div>
         {canAssign && (
           <div className="form-group">
             <label className="label">Technicien assigné</label>
@@ -1397,6 +1243,7 @@ const leadFromCallSchema = z.object({
   title:       z.string().min(1, 'Titre requis'),
   description: z.string().optional(),
   source:      z.string(),
+  contactId:   z.string().optional(),
 })
 type LeadFromCallData = z.infer<typeof leadFromCallSchema>
 
@@ -1414,28 +1261,31 @@ function LeadFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose: (
   const refs = useReferences()
   // Préselection selon le sens de l'appel : entrant → prospect qui a appelé, sortant → prospection à froid
   const defaultSource = call.direction === 'OUTBOUND' ? 'COLD_CALL' : 'PHONE_INBOUND'
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LeadFromCallData>({
+  const { register, handleSubmit, control, setValue, formState: { errors, isSubmitting } } = useForm<LeadFromCallData>({
     resolver: zodResolver(leadFromCallSchema) as Resolver<LeadFromCallData>,
-    defaultValues: { title: `Lead — ${call.callerName ?? call.callerNumber} — ${formatDate(call.startedAt)}`, description: call.notes ?? '', source: defaultSource },
+    defaultValues: {
+      title: `Lead — ${call.callerName ?? call.callerNumber} — ${formatDate(call.startedAt)}`,
+      description: call.notes ?? '',
+      source: defaultSource,
+      contactId: call.contactId ?? '',
+    },
   })
-  const [picker, setPicker] = useState<ContactPickerValue>(() => pickerDefaultsFromCall(call))
-  const [pickerError, setPickerError] = useState<string | null>(null)
+  // Le formulaire est démonté à la fermeture de la modale : pas de resynchronisation nécessaire.
+  const [contactLabel, setContactLabel] = useState(call.contact ? `${call.contact.firstName} ${call.contact.lastName}` : undefined)
+  const [contactError, setContactError] = useState<string | null>(null)
+  const contactId = useWatch({ control, name: 'contactId' })
 
   const mutation = useMutation({
     mutationFn: async (values: LeadFromCallData) => {
-      // Crée entreprise + contact à la volée si le mode « nouveau contact » est utilisé
-      const { contactId } = await resolveContactPicker(picker)
-      if (!contactId) throw new Error('Contact requis')
-      const { data } = await api.post('/pipeline/leads', { title: values.title, description: values.description || undefined, source: values.source, contactId })
+      if (!values.contactId) throw new Error('Contact requis')
+      const { data } = await api.post('/pipeline/leads', { title: values.title, description: values.description || undefined, source: values.source, contactId: values.contactId })
       return data
     },
     onSuccess, onError: () => toast.error('Erreur lors de la création du lead'),
   })
 
   const submit = (values: LeadFromCallData) => {
-    const err = validateContactPicker(picker, true)
-    setPickerError(err)
-    if (err) return
+    if (!values.contactId) { setContactError('Sélectionnez un contact'); return }
     mutation.mutate(values)
   }
 
@@ -1448,9 +1298,15 @@ function LeadFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose: (
         </div>
         <div className="form-group">
           <label className="label">Contact * <span className="text-xs text-slate-400">(requis pour créer un lead)</span></label>
-          <ContactInlinePicker value={picker} onChange={v => { setPicker(v); setPickerError(null) }} error={pickerError} />
-          {!call.contactId && picker.mode === 'existing' && (
-            <p className="text-xs text-amber-600 mt-1">Cet appel n'a pas de contact identifié. Sélectionnez-en un ou basculez sur « Nouveau contact ».</p>
+          <EntityPicker
+            entity="contact"
+            value={contactId ?? null}
+            valueLabel={contactLabel}
+            onChange={(id, option) => { setValue('contactId', id ?? undefined); setContactLabel(option?.label); setContactError(null) }}
+            error={contactError ?? undefined}
+          />
+          {!call.contactId && (
+            <p className="text-xs text-amber-600 mt-1">Cet appel n'a pas de contact identifié. Sélectionnez-en un ou créez-le.</p>
           )}
         </div>
         <div className="form-group">

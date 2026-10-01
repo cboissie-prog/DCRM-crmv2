@@ -18,7 +18,7 @@ import { badgeClass } from '../../lib/referenceUi'
 import { Plus, Search, Mail, Phone, Building2, Pencil, Trash2, Download, Upload, X, Users } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import { ImportCsvModal } from '../../components/ui/ImportCsvModal'
-import { CompanySearchInput } from '../../components/ui/CompanySearchInput'
+import { EntityPicker } from '../../components/ui/EntityPicker'
 import { downloadCsv } from '../../lib/exportCsv'
 import type { Contact, PaginatedResponse } from '../../types'
 
@@ -33,14 +33,6 @@ const contactSchema = z.object({
   status: z.string().optional(),
   notes: z.string().optional(),
   companyId: z.string().optional(),
-  newCompanyName: z.string().optional(),
-  newCompanySiret: z.string().optional(),
-  newCompanyVatNumber: z.string().optional(),
-  newCompanyWebsite: z.string().optional(),
-  newCompanySector: z.string().optional(),
-  newCompanyCity: z.string().optional(),
-  newCompanyPostalCode: z.string().optional(),
-  newCompanyBillingAddress: z.string().optional(),
 })
 type ContactForm = z.infer<typeof contactSchema>
 
@@ -59,12 +51,6 @@ export function ContactsPage() {
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
   const [deletingContact, setDeletingContact] = useState<Contact | null>(null)
 
-  const { data: companiesData = [] } = useQuery<{ id: string; name: string }[]>({
-    queryKey: ['companies-light'],
-    queryFn: async () => { const { data } = await api.get('/companies', { params: { limit: 200 } }); return data.data ?? [] },
-    staleTime: 60_000,
-  })
-
   const { data, isLoading } = useQuery<PaginatedResponse<Contact>>({
     queryKey: ['contacts', { search, statusFilter, page }],
     queryFn: async () => {
@@ -76,45 +62,15 @@ export function ContactsPage() {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
-  const createCompanyIfNeeded = async (values: ContactForm): Promise<string | undefined> => {
-    if (values.companyId) return values.companyId
-    if (!values.newCompanyName?.trim()) return undefined
-    const { data } = await api.post('/companies', {
-      name: values.newCompanyName.trim(),
-      siret: values.newCompanySiret || undefined,
-      vatNumber: values.newCompanyVatNumber || undefined,
-      website: values.newCompanyWebsite || undefined,
-      sector: values.newCompanySector || undefined,
-      city: values.newCompanyCity || undefined,
-      postalCode: values.newCompanyPostalCode || undefined,
-      billingAddress: values.newCompanyBillingAddress || undefined,
-    })
-    qc.invalidateQueries({ queryKey: ['companies-light'] })
-    return data.data?.id
-  }
-
   const createMutation = useMutation({
-    mutationFn: async (values: ContactForm) => {
-      const companyId = await createCompanyIfNeeded(values)
-      /* eslint-disable @typescript-eslint/no-unused-vars */
-      const { newCompanyName, newCompanySiret, newCompanyVatNumber, newCompanyWebsite,
-              newCompanySector, newCompanyCity, newCompanyPostalCode, newCompanyBillingAddress, ...rest } = values
-      /* eslint-enable @typescript-eslint/no-unused-vars */
-      return api.post('/contacts', { ...rest, companyId: companyId || undefined })
-    },
+    mutationFn: (values: ContactForm) => api.post('/contacts', { ...values, companyId: values.companyId || undefined }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['contacts'] }); setShowCreate(false); toast.success('Contact créé') },
     onError: () => toast.error('Erreur lors de la création'),
   })
 
   const editMutation = useMutation({
-    mutationFn: async ({ id, values }: { id: string; values: ContactForm }) => {
-      const companyId = await createCompanyIfNeeded(values)
-      /* eslint-disable @typescript-eslint/no-unused-vars */
-      const { newCompanyName, newCompanySiret, newCompanyVatNumber, newCompanyWebsite,
-              newCompanySector, newCompanyCity, newCompanyPostalCode, newCompanyBillingAddress, ...rest } = values
-      /* eslint-enable @typescript-eslint/no-unused-vars */
-      return api.put(`/contacts/${id}`, { ...rest, companyId: companyId || undefined })
-    },
+    mutationFn: ({ id, values }: { id: string; values: ContactForm }) =>
+      api.put(`/contacts/${id}`, { ...values, companyId: values.companyId || undefined }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['contacts'] })
       qc.invalidateQueries({ queryKey: ['contact', editingContact?.id] })
@@ -312,7 +268,6 @@ export function ContactsPage() {
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Nouveau contact">
         <ContactFormFields
           form={createForm}
-          companies={companiesData}
           onSubmit={v => createMutation.mutate(v)}
           isPending={createMutation.isPending}
           onCancel={() => setShowCreate(false)}
@@ -324,7 +279,7 @@ export function ContactsPage() {
       <Modal open={!!editingContact} onClose={() => setEditingContact(null)} title="Modifier le contact">
         <ContactFormFields
           form={editForm}
-          companies={companiesData}
+          companyLabel={editingContact?.company?.name}
           onSubmit={v => editingContact && editMutation.mutate({ id: editingContact.id, values: v })}
           isPending={editMutation.isPending}
           onCancel={() => setEditingContact(null)}
@@ -368,22 +323,25 @@ export function ContactsPage() {
 
 function ContactFormFields({
   form,
-  companies,
+  companyLabel,
   onSubmit,
   isPending,
   onCancel,
   submitLabel,
 }: {
   form: ReturnType<typeof useForm<ContactForm>>
-  companies: { id: string; name: string }[]
+  /** Libellé de l'entreprise courante en mode édition, pour l'afficher sans recharger */
+  companyLabel?: string
   onSubmit: (v: ContactForm) => void
   isPending: boolean
   onCancel: () => void
   submitLabel: string
 }) {
-  const [newCompanyMode, setNewCompanyMode] = useState(false)
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = form
+  const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = form
   const refs = useReferences()
+  // État local : la modale démonte le formulaire à la fermeture (cf. LeadsPage).
+  const [localCompanyLabel, setLocalCompanyLabel] = useState(companyLabel)
+  const companyId = watch('companyId')
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -403,65 +361,13 @@ function ContactFormFields({
       {/* Entreprise */}
       <div className="form-group">
         <label className="label">Entreprise</label>
-        {newCompanyMode ? (
-          <div className="space-y-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Nouvelle entreprise</span>
-              <button
-                type="button"
-                onClick={() => { setNewCompanyMode(false); form.setValue('newCompanyName', '') }}
-                className="text-xs text-slate-400 hover:text-slate-700"
-              >
-                ✕ Annuler
-              </button>
-            </div>
-            <CompanySearchInput onSelect={p => {
-              form.setValue('newCompanyName', p.name)
-              form.setValue('newCompanySiret', p.siret)
-              form.setValue('newCompanyVatNumber', p.vatNumber)
-              form.setValue('newCompanySector', p.activity)
-              form.setValue('newCompanyCity', p.city)
-              form.setValue('newCompanyPostalCode', p.postalCode)
-              form.setValue('newCompanyBillingAddress', p.billingAddress)
-            }} />
-            <input
-              {...register('newCompanyName')}
-              placeholder="Nom de l'entreprise *"
-              className="input"
-              autoFocus
-            />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <input {...register('newCompanySiret')} placeholder="SIRET" className="input" />
-              <input {...register('newCompanyVatNumber')} placeholder="N° TVA" className="input" />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <input {...register('newCompanyWebsite')} placeholder="Site web" className="input" />
-              <select {...register('newCompanySector')} className="input">
-                <option value="">— Secteur —</option>
-                {refs.options('sector').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <input {...register('newCompanyCity')} placeholder="Ville" className="input" />
-              <input {...register('newCompanyPostalCode')} placeholder="Code postal" className="input" />
-            </div>
-            <input {...register('newCompanyBillingAddress')} placeholder="Adresse de facturation" className="input" />
-          </div>
-        ) : (
-          <div className="flex gap-2">
-            <select {...register('companyId')} className="input flex-1">
-              <option value="">-- Aucune --</option>
-              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <button
-              type="button"
-              onClick={() => { setNewCompanyMode(true); form.setValue('companyId', '') }}
-              className="btn-secondary text-xs px-2 whitespace-nowrap"
-            >
-              + Nouvelle
-            </button>
-          </div>
-        )}
+        <EntityPicker
+          entity="company"
+          value={companyId || null}
+          valueLabel={localCompanyLabel}
+          onChange={(id, option) => { setValue('companyId', id ?? ''); setLocalCompanyLabel(option?.label) }}
+          allowNone
+        />
       </div>
 
       <div className="form-group">
