@@ -29,6 +29,7 @@ import { optionalNumber } from '../../lib/formFields'
 import { useAuthStore } from '../../store/authStore'
 import { CanDo } from '../../components/CanDo'
 import { EntityPicker } from '../../components/ui/EntityPicker'
+import { splitFullName, toNationalPhone } from '../../lib/contactName'
 import type { SearchSelectOption } from '../../components/ui/SearchSelect'
 import type { Call, PaginatedResponse } from '../../types'
 
@@ -898,6 +899,14 @@ interface CallFormModalProps {
   onSuccess: () => void
 }
 
+/** Pré-remplissage « Nouveau contact » depuis l'appel : nom de l'appelant + numéro du correspondant au format national. */
+function callerContactDefaults(call: Call) {
+  return {
+    ...splitFullName(call.callerName),
+    phone: toNationalPhone(call.direction === 'OUTBOUND' ? call.receiverNumber : call.callerNumber),
+  }
+}
+
 function CallFormModal({ open, onClose, call, onSuccess }: CallFormModalProps) {
   // Le formulaire est un enfant de Modal : démonté à la fermeture, il repart
   // toujours de valeurs fraîches (pas d'effet de reset nécessaire).
@@ -940,6 +949,10 @@ function CallForm({ onClose, call, onSuccess }: { onClose: () => void; call?: Ca
     call?.contact ? `${call.contact.firstName} ${call.contact.lastName}` : undefined,
   )
   const [companyLabel, setCompanyLabel] = useState<string | undefined>(call?.company?.name)
+  // Entreprise du contact sélectionné : changer d'entreprise pour une autre réinitialise ce contact
+  const [contactCompanyId, setContactCompanyId] = useState<string | null>(
+    (call?.contact as { companyId?: string | null } | undefined)?.companyId ?? call?.company?.id ?? null,
+  )
 
   const { data: usersData } = useUsersList({})
 
@@ -951,6 +964,7 @@ function CallForm({ onClose, call, onSuccess }: { onClose: () => void; call?: Ca
     setValue('contactId', id ?? undefined, { shouldValidate: true })
     setContactLabel(option?.label)
     const metaCompany = (option?.meta as { company?: { id: string; name: string } | null } | undefined)?.company
+    setContactCompanyId(metaCompany?.id ?? null)
     if (metaCompany && metaCompany.id !== companyId) {
       setValue('companyId', metaCompany.id)
       setCompanyLabel(metaCompany.name)
@@ -960,6 +974,12 @@ function CallForm({ onClose, call, onSuccess }: { onClose: () => void; call?: Ca
   const handleCompanyChange = (id: string | null, option?: SearchSelectOption) => {
     setValue('companyId', id ?? undefined)
     setCompanyLabel(option?.label)
+    // Le contact choisi appartient à une autre entreprise : on le retire pour rester cohérent
+    if (contactId && contactCompanyId && id && id !== contactCompanyId) {
+      setValue('contactId', undefined)
+      setContactLabel(undefined)
+      setContactCompanyId(null)
+    }
   }
 
   const mutation = useMutation({
@@ -1042,7 +1062,7 @@ function CallForm({ onClose, call, onSuccess }: { onClose: () => void; call?: Ca
               value={contactId ?? null}
               valueLabel={contactLabel}
               onChange={handleContactChange}
-              context={{ companyId }}
+              context={{ companyId, contactDefaults: call ? callerContactDefaults(call) : undefined }}
               allowNone
             />
           </div>
@@ -1202,7 +1222,7 @@ function TicketFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose:
               value={contactId ?? null}
               valueLabel={contactLabel}
               onChange={handleContactChange}
-              context={{ companyId }}
+              context={{ companyId, contactDefaults: callerContactDefaults(call) }}
               allowNone
             />
           </div>
@@ -1304,6 +1324,7 @@ function LeadFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose: (
             valueLabel={contactLabel}
             onChange={(id, option) => { setValue('contactId', id ?? undefined); setContactLabel(option?.label); setContactError(null) }}
             error={contactError ?? undefined}
+            context={{ companyId: call.companyId, contactDefaults: callerContactDefaults(call) }}
           />
           {!call.contactId && (
             <p className="text-xs text-amber-600 mt-1">Cet appel n'a pas de contact identifié. Sélectionnez-en un ou créez-le.</p>

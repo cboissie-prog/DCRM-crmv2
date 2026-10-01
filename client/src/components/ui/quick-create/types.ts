@@ -15,6 +15,8 @@ export interface EntityPickerContext {
   productCategory?: string
   /** Filtre pour product : plusieurs catégories admises (ex. catégories physiques) ; la modale de création limite son choix à cette liste */
   productCategories?: string[]
+  /** Pré-remplissage du formulaire « Nouveau contact » (ex. nom et numéro de l'appelant) */
+  contactDefaults?: { firstName?: string; lastName?: string; phone?: string; email?: string }
   /** Filtre et pré-remplissage pour product : type (ex. software, hardware) */
   productType?: string
 }

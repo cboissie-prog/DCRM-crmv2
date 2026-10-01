@@ -31,6 +31,12 @@ export function QuickContactModal({ open, onClose, context, onCreated }: QuickCr
   const [companyLabel, setCompanyLabel] = useState<string>('')
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema) as Resolver<Form>,
+    defaultValues: {
+      firstName: context?.contactDefaults?.firstName ?? '',
+      lastName: context?.contactDefaults?.lastName ?? '',
+      email: context?.contactDefaults?.email ?? '',
+      phone: context?.contactDefaults?.phone ?? '',
+    },
   })
 
   const createMutation = useMutation({
