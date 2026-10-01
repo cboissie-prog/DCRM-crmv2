@@ -5688,7 +5688,8 @@
             "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Une clé de catégorie, ou plusieurs séparées par des virgules (filtre IN)"
           },
           {
             "name": "type",

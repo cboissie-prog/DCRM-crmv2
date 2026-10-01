@@ -31,6 +31,7 @@ export interface EntityPickerProps {
   valueLabel?: string
   onChange: (id: string | null, option?: SearchSelectOption) => void
   context?: EntityPickerContext
+  /** Indicatif : le champ est optionnel. SearchSelect permet toujours d'effacer la valeur (bouton ×) ; la prop documente l'intention côté formulaire. */
   allowNone?: boolean
   disabled?: boolean
   placeholder?: string
@@ -86,6 +87,7 @@ export function EntityPicker({
     }
     if (entity === 'product') {
       if (context?.productCategory) params.category = context.productCategory
+      else if (context?.productCategories?.length) params.category = context.productCategories.join(',')
       if (context?.productType) params.type = context.productType
       params.isActive = 'true'
     }

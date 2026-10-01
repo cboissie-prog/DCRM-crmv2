@@ -1364,7 +1364,7 @@ Calcul sur les contrats `status: ACTIVE` uniquement, `monthlyAmount` prioritaire
 | PUT | `/products/:id` | Permission `products:update` | Mise à jour partielle |
 | DELETE | `/products/:id` | Permission `products:delete` | Désactivation (soft delete) |
 
-**GET /products** — Query : `search` (nom/référence/fournisseur), `category`, `type`, `isActive` (`'true'` = actifs seuls, `'false'` = inactifs seuls, absent = tous), `page` (défaut 1), `limit` (défaut 50, max 200). Réponse : tableau de produits + `meta`, triés par `name asc`.
+**GET /products** — Query : `search` (nom/référence/fournisseur), `category` (une clé, ou plusieurs séparées par des virgules → `IN`), `type`, `isActive` (`'true'` = actifs seuls, `'false'` = inactifs seuls, absent = tous), `page` (défaut 1), `limit` (défaut 50, max 200). Réponse : tableau de produits + `meta`, triés par `name asc`.
 
 **POST /products**
 ```json

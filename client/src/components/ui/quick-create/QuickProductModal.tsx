@@ -29,7 +29,7 @@ export function QuickProductModal({ open, onClose, context, onCreated }: QuickCr
   const [apiError, setApiError] = useState<string | null>(null)
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema) as Resolver<Form>,
-    defaultValues: { category: context?.productCategory ?? '' },
+    defaultValues: { category: context?.productCategory ?? (context?.productCategories?.length === 1 ? context.productCategories[0] : '') },
   })
 
   const createMutation = useMutation({
@@ -60,7 +60,9 @@ export function QuickProductModal({ open, onClose, context, onCreated }: QuickCr
             <label className="label">Catégorie *</label>
             <select {...register('category')} className={`input ${errors.category ? 'input-error' : ''}`}>
               <option value="">Sélectionner</option>
-              {refs.options('product_category').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {refs.options('product_category')
+                .filter(o => !context?.productCategories?.length || context.productCategories.includes(o.value))
+                .map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {errors.category && <p className="form-error">{errors.category.message}</p>}
           </div>

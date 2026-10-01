@@ -57,6 +57,8 @@ type EquipmentForm = z.infer<typeof equipmentSchema>
 export function EquipmentPage() {
   const qc = useQueryClient()
   const refs = useReferences()
+  // Catégories « physiques » du référentiel (meta.isPhysical) : seules celles-ci décrivent un équipement
+  const physicalCategories = refs.values('product_category').filter(v => v.meta?.isPhysical === true).map(v => v.key)
   const { user } = useAuthStore()
   const canCreate = user?.role === 'ADMIN' || user?.role === 'MANAGER' || user?.role === 'TECHNICIEN'
   const canDelete = user?.role === 'ADMIN' || user?.role === 'MANAGER'
@@ -326,7 +328,7 @@ export function EquipmentPage() {
               <label className="label">Pré-remplir depuis le catalogue (optionnel)</label>
               <EntityPicker
                 entity="product"
-                context={{ productType: 'PRODUCT' }}
+                context={{ productType: 'PRODUCT', productCategories: physicalCategories }}
                 value={watch('productId') || null}
                 valueLabel={productLabel}
                 allowNone

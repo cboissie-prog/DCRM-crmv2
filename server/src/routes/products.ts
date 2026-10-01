@@ -30,7 +30,11 @@ router.get('/', requirePermission('products:read'), async (req: AuthRequest, res
     const pageNum = Math.max(1, parseInt(page) || 1)
     const limitNum = Math.min(200, Math.max(1, parseInt(limit) || 50))
     const where: Record<string, unknown> = {}
-    if (category) where.category = category
+    // `category` accepte une liste séparée par des virgules (EntityPicker : ex. catégories physiques pour un équipement)
+    if (category) {
+      const categories = category.split(',').map(c => c.trim()).filter(Boolean)
+      where.category = categories.length > 1 ? { in: categories } : categories[0]
+    }
     if (type) where.type = type
     if (isActive === 'true') where.isActive = true
     else if (isActive === 'false') where.isActive = false

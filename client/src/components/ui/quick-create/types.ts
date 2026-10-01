@@ -13,6 +13,8 @@ export interface EntityPickerContext {
   companyId?: string | null
   /** Filtre et pré-remplissage pour product : catégorie (ex. CONTRACT_TEMPLATE) */
   productCategory?: string
+  /** Filtre pour product : plusieurs catégories admises (ex. catégories physiques) ; la modale de création limite son choix à cette liste */
+  productCategories?: string[]
   /** Filtre et pré-remplissage pour product : type (ex. software, hardware) */
   productType?: string
 }

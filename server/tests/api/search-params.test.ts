@@ -17,6 +17,7 @@ const ADMIN_PASSWORD = 'test-admin-pwd-123'
 let token: string
 let companyId: string
 const equipmentIds: string[] = []
+const productIds: string[] = []
 const contractIds: string[] = []
 
 describe('Recherche serveur (?search=) équipements et contrats', () => {
@@ -40,6 +41,7 @@ describe('Recherche serveur (?search=) équipements et contrats', () => {
   })
 
   afterAll(async () => {
+    if (productIds.length) await prisma.product.deleteMany({ where: { id: { in: productIds } } })
     if (contractIds.length) await prisma.contract.deleteMany({ where: { id: { in: contractIds } } })
     if (equipmentIds.length) await prisma.equipment.deleteMany({ where: { id: { in: equipmentIds } } })
     if (companyId) await prisma.company.delete({ where: { id: companyId } })
@@ -79,6 +81,19 @@ describe('Recherche serveur (?search=) équipements et contrats', () => {
     const created = await prisma.contract.findUniqueOrThrow({ where: { id: contractIds[1] } })
     const res = await request(app).get('/api/contracts').query({ search: created.reference.toLowerCase(), companyId }).set('Authorization', `Bearer ${token}`)
     expect(res.body.data.map((c: { id: string }) => c.id)).toEqual([contractIds[1]])
+  })
+
+  it('GET /products?category= accepte plusieurs catégories séparées par des virgules', async () => {
+    const cats = ['HARDWARE', 'SOFTWARE', 'SERVICE']
+    for (const category of cats) {
+      const p = await prisma.product.create({ data: { name: `Produit test recherche ${category}`, category, price: 10 } })
+      productIds.push(p.id)
+    }
+    const multi = await request(app).get('/api/products').query({ category: 'HARDWARE,SERVICE', search: 'Produit test recherche' }).set('Authorization', `Bearer ${token}`)
+    expect(multi.status).toBe(200)
+    expect(multi.body.data.map((p: { category: string }) => p.category).sort()).toEqual(['HARDWARE', 'SERVICE'])
+    const single = await request(app).get('/api/products').query({ category: 'SOFTWARE', search: 'Produit test recherche' }).set('Authorization', `Bearer ${token}`)
+    expect(single.body.data.map((p: { category: string }) => p.category)).toEqual(['SOFTWARE'])
   })
 
   it('GET /contracts combine search et les autres filtres (companyId, status)', async () => {
