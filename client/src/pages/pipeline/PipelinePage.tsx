@@ -26,7 +26,8 @@ import { formatCurrency, formatDate, cn } from '../../lib/utils'
 import { Modal } from '../../components/ui/Modal'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { toast } from '../../components/ui/Toast'
-import type { Opportunity, Contact, Company, User as UserType } from '../../types'
+import type { Opportunity, Contact, User as UserType } from '../../types'
+import { EntityPicker } from '../../components/ui/EntityPicker'
 
 interface PipelineStage {
   id: string
@@ -437,14 +438,14 @@ interface OppModalProps {
   defaultStage?: string
   pipelineId?: string
   stages: PipelineStage[]
-  contacts: Contact[]
-  companies: Company[]
   users: UserType[]
   canAssign: boolean
 }
 
-function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, stages, contacts, companies, users, canAssign }: OppModalProps) {
+function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, stages, users, canAssign }: OppModalProps) {
   const qc = useQueryClient()
+  const [companyLabel, setCompanyLabel] = useState<string | undefined>(undefined)
+  const [contactLabel, setContactLabel] = useState<string | undefined>(undefined)
 
   const { register, handleSubmit, reset, control, watch, setValue, formState: { errors, isSubmitting } } = useForm<OpportunityForm>({
     resolver: zodResolver(opportunitySchema) as Resolver<OpportunityForm>,
@@ -471,8 +472,12 @@ function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, st
         notes: editing.notes || '',
         assignedToId: editing.assignedToId || '',
       })
+      setCompanyLabel(editing.company?.name)
+      setContactLabel(editing.contact ? `${editing.contact.firstName} ${editing.contact.lastName}`.trim() : undefined)
     } else {
       reset({ stage: defaultStage || 'NEW', probability: 20, value: 0 })
+      setCompanyLabel(undefined)
+      setContactLabel(undefined)
     }
   }, [editing, defaultStage, reset])
 
@@ -480,9 +485,6 @@ function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, st
   useEffect(() => { if (open) handleOpen() }, [open, handleOpen])
 
   const watchedCompanyId = watch('companyId')
-  const filteredContacts = watchedCompanyId
-    ? contacts.filter(c => c.companyId === watchedCompanyId)
-    : contacts
 
   const createMutation = useMutation({
     mutationFn: (values: OpportunityForm) => api.post('/pipeline/opportunities', { ...values, pipelineId }),
@@ -538,16 +540,19 @@ function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, st
             name="companyId"
             control={control}
             render={({ field }) => (
-              <select
-                {...field}
-                className="input"
-                onChange={(e) => { field.onChange(e); setValue('contactId', '') }}
-              >
-                <option value="">-- Aucune --</option>
-                {companies.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+              <EntityPicker
+                entity="company"
+                value={field.value || null}
+                valueLabel={companyLabel}
+                onChange={(id, option) => {
+                  field.onChange(id ?? '')
+                  setCompanyLabel(option?.label)
+                  setValue('contactId', '')
+                  setContactLabel(undefined)
+                }}
+                allowNone
+                placeholder="Rechercher une entreprise…"
+              />
             )}
           />
         </div>
@@ -555,17 +560,24 @@ function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, st
         {/* Contact (filtré par entreprise) */}
         <div className="form-group">
           <label className="label">Contact</label>
-          <select {...register('contactId')} className="input">
-            <option value="">-- Aucun --</option>
-            {filteredContacts.map(c => (
-              <option key={c.id} value={c.id}>
-                {c.firstName} {c.lastName}
-                {!watchedCompanyId && c.company ? ` — ${c.company.name}` : ''}
-              </option>
-            ))}
-          </select>
-          {watchedCompanyId && filteredContacts.length === 0 && (
-            <p className="text-xs text-slate-400 mt-1">Aucun contact lié à cette entreprise</p>
+          <Controller
+            name="contactId"
+            control={control}
+            render={({ field }) => (
+              <EntityPicker
+                entity="contact"
+                value={field.value || null}
+                valueLabel={contactLabel}
+                onChange={(id, option) => { field.onChange(id ?? ''); setContactLabel(option?.label) }}
+                context={{ companyId: watchedCompanyId || null }}
+                allowNone
+                disabled={!watchedCompanyId}
+                placeholder="Rechercher un contact…"
+              />
+            )}
+          />
+          {!watchedCompanyId && (
+            <p className="text-xs text-slate-400 mt-1">Choisir une entreprise pour sélectionner un contact</p>
           )}
         </div>
 
@@ -944,15 +956,6 @@ export function PipelinePage() {
     staleTime: 60_000,
   })
 
-  const { data: companies = [] } = useQuery<Company[]>({
-    queryKey: ['companies-list'],
-    queryFn: async () => {
-      const { data } = await api.get('/companies', { params: { limit: 200 } })
-      return data.data ?? data
-    },
-    staleTime: 60_000,
-  })
-
   const { data: users = [] } = useUsersList<UserType>({ enabled: canAssign })
 
   // ── Mutations ──────────────────────────────────────────────────────────────
@@ -1304,8 +1307,6 @@ export function PipelinePage() {
         defaultStage={defaultStage}
         pipelineId={effectivePipelineId || undefined}
         stages={stages}
-        contacts={contacts}
-        companies={companies}
         users={users}
         canAssign={canAssign}
       />

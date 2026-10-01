@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useForm } from 'react-hook-form'
+import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { optionalNumber, requiredNumber } from '../../lib/formFields'
@@ -14,6 +14,7 @@ import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { Drawer } from '../../components/ui/Drawer'
 import { toast } from '../../components/ui/Toast'
+import { EntityPicker } from '../../components/ui/EntityPicker'
 import { useAuthStore } from '../../store/authStore'
 import { useReferences } from '../../hooks/useReferences'
 import { ReferenceIcon, badgeClass, colorStyle } from '../../lib/referenceUi'
@@ -208,7 +209,6 @@ export function ParcClientPage() {
           companyId={companyId!}
           equipments={equipments}
           licenses={licenses}
-          contracts={contracts}
           isLoading={loadingEquip}
           canWrite={canWrite}
           canDelete={canDelete}
@@ -219,7 +219,6 @@ export function ParcClientPage() {
         <LicensesTab
           companyId={companyId!}
           licenses={licenses}
-          equipments={equipments}
           isLoading={loadingLic}
           canWrite={canWrite}
           canDelete={canDelete}
@@ -242,11 +241,10 @@ export function ParcClientPage() {
 
 // ── Equipment tab ──────────────────────────────────────────────────────────────
 
-function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, canWrite, canDelete, goTo }: {
+function EquipmentTab({ companyId, equipments, licenses, isLoading, canWrite, canDelete, goTo }: {
   companyId: string
   equipments: Equipment[]
   licenses: License[]
-  contracts: Contract[]
   isLoading: boolean
   canWrite: boolean
   canDelete: boolean
@@ -258,12 +256,13 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
   const [editing, setEditing] = useState<Equipment | null>(null)
   const [deleting, setDeleting] = useState<Equipment | null>(null)
   const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(null)
+  const [contractLabel, setContractLabel] = useState<string | undefined>(undefined)
 
   const form = useForm<EquipmentForm>({
     resolver: zodResolver(equipmentSchema) as Resolver<EquipmentForm>,
     defaultValues: { status: 'ACTIVE' },
   })
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = form
+  const { register, handleSubmit, reset, control, formState: { errors, isSubmitting } } = form
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['parc-equipment', companyId] })
 
@@ -283,7 +282,7 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
     onError: () => toast.error('Erreur lors de la suppression'),
   })
 
-  const openCreate = () => { setEditing(null); reset({ status: 'ACTIVE' }); setShowModal(true) }
+  const openCreate = () => { setEditing(null); reset({ status: 'ACTIVE' }); setContractLabel(undefined); setShowModal(true) }
   const openEdit = (eq: Equipment) => {
     setEditing(eq)
     reset({
@@ -298,6 +297,7 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
       status:        eq.status,
       notes:         eq.notes ?? '',
     })
+    setContractLabel(eq.contract ? `${eq.contract.reference} — ${eq.contract.title}` : undefined)
     setSelectedEquipment(null)
     setShowModal(true)
   }
@@ -668,10 +668,21 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
             </div>
             <div className="form-group sm:col-span-2">
               <label className="label">Contrat lié</label>
-              <select {...register('contractId')} className="input">
-                <option value="">Aucun</option>
-                {contracts.map(c => <option key={c.id} value={c.id}>{c.reference} — {c.title}</option>)}
-              </select>
+              <Controller
+                name="contractId"
+                control={control}
+                render={({ field }) => (
+                  <EntityPicker
+                    entity="contract"
+                    value={field.value || null}
+                    valueLabel={contractLabel}
+                    onChange={(id, option) => { field.onChange(id ?? ''); setContractLabel(option?.label) }}
+                    context={{ companyId }}
+                    allowNone
+                    placeholder="Rechercher un contrat…"
+                  />
+                )}
+              />
             </div>
             <div className="form-group sm:col-span-2">
               <label className="label">Notes</label>
@@ -700,10 +711,9 @@ function EquipmentTab({ companyId, equipments, licenses, contracts, isLoading, c
 
 // ── Licenses tab ───────────────────────────────────────────────────────────────
 
-function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, canDelete, highlightId }: {
+function LicensesTab({ companyId, licenses, isLoading, canWrite, canDelete, highlightId }: {
   companyId: string
   licenses: License[]
-  equipments: Equipment[]
   isLoading: boolean
   canWrite: boolean
   canDelete: boolean
@@ -722,17 +732,12 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<License | null>(null)
   const [deleting, setDeleting] = useState<License | null>(null)
+  const [catalogProductId, setCatalogProductId] = useState<string | null>(null)
+  const [equipmentLabel, setEquipmentLabel] = useState<string | undefined>(undefined)
 
-  const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<LicenseForm>({
+  const { register, handleSubmit, reset, setValue, control, formState: { errors, isSubmitting } } = useForm<LicenseForm>({
     resolver: zodResolver(licenseSchema) as Resolver<LicenseForm>,
     defaultValues: { seats: 1, type: 'ANNUAL' },
-  })
-
-  // Software catalog for quick prefill
-  const { data: softwareCatalog } = useQuery<{ data: { id: string; name: string; supplier?: string; price: number; type: string }[] }>({
-    queryKey: ['products-software'],
-    queryFn: async () => { const { data } = await api.get('/products', { params: { category: 'SOFTWARE', isActive: 'true', limit: 200 } }); return data },
-    staleTime: 120_000,
   })
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['parc-licenses', companyId] })
@@ -753,7 +758,7 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
     onError: () => toast.error('Erreur lors de la suppression'),
   })
 
-  const openCreate = () => { setEditing(null); reset({ seats: 1, type: 'ANNUAL' }); setShowModal(true) }
+  const openCreate = () => { setEditing(null); reset({ seats: 1, type: 'ANNUAL' }); setCatalogProductId(null); setEquipmentLabel(undefined); setShowModal(true) }
   const openEdit = (l: License) => {
     setEditing(l)
     reset({
@@ -768,6 +773,8 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
       cost:         l.cost ?? undefined,
       notes:        l.notes ?? '',
     })
+    setCatalogProductId(null)
+    setEquipmentLabel(l.equipment ? ([l.equipment.brand, l.equipment.model].filter(Boolean).join(' ') || refs.label('equipment_type', l.equipment.type)) : undefined)
     setShowModal(true)
   }
   const onSubmit = (v: LicenseForm) => {
@@ -835,26 +842,25 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
       <Modal open={showModal} onClose={() => { setShowModal(false); setEditing(null) }} title={editing ? 'Modifier la licence' : 'Ajouter une licence'} size="lg">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {/* Catalog picker (create only) */}
-          {!editing && softwareCatalog && softwareCatalog.data.length > 0 && (
+          {!editing && (
             <div className="bg-violet-50 border border-violet-100 rounded-lg p-3">
               <label className="label text-violet-700">Choisir depuis le catalogue</label>
-              <select
-                className="input border-violet-200 bg-white"
-                defaultValue=""
-                onChange={e => {
-                  const p = softwareCatalog.data.find(x => x.id === e.target.value)
+              <EntityPicker
+                entity="product"
+                value={catalogProductId}
+                onChange={(id, option) => {
+                  setCatalogProductId(id)
+                  const p = option?.meta as { name: string; supplier?: string; price: number; type: string } | undefined
                   if (!p) return
                   setValue('software', p.name)
                   setValue('vendor', p.supplier ?? '')
                   setValue('cost', p.price)
                   setValue('type', p.type === 'SUBSCRIPTION' ? 'ANNUAL' : 'PERPETUAL')
                 }}
-              >
-                <option value="">— Sélectionner un logiciel —</option>
-                {softwareCatalog.data.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}{p.supplier ? ` (${p.supplier})` : ''}</option>
-                ))}
-              </select>
+                context={{ productCategory: 'SOFTWARE' }}
+                allowNone
+                placeholder="Rechercher un logiciel du catalogue…"
+              />
             </div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -895,10 +901,21 @@ function LicensesTab({ companyId, licenses, equipments, isLoading, canWrite, can
             </div>
             <div className="form-group">
               <label className="label">Équipement lié</label>
-              <select {...register('equipmentId')} className="input">
-                <option value="">Aucun</option>
-                {equipments.map(eq => <option key={eq.id} value={eq.id}>{[eq.brand, eq.model].filter(Boolean).join(' ') || refs.label('equipment_type', eq.type)}</option>)}
-              </select>
+              <Controller
+                name="equipmentId"
+                control={control}
+                render={({ field }) => (
+                  <EntityPicker
+                    entity="equipment"
+                    value={field.value || null}
+                    valueLabel={equipmentLabel}
+                    onChange={(id, option) => { field.onChange(id ?? ''); setEquipmentLabel(option?.label) }}
+                    context={{ companyId }}
+                    allowNone
+                    placeholder="Rechercher un équipement…"
+                  />
+                )}
+              />
             </div>
             <div className="form-group sm:col-span-2">
               <label className="label">Notes</label>
@@ -948,17 +965,11 @@ function ContractsTab({ companyId, contracts, isLoading, canWrite, canDelete, hi
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Contract | null>(null)
   const [deleting, setDeleting] = useState<Contract | null>(null)
+  const [templateProductId, setTemplateProductId] = useState<string | null>(null)
 
   const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<ContractForm>({
     resolver: zodResolver(contractSchema) as Resolver<ContractForm>,
     defaultValues: { status: 'ACTIVE', autoRenewal: false, monthlyAmount: 0, annualAmount: 0 },
-  })
-
-  // Contract template catalog
-  const { data: contractTemplates } = useQuery<{ data: { id: string; name: string; description?: string; price: number; supplier?: string }[] }>({
-    queryKey: ['products-contract-templates'],
-    queryFn: async () => { const { data } = await api.get('/products', { params: { category: 'CONTRACT_TEMPLATE', isActive: 'true', limit: 100 } }); return data },
-    staleTime: 120_000,
   })
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['parc-contracts', companyId] })
@@ -979,7 +990,7 @@ function ContractsTab({ companyId, contracts, isLoading, canWrite, canDelete, hi
     onError: () => toast.error('Erreur lors de la suppression'),
   })
 
-  const openCreate = () => { setEditing(null); reset({ status: 'ACTIVE', autoRenewal: false, monthlyAmount: 0, annualAmount: 0 }); setShowModal(true) }
+  const openCreate = () => { setEditing(null); reset({ status: 'ACTIVE', autoRenewal: false, monthlyAmount: 0, annualAmount: 0 }); setTemplateProductId(null); setShowModal(true) }
   const openEdit = (c: Contract) => {
     setEditing(c)
     reset({
@@ -996,6 +1007,7 @@ function ContractsTab({ companyId, contracts, isLoading, canWrite, canDelete, hi
       autoRenewal:     c.autoRenewal,
       notes:           c.notes ?? '',
     })
+    setTemplateProductId(null)
     setShowModal(true)
   }
 
@@ -1052,14 +1064,15 @@ function ContractsTab({ companyId, contracts, isLoading, canWrite, canDelete, hi
       <Modal open={showModal} onClose={() => { setShowModal(false); setEditing(null) }} title={editing ? 'Modifier le contrat' : 'Nouveau contrat'} size="lg">
         <form onSubmit={handleSubmit(v => editing ? updateMutation.mutate({ id: editing.id, v }) : createMutation.mutate(v))} className="space-y-4">
           {/* Template picker (create only) */}
-          {!editing && contractTemplates && contractTemplates.data.length > 0 && (
+          {!editing && (
             <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3">
               <label className="label text-indigo-700">Partir d'un modèle</label>
-              <select
-                className="input border-indigo-200 bg-white"
-                defaultValue=""
-                onChange={e => {
-                  const t = contractTemplates.data.find(x => x.id === e.target.value)
+              <EntityPicker
+                entity="product"
+                value={templateProductId}
+                onChange={(id, option) => {
+                  setTemplateProductId(id)
+                  const t = option?.meta as { name: string; description?: string; price: number; supplier?: string } | undefined
                   if (!t) return
                   setValue('title', t.name)
                   setValue('description', t.description ?? '')
@@ -1067,12 +1080,10 @@ function ContractsTab({ companyId, contracts, isLoading, canWrite, canDelete, hi
                   setValue('annualAmount', Math.round(t.price * 12 * 100) / 100)
                   if (t.supplier) setValue('type', t.supplier)
                 }}
-              >
-                <option value="">— Choisir un modèle —</option>
-                {contractTemplates.data.map(t => (
-                  <option key={t.id} value={t.id}>{t.name}{t.price ? ` — ${t.price} € HT/mois` : ''}</option>
-                ))}
-              </select>
+                context={{ productCategory: 'CONTRACT_TEMPLATE' }}
+                allowNone
+                placeholder="Rechercher un modèle de contrat…"
+              />
             </div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
