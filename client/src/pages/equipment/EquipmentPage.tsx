@@ -1,20 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAfter, parseISO } from 'date-fns'
 import api from '../../lib/api'
-import { formatDate, CONTRACT_STATUSES } from '../../lib/utils'
+import { formatDate } from '../../lib/utils'
 import { Badge } from '../../components/ui/Badge'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
+import { EntityPicker } from '../../components/ui/EntityPicker'
 import { Plus, Pencil, Trash2, HardDrive } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { requiredNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
-import type { Equipment, Company, Contract, Product, PaginatedResponse } from '../../types'
+import type { Equipment, Company, Product, PaginatedResponse } from '../../types'
 import { useAuthStore } from '../../store/authStore'
 import { useReferences } from '../../hooks/useReferences'
 import { ReferenceIcon, badgeClass } from '../../lib/referenceUi'
@@ -67,7 +67,9 @@ export function EquipmentPage() {
   const [showModal, setShowModal] = useState(false)
   const [editingEquipment, setEditingEquipment] = useState<Equipment | null>(null)
   const [deletingEquipment, setDeletingEquipment] = useState<Equipment | null>(null)
-  const [showQuickContract, setShowQuickContract] = useState(false)
+  const [companyLabel, setCompanyLabel] = useState<string | undefined>(undefined)
+  const [productLabel, setProductLabel] = useState<string | undefined>(undefined)
+  const [contractLabel, setContractLabel] = useState<string | undefined>(undefined)
 
   const { data, isLoading } = useQuery<PaginatedResponse<Equipment>>({
     queryKey: ['equipment', { typeFilter, statusFilter, companyFilter }],
@@ -94,55 +96,18 @@ export function EquipmentPage() {
   })
   const companies = companiesData?.data ?? []
 
-  const { data: contractsData } = useQuery<{ data: Contract[] }>({
-    queryKey: ['contracts-list'],
-    queryFn: async () => {
-      const { data } = await api.get('/contracts', { params: { limit: 200 } })
-      return data
-    },
-    staleTime: 60_000,
-  })
-  const contracts = contractsData?.data ?? []
-
-  const { data: productsData } = useQuery<{ data: Product[] }>({
-    queryKey: ['products-equipment-picker'],
-    queryFn: async () => {
-      const { data } = await api.get('/products', { params: { isActive: 'true', limit: 200 } })
-      return data
-    },
-    staleTime: 60_000,
-  })
-  // Catégories du catalogue correspondant à du matériel physique inventoriable
-  // (on exclut les logiciels, modèles de contrat, maintenance, sites web, formations).
-  const equipmentProductCategories = refs.values('product_category')
-    .filter(v => v.meta?.isPhysical === true)
-    .map(v => v.key)
-
-  // On ne propose dans le sélecteur que le matériel physique (produits réels, pas services/abonnements)
-  const catalogProducts = (productsData?.data ?? []).filter(
-    p => p.isActive && p.type === 'PRODUCT' && equipmentProductCategories.includes(p.category),
-  )
-
   const { register, handleSubmit, reset, setValue, getValues, watch, formState: { errors, isSubmitting } } = useForm<EquipmentForm>({
     resolver: zodResolver(equipmentSchema) as Resolver<EquipmentForm>,
     defaultValues: { status: 'ACTIVE' },
   })
 
-  const productReg = register('productId')
-  const companyIdReg = register('companyId')
-
-  // Contrats de l'entreprise sélectionnée uniquement (évite de lier un équipement
-  // à un contrat d'une autre entreprise). Le select est désactivé tant qu'aucune
-  // entreprise n'est choisie.
+  // Contrat lié : désactivé tant qu'aucune entreprise n'est choisie, filtré par
+  // entreprise via le contexte de l'EntityPicker (évite de lier un équipement à
+  // un contrat d'une autre entreprise).
   const watchedCompanyId = watch('companyId')
-  const filteredContracts = watchedCompanyId
-    ? contracts.filter(c => c.companyId === watchedCompanyId)
-    : []
 
   // Pré-remplit marque/modèle/type/notes à partir du produit choisi (tout reste modifiable).
-  const handlePickProduct = (productId: string) => {
-    if (!productId) return
-    const p = catalogProducts.find(x => x.id === productId)
+  const handlePickProduct = (p?: Product) => {
     if (!p) return
     setValue('model', p.name)
     if (p.supplier) setValue('brand', p.supplier)
@@ -185,12 +150,18 @@ export function EquipmentPage() {
 
   const openCreate = () => {
     setEditingEquipment(null)
+    setCompanyLabel(undefined)
+    setProductLabel(undefined)
+    setContractLabel(undefined)
     reset({ status: 'ACTIVE', productId: '' })
     setShowModal(true)
   }
 
   const openEdit = (eq: Equipment) => {
     setEditingEquipment(eq)
+    setCompanyLabel(eq.company?.name)
+    setProductLabel(eq.product?.name)
+    setContractLabel(eq.contract ? `${eq.contract.reference} — ${eq.contract.title}` : undefined)
     reset({
       companyId: eq.companyId,
       contractId: eq.contractId ?? '',
@@ -351,59 +322,55 @@ export function EquipmentPage() {
       >
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {catalogProducts.length > 0 && (
-              <div className="form-group sm:col-span-2">
-                <label className="label">Pré-remplir depuis le catalogue (optionnel)</label>
-                <select
-                  {...productReg}
-                  onChange={e => { productReg.onChange(e); handlePickProduct(e.target.value) }}
-                  className="input"
-                >
-                  <option value="">— Aucun produit —</option>
-                  {catalogProducts.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}{p.reference ? ` (${p.reference})` : ''}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-slate-400 mt-1">
-                  Remplit automatiquement la marque, le modèle et le type. Vous pouvez tout ajuster ensuite.
-                </p>
-              </div>
-            )}
             <div className="form-group sm:col-span-2">
-              <label className="label">Entreprise *</label>
-              <select
-                {...companyIdReg}
-                onChange={e => { companyIdReg.onChange(e); setValue('contractId', '') }}
-                className={`input ${errors.companyId ? 'input-error' : ''}`}
-              >
-                <option value="">Sélectionner une entreprise</option>
-                {companies.map(co => <option key={co.id} value={co.id}>{co.name}</option>)}
-              </select>
-              {errors.companyId && <p className="form-error">{errors.companyId.message}</p>}
+              <label className="label">Pré-remplir depuis le catalogue (optionnel)</label>
+              <EntityPicker
+                entity="product"
+                context={{ productType: 'PRODUCT' }}
+                value={watch('productId') || null}
+                valueLabel={productLabel}
+                allowNone
+                placeholder="Rechercher un produit du catalogue…"
+                onChange={(id, option) => {
+                  setValue('productId', id ?? '')
+                  setProductLabel(option?.label)
+                  handlePickProduct(option?.meta as Product | undefined)
+                }}
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                Remplit automatiquement la marque, le modèle et le type. Vous pouvez tout ajuster ensuite.
+              </p>
             </div>
             <div className="form-group sm:col-span-2">
-              <div className="flex items-center justify-between">
-                <label className="label">Contrat lié (optionnel)</label>
-                <button
-                  type="button"
-                  className="text-xs font-medium text-primary-600 hover:text-primary-700 disabled:text-slate-300 disabled:cursor-not-allowed flex items-center gap-1 mb-1.5"
-                  disabled={!watchedCompanyId}
-                  onClick={() => setShowQuickContract(true)}
-                >
-                  <Plus className="w-3.5 h-3.5" /> Nouveau contrat
-                </button>
-              </div>
-              <select {...register('contractId')} className="input" disabled={!watchedCompanyId}>
-                <option value="">{watchedCompanyId ? 'Aucun contrat' : 'Sélectionnez d\'abord une entreprise'}</option>
-                {filteredContracts.map(c => (
-                  <option key={c.id} value={c.id}>{c.reference} — {c.title}</option>
-                ))}
-              </select>
-              {watchedCompanyId && filteredContracts.length === 0 && (
-                <p className="text-xs text-slate-400 mt-1">Aucun contrat lié à cette entreprise</p>
-              )}
+              <label className="label">Entreprise *</label>
+              <EntityPicker
+                entity="company"
+                value={watch('companyId') || null}
+                valueLabel={companyLabel}
+                onChange={(id, option) => {
+                  setValue('companyId', id ?? '', { shouldValidate: true })
+                  setCompanyLabel(option?.label)
+                  setValue('contractId', '')
+                  setContractLabel(undefined)
+                }}
+                error={errors.companyId?.message}
+              />
+            </div>
+            <div className="form-group sm:col-span-2">
+              <label className="label">Contrat lié (optionnel)</label>
+              <EntityPicker
+                entity="contract"
+                value={watch('contractId') || null}
+                valueLabel={contractLabel}
+                context={{ companyId: watchedCompanyId }}
+                allowNone
+                disabled={!watchedCompanyId}
+                placeholder={watchedCompanyId ? 'Rechercher un contrat…' : 'Sélectionnez d\'abord une entreprise'}
+                onChange={(id, option) => {
+                  setValue('contractId', id ?? '')
+                  setContractLabel(option?.label)
+                }}
+              />
             </div>
             <div className="form-group">
               <label className="label">Type *</label>
@@ -459,17 +426,6 @@ export function EquipmentPage() {
         </form>
       </Modal>
 
-      {/* Création rapide d'un contrat pour l'entreprise sélectionnée */}
-      <QuickContractModal
-        open={showQuickContract}
-        onClose={() => setShowQuickContract(false)}
-        companyId={watchedCompanyId ?? ''}
-        onCreated={(contract) => {
-          setValue('contractId', contract.id)
-          setShowQuickContract(false)
-        }}
-      />
-
       {/* Delete confirmation */}
       <Modal open={!!deletingEquipment} onClose={() => setDeletingEquipment(null)} title="Supprimer l'équipement" size="sm">
         <p className="text-slate-600 mb-6">
@@ -489,106 +445,5 @@ export function EquipmentPage() {
         </div>
       </Modal>
     </div>
-  )
-}
-
-// ─── Création rapide d'un contrat (depuis le formulaire équipement) ──────────────
-const CONTRACT_STATUS_OPTIONS = Object.entries(CONTRACT_STATUSES).map(([value, { label }]) => ({ value, label }))
-
-const quickContractSchema = z.object({
-  type: z.string().min(1, 'Type requis'),
-  title: z.string().min(1, 'Titre requis'),
-  status: z.string().min(1, 'Statut requis'),
-  startDate: z.string().min(1, 'Date de début requise'),
-  endDate: z.string().min(1, 'Date de fin requise'),
-  monthlyAmount: requiredNumber(z.number().min(0), 'Montant mensuel requis'),
-  annualAmount: requiredNumber(z.number().min(0), 'Montant annuel requis'),
-})
-type QuickContractForm = z.infer<typeof quickContractSchema>
-
-interface QuickContractModalProps {
-  open: boolean
-  onClose: () => void
-  companyId: string
-  onCreated: (contract: Contract) => void
-}
-
-function QuickContractModal({ open, onClose, companyId, onCreated }: QuickContractModalProps) {
-  const qc = useQueryClient()
-  const refs = useReferences()
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<QuickContractForm>({
-    resolver: zodResolver(quickContractSchema) as Resolver<QuickContractForm>,
-    defaultValues: { status: 'ACTIVE', monthlyAmount: 0, annualAmount: 0 },
-  })
-
-  useEffect(() => { if (open) reset({ status: 'ACTIVE', monthlyAmount: 0, annualAmount: 0 }) }, [open, reset])
-
-  const createMutation = useMutation({
-    mutationFn: (values: QuickContractForm) =>
-      api.post('/contracts', { ...values, companyId }),
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['contracts-list'] })
-      toast.success('Contrat créé')
-      onCreated(res.data.data as Contract)
-    },
-    onError: () => toast.error('Erreur lors de la création du contrat'),
-  })
-
-  const onSubmit = (values: QuickContractForm) => createMutation.mutate(values)
-
-  return (
-    <Modal open={open} onClose={onClose} title="Nouveau contrat" size="sm">
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        <div className="form-group">
-          <label className="label">Titre *</label>
-          <input {...register('title')} className={`input ${errors.title ? 'input-error' : ''}`} />
-          {errors.title && <p className="form-error">{errors.title.message}</p>}
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="form-group">
-            <label className="label">Type *</label>
-            <select {...register('type')} className={`input ${errors.type ? 'input-error' : ''}`}>
-              <option value="">Sélectionner</option>
-              {refs.options('contract_type').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            {errors.type && <p className="form-error">{errors.type.message}</p>}
-          </div>
-          <div className="form-group">
-            <label className="label">Statut *</label>
-            <select {...register('status')} className="input">
-              {CONTRACT_STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="form-group">
-            <label className="label">Date de début *</label>
-            <input {...register('startDate')} type="date" className={`input ${errors.startDate ? 'input-error' : ''}`} />
-            {errors.startDate && <p className="form-error">{errors.startDate.message}</p>}
-          </div>
-          <div className="form-group">
-            <label className="label">Date de fin *</label>
-            <input {...register('endDate')} type="date" className={`input ${errors.endDate ? 'input-error' : ''}`} />
-            {errors.endDate && <p className="form-error">{errors.endDate.message}</p>}
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="form-group">
-            <label className="label">Montant mensuel HT (€)</label>
-            <input {...register('monthlyAmount')} type="number" min={0} step={0.01} className="input" />
-          </div>
-          <div className="form-group">
-            <label className="label">Montant annuel HT (€)</label>
-            <input {...register('annualAmount')} type="number" min={0} step={0.01} className="input" />
-          </div>
-        </div>
-        <div className="flex justify-end gap-3 pt-2">
-          <button type="button" className="btn-secondary" onClick={onClose}>Annuler</button>
-          <button type="submit" className="btn-primary" disabled={isSubmitting || createMutation.isPending}>
-            Créer
-          </button>
-        </div>
-      </form>
-    </Modal>
   )
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { differenceInDays, parseISO } from 'date-fns'
@@ -8,6 +8,7 @@ import { Badge } from '../../components/ui/Badge'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
+import { EntityPicker } from '../../components/ui/EntityPicker'
 import { Plus, Pencil, Trash2, AlertTriangle, X, Key } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import { useForm } from 'react-hook-form'
@@ -15,7 +16,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { optionalNumber, requiredNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
-import type { License, Company, Equipment } from '../../types'
+import type { License, Company, Product } from '../../types'
 import { useAuthStore } from '../../store/authStore'
 import { useReferences } from '../../hooks/useReferences'
 
@@ -56,7 +57,9 @@ export function LicensesPage() {
   const [showModal, setShowModal] = useState(false)
   const [editingLicense, setEditingLicense] = useState<License | null>(null)
   const [deletingLicense, setDeletingLicense] = useState<License | null>(null)
-  const [showQuickEquipment, setShowQuickEquipment] = useState(false)
+  const [companyLabel, setCompanyLabel] = useState<string | undefined>(undefined)
+  const [productLabel, setProductLabel] = useState<string | undefined>(undefined)
+  const [equipmentLabel, setEquipmentLabel] = useState<string | undefined>(undefined)
 
   const { data, isLoading } = useQuery<{ data: License[] }>({
     queryKey: ['licenses', { expiringOnly, companyFilter }],
@@ -82,37 +85,15 @@ export function LicensesPage() {
   })
   const companies = companiesData?.data ?? []
 
-  const { data: equipmentData } = useQuery<{ data: Equipment[] }>({
-    queryKey: ['equipment-list'],
-    queryFn: async () => {
-      const { data } = await api.get('/equipment', { params: { limit: 200 } })
-      return data
-    },
-    staleTime: 60_000,
-  })
-  const equipments = equipmentData?.data ?? []
-
   const { register, handleSubmit, reset, setValue, watch, formState: { errors, isSubmitting } } = useForm<LicenseForm>({
     resolver: zodResolver(licenseSchema) as Resolver<LicenseForm>,
     defaultValues: { seats: 1, type: 'ANNUAL' },
   })
 
-  const productReg = register('productId')
-  const companyIdReg = register('companyId')
-
-  // Équipements de l'entreprise sélectionnée uniquement (évite de lier une licence
-  // à un équipement d'une autre entreprise). Le select est désactivé tant qu'aucune
-  // entreprise n'est choisie.
+  // Équipement lié : désactivé tant qu'aucune entreprise n'est choisie, filtré par
+  // entreprise via le contexte de l'EntityPicker (évite de lier une licence à un
+  // équipement d'une autre entreprise).
   const watchedCompanyId = watch('companyId')
-  const filteredEquipments = watchedCompanyId
-    ? equipments.filter(eq => eq.companyId === watchedCompanyId)
-    : []
-
-  const { data: softwareCatalog } = useQuery<{ data: { id: string; name: string; supplier?: string; price: number; type: string }[] }>({
-    queryKey: ['products-software'],
-    queryFn: async () => { const { data } = await api.get('/products', { params: { category: 'SOFTWARE', isActive: 'true', limit: 200 } }); return data },
-    staleTime: 120_000,
-  })
 
   const createMutation = useMutation({
     mutationFn: (values: LicenseForm) => api.post('/licenses', values),
@@ -147,12 +128,18 @@ export function LicensesPage() {
 
   const openCreate = () => {
     setEditingLicense(null)
+    setCompanyLabel(undefined)
+    setProductLabel(undefined)
+    setEquipmentLabel(undefined)
     reset({ seats: 1, type: 'ANNUAL', productId: '' })
     setShowModal(true)
   }
 
   const openEdit = (lic: License) => {
     setEditingLicense(lic)
+    setCompanyLabel(lic.company?.name)
+    setProductLabel(lic.product?.name)
+    setEquipmentLabel(lic.equipment ? [lic.equipment.brand, lic.equipment.model].filter(Boolean).join(' ') || lic.equipment.type : undefined)
     reset({
       companyId: lic.companyId,
       equipmentId: lic.equipmentId ?? '',
@@ -296,68 +283,61 @@ export function LicensesPage() {
         size="lg"
       >
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {softwareCatalog && softwareCatalog.data.length > 0 && (
-            <div className="bg-violet-50 border border-violet-100 rounded-lg p-3">
-              <label className="label text-violet-700">Choisir depuis le catalogue (optionnel)</label>
-              <select
-                {...productReg}
-                onChange={e => {
-                  productReg.onChange(e)
-                  const p = softwareCatalog.data.find(x => x.id === e.target.value)
-                  if (!p) return
-                  setValue('software', p.name)
-                  setValue('vendor', p.supplier ?? '')
-                  setValue('cost', p.price)
-                  setValue('type', p.type === 'SUBSCRIPTION' ? 'ANNUAL' : 'PERPETUAL')
-                }}
-                className="input border-violet-200 bg-white"
-              >
-                <option value="">— Aucun logiciel du catalogue —</option>
-                {softwareCatalog.data.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}{p.supplier ? ` (${p.supplier})` : ''}</option>
-                ))}
-              </select>
-              <p className="text-xs text-violet-400 mt-1">
-                Remplit le logiciel, le fournisseur, le coût et le type, et garde le lien vers le catalogue. Vous pouvez tout ajuster ensuite.
-              </p>
-            </div>
-          )}
+          <div className="bg-violet-50 border border-violet-100 rounded-lg p-3">
+            <label className="label text-violet-700">Choisir depuis le catalogue (optionnel)</label>
+            <EntityPicker
+              entity="product"
+              context={{ productCategory: 'SOFTWARE' }}
+              value={watch('productId') || null}
+              valueLabel={productLabel}
+              allowNone
+              placeholder="Rechercher un logiciel du catalogue…"
+              onChange={(id, option) => {
+                setValue('productId', id ?? '')
+                setProductLabel(option?.label)
+                const p = option?.meta as Product | undefined
+                if (!p) return
+                setValue('software', p.name)
+                setValue('vendor', p.supplier ?? '')
+                setValue('cost', p.price)
+                setValue('type', p.type === 'SUBSCRIPTION' ? 'ANNUAL' : 'PERPETUAL')
+              }}
+            />
+            <p className="text-xs text-violet-400 mt-1">
+              Remplit le logiciel, le fournisseur, le coût et le type, et garde le lien vers le catalogue. Vous pouvez tout ajuster ensuite.
+            </p>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group sm:col-span-2">
               <label className="label">Entreprise *</label>
-              <select
-                {...companyIdReg}
-                onChange={e => { companyIdReg.onChange(e); setValue('equipmentId', '') }}
-                className={`input ${errors.companyId ? 'input-error' : ''}`}
-              >
-                <option value="">Sélectionner une entreprise</option>
-                {companies.map(co => <option key={co.id} value={co.id}>{co.name}</option>)}
-              </select>
-              {errors.companyId && <p className="form-error">{errors.companyId.message}</p>}
+              <EntityPicker
+                entity="company"
+                value={watch('companyId') || null}
+                valueLabel={companyLabel}
+                onChange={(id, option) => {
+                  setValue('companyId', id ?? '', { shouldValidate: true })
+                  setCompanyLabel(option?.label)
+                  setValue('equipmentId', '')
+                  setEquipmentLabel(undefined)
+                }}
+                error={errors.companyId?.message}
+              />
             </div>
             <div className="form-group sm:col-span-2">
-              <div className="flex items-center justify-between">
-                <label className="label">Équipement lié (optionnel)</label>
-                <button
-                  type="button"
-                  className="text-xs font-medium text-primary-600 hover:text-primary-700 disabled:text-slate-300 disabled:cursor-not-allowed flex items-center gap-1 mb-1.5"
-                  disabled={!watchedCompanyId}
-                  onClick={() => setShowQuickEquipment(true)}
-                >
-                  <Plus className="w-3.5 h-3.5" /> Nouvel équipement
-                </button>
-              </div>
-              <select {...register('equipmentId')} className="input" disabled={!watchedCompanyId}>
-                <option value="">{watchedCompanyId ? 'Aucun équipement' : 'Sélectionnez d\'abord une entreprise'}</option>
-                {filteredEquipments.map(eq => (
-                  <option key={eq.id} value={eq.id}>
-                    {[eq.brand, eq.model].filter(Boolean).join(' ') || eq.type}
-                  </option>
-                ))}
-              </select>
-              {watchedCompanyId && filteredEquipments.length === 0 && (
-                <p className="text-xs text-slate-400 mt-1">Aucun équipement lié à cette entreprise</p>
-              )}
+              <label className="label">Équipement lié (optionnel)</label>
+              <EntityPicker
+                entity="equipment"
+                value={watch('equipmentId') || null}
+                valueLabel={equipmentLabel}
+                context={{ companyId: watchedCompanyId }}
+                allowNone
+                disabled={!watchedCompanyId}
+                placeholder={watchedCompanyId ? 'Rechercher un équipement…' : 'Sélectionnez d\'abord une entreprise'}
+                onChange={(id, option) => {
+                  setValue('equipmentId', id ?? '')
+                  setEquipmentLabel(option?.label)
+                }}
+              />
             </div>
             <div className="form-group">
               <label className="label">Logiciel *</label>
@@ -411,17 +391,6 @@ export function LicensesPage() {
         </form>
       </Modal>
 
-      {/* Création rapide d'un équipement pour l'entreprise sélectionnée */}
-      <QuickEquipmentModal
-        open={showQuickEquipment}
-        onClose={() => setShowQuickEquipment(false)}
-        companyId={watchedCompanyId ?? ''}
-        onCreated={(eq) => {
-          setValue('equipmentId', eq.id)
-          setShowQuickEquipment(false)
-        }}
-      />
-
       {/* Delete confirmation */}
       <Modal open={!!deletingLicense} onClose={() => setDeletingLicense(null)} title="Supprimer la licence" size="sm">
         <p className="text-slate-600 mb-6">
@@ -440,81 +409,5 @@ export function LicensesPage() {
         </div>
       </Modal>
     </div>
-  )
-}
-
-// ─── Création rapide d'un équipement (depuis le formulaire licence) ──────────────
-const quickEquipmentSchema = z.object({
-  type: z.string().min(1, 'Type requis'),
-  brand: z.string().optional(),
-  model: z.string().optional(),
-  serialNumber: z.string().optional(),
-})
-type QuickEquipmentForm = z.infer<typeof quickEquipmentSchema>
-
-interface QuickEquipmentModalProps {
-  open: boolean
-  onClose: () => void
-  companyId: string
-  onCreated: (equipment: Equipment) => void
-}
-
-function QuickEquipmentModal({ open, onClose, companyId, onCreated }: QuickEquipmentModalProps) {
-  const qc = useQueryClient()
-  const refs = useReferences()
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<QuickEquipmentForm>({
-    resolver: zodResolver(quickEquipmentSchema) as Resolver<QuickEquipmentForm>,
-  })
-
-  useEffect(() => { if (open) reset() }, [open, reset])
-
-  const createMutation = useMutation({
-    mutationFn: (values: QuickEquipmentForm) =>
-      api.post('/equipment', { ...values, companyId, status: 'ACTIVE' }),
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ['equipment-list'] })
-      toast.success('Équipement créé')
-      onCreated(res.data.data as Equipment)
-    },
-    onError: () => toast.error('Erreur lors de la création de l\'équipement'),
-  })
-
-  const onSubmit = (values: QuickEquipmentForm) => createMutation.mutate(values)
-
-  return (
-    <Modal open={open} onClose={onClose} title="Nouvel équipement" size="sm">
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        <div className="form-group">
-          <label className="label">Type *</label>
-          <select {...register('type')} className={`input ${errors.type ? 'input-error' : ''}`}>
-            <option value="">Sélectionner un type</option>
-            {refs.options('equipment_type').map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          {errors.type && <p className="form-error">{errors.type.message}</p>}
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="form-group">
-            <label className="label">Marque</label>
-            <input {...register('brand')} className="input" />
-          </div>
-          <div className="form-group">
-            <label className="label">Modèle</label>
-            <input {...register('model')} className="input" />
-          </div>
-        </div>
-        <div className="form-group">
-          <label className="label">Numéro de série</label>
-          <input {...register('serialNumber')} className="input" />
-        </div>
-        <div className="flex justify-end gap-3 pt-2">
-          <button type="button" className="btn-secondary" onClick={onClose}>Annuler</button>
-          <button type="submit" className="btn-primary" disabled={isSubmitting || createMutation.isPending}>
-            Créer
-          </button>
-        </div>
-      </form>
-    </Modal>
   )
 }

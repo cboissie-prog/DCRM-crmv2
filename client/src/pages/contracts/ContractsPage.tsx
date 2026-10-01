@@ -7,6 +7,7 @@ import { Badge } from '../../components/ui/Badge'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
+import { EntityPicker } from '../../components/ui/EntityPicker'
 import { Plus, Pencil, Trash2, X, FileText } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import { useForm } from 'react-hook-form'
@@ -14,7 +15,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { optionalNumber, requiredNumber } from '../../lib/formFields'
 import type { Resolver } from 'react-hook-form'
-import type { Contract, Company, PaginatedResponse } from '../../types'
+import type { Contract, Product, PaginatedResponse } from '../../types'
 import { useAuthStore } from '../../store/authStore'
 import { useReferences } from '../../hooks/useReferences'
 
@@ -56,6 +57,8 @@ export function ContractsPage() {
   const [showModal, setShowModal] = useState(false)
   const [editingContract, setEditingContract] = useState<Contract | null>(null)
   const [deletingContract, setDeletingContract] = useState<Contract | null>(null)
+  const [companyLabel, setCompanyLabel] = useState<string | undefined>(undefined)
+  const [template, setTemplate] = useState<{ id: string; label: string } | null>(null)
 
   const { data, isLoading } = useQuery<PaginatedResponse<Contract>>({
     queryKey: ['contracts', { typeFilter, statusFilter, page }],
@@ -73,25 +76,9 @@ export function ContractsPage() {
     staleTime: 30_000,
   })
 
-  const { data: companiesData } = useQuery<{ data: Company[] }>({
-    queryKey: ['companies-list'],
-    queryFn: async () => {
-      const { data } = await api.get('/companies', { params: { limit: 200 } })
-      return data
-    },
-    staleTime: 60_000,
-  })
-  const companies = companiesData?.data ?? []
-
-  const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<ContractForm>({
+  const { register, handleSubmit, reset, setValue, watch, formState: { errors, isSubmitting } } = useForm<ContractForm>({
     resolver: zodResolver(contractSchema) as Resolver<ContractForm>,
     defaultValues: { status: 'ACTIVE', autoRenewal: false, monthlyAmount: 0, annualAmount: 0 },
-  })
-
-  const { data: contractTemplates } = useQuery<{ data: { id: string; name: string; description?: string; price: number; supplier?: string }[] }>({
-    queryKey: ['products-contract-templates'],
-    queryFn: async () => { const { data } = await api.get('/products', { params: { category: 'CONTRACT_TEMPLATE', isActive: 'true', limit: 100 } }); return data },
-    staleTime: 120_000,
   })
 
   const createMutation = useMutation({
@@ -127,12 +114,16 @@ export function ContractsPage() {
 
   const openCreate = () => {
     setEditingContract(null)
+    setCompanyLabel(undefined)
+    setTemplate(null)
     reset({ status: 'ACTIVE', autoRenewal: false, monthlyAmount: 0, annualAmount: 0 })
     setShowModal(true)
   }
 
   const openEdit = (contract: Contract) => {
     setEditingContract(contract)
+    setCompanyLabel(contract.company?.name)
+    setTemplate(null)
     reset({
       companyId: contract.companyId,
       type: contract.type,
@@ -286,14 +277,19 @@ export function ContractsPage() {
         size="lg"
       >
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          {!editingContract && contractTemplates && contractTemplates.data.length > 0 && (
+          {!editingContract && (
             <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3">
-              <label className="label text-indigo-700">Partir d'un modèle</label>
-              <select
-                className="input border-indigo-200 bg-white"
-                defaultValue=""
-                onChange={e => {
-                  const t = contractTemplates.data.find(x => x.id === e.target.value)
+              <label className="label text-indigo-700">Partir d'un modèle (optionnel)</label>
+              <EntityPicker
+                entity="product"
+                context={{ productCategory: 'CONTRACT_TEMPLATE' }}
+                value={template?.id ?? null}
+                valueLabel={template?.label}
+                placeholder="Rechercher un modèle de contrat…"
+                allowNone
+                onChange={(id, option) => {
+                  setTemplate(id && option ? { id, label: option.label } : null)
+                  const t = option?.meta as Product | undefined
                   if (!t) return
                   setValue('title', t.name)
                   setValue('description', t.description ?? '')
@@ -301,22 +297,22 @@ export function ContractsPage() {
                   setValue('annualAmount', Math.round(t.price * 12 * 100) / 100)
                   if (t.supplier) setValue('type', t.supplier)
                 }}
-              >
-                <option value="">— Choisir un modèle —</option>
-                {contractTemplates.data.map(t => (
-                  <option key={t.id} value={t.id}>{t.name}{t.price ? ` — ${t.price} € HT/mois` : ''}</option>
-                ))}
-              </select>
+              />
             </div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group sm:col-span-2">
               <label className="label">Entreprise *</label>
-              <select {...register('companyId')} className={`input ${errors.companyId ? 'input-error' : ''}`}>
-                <option value="">Sélectionner une entreprise</option>
-                {companies.map(co => <option key={co.id} value={co.id}>{co.name}</option>)}
-              </select>
-              {errors.companyId && <p className="form-error">{errors.companyId.message}</p>}
+              <EntityPicker
+                entity="company"
+                value={watch('companyId') || null}
+                valueLabel={companyLabel}
+                onChange={(id, option) => {
+                  setValue('companyId', id ?? '', { shouldValidate: true })
+                  setCompanyLabel(option?.label)
+                }}
+                error={errors.companyId?.message}
+              />
             </div>
             <div className="form-group">
               <label className="label">Type *</label>
