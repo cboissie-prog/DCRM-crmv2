@@ -4,6 +4,8 @@ import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
 import { restartScheduler } from '../scheduler'
+import { getMailerStatus, isMailerConfigured, sendTestEmail, describeMailError } from '../services/mailer'
+import logger from '../lib/logger'
 
 const router = Router()
 router.use(authenticate)
@@ -129,6 +131,35 @@ router.post('/actions/run-contract-update', requirePermission('settings:write'),
     const { runContractStatusUpdate } = await import('../scheduler')
     const result = await runContractStatusUpdate()
     res.json({ success: true, data: result })
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// GET /api/settings/mail/status — état de la configuration SMTP + test de connexion réel (?probe=false pour le sauter)
+router.get('/mail/status', requirePermission('settings:write'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const probe = req.query.probe !== 'false'
+    const status = await getMailerStatus(probe)
+    res.json({ success: true, data: status })
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// POST /api/settings/mail/test — envoie un email de test à l'adresse fournie
+router.post('/mail/test', requirePermission('settings:write'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { to } = z.object({ to: z.string().email() }).parse(req.body)
+    if (!isMailerConfigured()) {
+      res.status(503).json({ success: false, error: { code: 'MAILER_NOT_CONFIGURED', message: 'SMTP non configuré : renseigner SMTP_HOST / SMTP_USER dans le fichier .env puis redémarrer l\'application' } })
+      return
+    }
+    try {
+      const result = await sendTestEmail(to)
+      logger.info({ to, messageId: result.messageId, userId: req.userId }, '[MAILER] Email de test envoyé')
+      res.json({ success: true, data: result })
+    } catch (err) {
+      const { code, message } = describeMailError(err)
+      logger.error({ err, to }, '[MAILER] Échec de l\'email de test')
+      res.status(502).json({ success: false, error: { code: 'MAIL_SEND_FAILED', message: `Envoi refusé par le serveur SMTP${code ? ` (${code})` : ''} : ${message}` } })
+    }
   } catch (err) { handleRouteError(err, res) }
 })
 

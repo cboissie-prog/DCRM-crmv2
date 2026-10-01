@@ -1289,6 +1289,93 @@
         }
       }
     },
+    "/settings/mail/status": {
+      "get": {
+        "tags": [
+          "Paramètres"
+        ],
+        "summary": "État de la configuration SMTP + test de connexion réel (probe=false pour le sauter)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "settings:write",
+        "parameters": [
+          {
+            "name": "probe",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "description": "false = ne pas exécuter transporter.verify()"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "data: { configured, host, port, mode (STARTTLS|SSL), user (masqué), from, frontendUrl, missing[], connection?: { ok, latencyMs } | { ok: false, code, message } }"
+          }
+        }
+      }
+    },
+    "/settings/mail/test": {
+      "post": {
+        "tags": [
+          "Paramètres"
+        ],
+        "summary": "Envoie un email de test à l'adresse fournie",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "settings:write",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "to"
+                ],
+                "properties": {
+                  "to": {
+                    "type": "string",
+                    "format": "email"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "data: { messageId, accepted[], rejected[] }"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR — adresse invalide"
+          },
+          "502": {
+            "description": "MAIL_SEND_FAILED — refus du serveur SMTP (code nodemailer dans le message)"
+          },
+          "503": {
+            "description": "MAILER_NOT_CONFIGURED — SMTP absent du .env"
+          }
+        }
+      }
+    },
     "/references": {
       "get": {
         "tags": [

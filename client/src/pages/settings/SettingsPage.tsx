@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { User, Building2, Users, Lock, Save, Eye, EyeOff, ExternalLink, Settings2, Play, RefreshCw, Key, Plus, Trash2, Copy, CheckCheck, AlertTriangle, CalendarDays, X, GitBranch, Star, Pencil, ChevronRight, ListChecks } from 'lucide-react'
+import { User, Building2, Users, Lock, Save, Eye, EyeOff, ExternalLink, Settings2, Play, RefreshCw, Key, Plus, Trash2, Copy, CheckCheck, AlertTriangle, CalendarDays, X, GitBranch, Star, Pencil, ChevronRight, ListChecks, Mail, Send, CheckCircle2, XCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import api from '../../lib/api'
@@ -405,6 +405,144 @@ function UsersTab() {
 
 interface SettingRow { key: string; value: string; label: string }
 
+interface MailerStatus {
+  configured: boolean
+  host: string | null
+  port: number
+  mode: 'SSL' | 'STARTTLS'
+  user: string | null
+  from: string
+  frontendUrl: string
+  missing: string[]
+  connection?: { ok: true; latencyMs: number } | { ok: false; code: string | null; message: string }
+}
+
+function MailerSection() {
+  const currentEmail = useAuthStore(s => s.user?.email ?? '')
+  const [testTo, setTestTo] = useState(currentEmail)
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  const statusQuery = useQuery<MailerStatus>({
+    queryKey: ['mailer-status'],
+    queryFn: async () => { const { data } = await api.get('/settings/mail/status'); return data.data },
+    staleTime: 60_000,
+    retry: false,
+  })
+
+  const testMutation = useMutation({
+    mutationFn: (to: string) => api.post('/settings/mail/test', { to }),
+    onSuccess: (res) => {
+      const accepted: string[] = res.data.data?.accepted ?? []
+      setTestResult({ ok: true, message: `Email accepté par le serveur SMTP pour ${accepted.join(', ') || testTo}. Vérifiez la boîte de réception et le dossier spam.` })
+    },
+    onError: (err: unknown) => {
+      const e = err as { response?: { data?: { error?: { message?: string } } } }
+      setTestResult({ ok: false, message: e.response?.data?.error?.message ?? 'Échec de l\'envoi du mail de test' })
+    },
+  })
+
+  const st = statusQuery.data
+  const conn = st?.connection
+  const badge = !st
+    ? null
+    : !st.configured
+      ? { cls: 'bg-amber-50 text-amber-700 border-amber-200', icon: <AlertTriangle className="w-3.5 h-3.5" />, label: 'Non configuré' }
+      : conn?.ok
+        ? { cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: <CheckCircle2 className="w-3.5 h-3.5" />, label: `Connecté (${conn.latencyMs} ms)` }
+        : conn
+          ? { cls: 'bg-red-50 text-red-700 border-red-200', icon: <XCircle className="w-3.5 h-3.5" />, label: 'Connexion impossible' }
+          : { cls: 'bg-slate-50 text-slate-600 border-slate-200', icon: <Mail className="w-3.5 h-3.5" />, label: 'Configuré' }
+
+  return (
+    <div className="space-y-4 pt-4 border-t border-slate-100">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800">Envoi d'emails (SMTP)</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Réinitialisation de mot de passe, clôture de tickets. Configuration dans le fichier <code className="text-[11px] bg-slate-100 px-1 rounded">.env</code> du serveur.</p>
+        </div>
+        <button
+          type="button"
+          className="btn-secondary flex items-center gap-1.5 text-xs flex-shrink-0"
+          onClick={() => statusQuery.refetch()}
+          disabled={statusQuery.isFetching}
+          title="Retester la connexion SMTP"
+        >
+          <RefreshCw className={cn('w-3.5 h-3.5', statusQuery.isFetching && 'animate-spin')} /> Retester
+        </button>
+      </div>
+
+      {statusQuery.isLoading && <p className="text-xs text-slate-400">Test de la connexion SMTP…</p>}
+      {statusQuery.isError && <p className="text-xs text-red-600">Impossible de récupérer l'état SMTP.</p>}
+
+      {st && badge && (
+        <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className={cn('inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border', badge.cls)}>
+              {badge.icon} {badge.label}
+            </span>
+          </div>
+
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
+            <dt className="text-slate-500">Serveur</dt>
+            <dd className="text-slate-800 font-mono">{st.host ? `${st.host}:${st.port} (${st.mode})` : '—'}</dd>
+            <dt className="text-slate-500">Compte</dt>
+            <dd className="text-slate-800 font-mono">{st.user ?? 'anonyme'}</dd>
+            <dt className="text-slate-500">Expéditeur</dt>
+            <dd className="text-slate-800 font-mono break-all">{st.from}</dd>
+            <dt className="text-slate-500">Liens des emails</dt>
+            <dd className="text-slate-800 font-mono break-all">{st.frontendUrl}</dd>
+          </dl>
+
+          {conn && !conn.ok && (
+            <div className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-md p-2.5">
+              <span className="font-semibold">Erreur SMTP{conn.code ? ` (${conn.code})` : ''} :</span> {conn.message}
+            </div>
+          )}
+
+          {st.missing.length > 0 && (
+            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md p-2.5">
+              <span className="font-semibold">Variables manquantes :</span> {st.missing.join(', ')}
+              {st.missing.includes('FRONTEND_URL') && <span> — les liens des emails pointeront vers {st.frontendUrl}.</span>}
+            </div>
+          )}
+
+          {st.configured && (
+            <div className="pt-2 border-t border-slate-100 space-y-2">
+              <label className="form-label">Envoyer un mail de test à</label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="email"
+                  className="form-input flex-1"
+                  value={testTo}
+                  onChange={e => setTestTo(e.target.value)}
+                  placeholder="adresse@exemple.fr"
+                />
+                <button
+                  type="button"
+                  className="btn-primary flex items-center justify-center gap-2 flex-shrink-0"
+                  onClick={() => { setTestResult(null); testMutation.mutate(testTo) }}
+                  disabled={testMutation.isPending || !testTo}
+                >
+                  {testMutation.isPending
+                    ? <><RefreshCw className="w-4 h-4 animate-spin" /> Envoi…</>
+                    : <><Send className="w-4 h-4" /> Envoyer</>}
+                </button>
+              </div>
+              {testResult && (
+                <p className={cn('text-xs rounded-md p-2.5 border', testResult.ok
+                  ? 'text-emerald-700 bg-emerald-50 border-emerald-100'
+                  : 'text-red-700 bg-red-50 border-red-100')}>
+                  {testResult.message}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SystemTab() {
   const qc = useQueryClient()
   const [runResult, setRunResult] = useState<{ expired: number; expiringSoon: number; reactivated: number } | null>(null)
@@ -582,6 +720,8 @@ function SystemTab() {
           </div>
         </div>
       </div>
+
+      <MailerSection />
 
       {/* Exécution manuelle */}
       <div className="pt-4 border-t border-slate-100 space-y-3">

@@ -358,6 +358,8 @@ Toutes les routes exigent `authenticate` (posé via `router.use(authenticate)`).
 | GET | `/settings/:key` | Permission `settings:read` | Un paramètre |
 | PUT | `/settings/:key` | Permission `settings:write` (clés sensibles → rôle ADMIN uniquement) | Met à jour un paramètre |
 | POST | `/settings/actions/run-contract-update` | Permission `settings:write` | Déclenche manuellement le job de mise à jour des statuts de contrats |
+| GET | `/settings/mail/status` | Permission `settings:write` | État de la configuration SMTP (hôte, port, mode STARTTLS/SSL, compte masqué, variables manquantes) + test de connexion réel |
+| POST | `/settings/mail/test` | Permission `settings:write` | Envoie un email de test à l'adresse fournie |
 
 Clés connues (`DEFAULTS`) : `contractExpiringSoonDays`, `licenseExpiringSoonDays`, `warrantyExpiringSoonDays`, `schedulerEnabled`, `schedulerTime`, `companyName`, `companyLogoUrl`, `companyAddress`, `companyContactEmail`, `companyPhone`, `companySiret`, `companyVatNumber`, `callRecordingRetentionDays`, `slaHoursCritical`, `slaHoursHigh`, `slaHoursNormal`, `slaHoursLow`, `googleAllowedDomain`, `googleAutoCreateRole`.
 
@@ -380,6 +382,18 @@ Erreurs : `404 NOT_FOUND` (clé hors `DEFAULTS`), `403 FORBIDDEN` (clé sensible
 
 **POST /settings/actions/run-contract-update**
 Pas de corps. Réponse : `data` = résultat brut retourné par `runContractStatusUpdate()` (voir `server/src/scheduler.ts`, non typé ici).
+
+**GET /settings/mail/status**
+Query optionnelle : `probe=false` pour ne pas tester la connexion (par défaut un `transporter.verify()` réel est exécuté, délai max 10 s).
+Réponse : `data: { configured, host, port, mode: 'STARTTLS' | 'SSL', user (masqué, ex. "c.***@dcb-technologies.fr"), from, frontendUrl, missing: string[], connection?: { ok: true, latencyMs } | { ok: false, code, message } }`.
+`configured` est vrai dès que `SMTP_HOST` ou `SMTP_USER` est renseigné ; `missing` liste les variables `SMTP_HOST/PORT/USER/PASS/FROM` et `FRONTEND_URL` absentes. Aucun secret n'est renvoyé.
+
+**POST /settings/mail/test**
+```json
+{ "to": "destinataire@exemple.fr" }
+```
+Réponse : `data: { messageId, accepted: string[], rejected: string[] }` (réponse du serveur SMTP).
+Erreurs : `400 VALIDATION_ERROR` (email invalide), `503 MAILER_NOT_CONFIGURED` (SMTP absent du `.env`), `502 MAIL_SEND_FAILED` (refus du serveur SMTP — le message contient le code nodemailer, ex. `EAUTH`, `ECONNECTION`, `EDNS`).
 
 ---
 

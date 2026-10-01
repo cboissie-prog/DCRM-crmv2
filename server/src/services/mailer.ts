@@ -4,13 +4,20 @@ import logger from '../lib/logger'
 /** SMTP configuré dès qu'un hôte ou un utilisateur est fourni (sinon les envois sont ignorés silencieusement). */
 export const isMailerConfigured = (): boolean => Boolean(process.env.SMTP_HOST || process.env.SMTP_USER)
 
+const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587')
+const SMTP_SECURE = process.env.SMTP_SECURE === 'true'
+
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.ethereal.email',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: process.env.SMTP_SECURE === 'true',
+  port: SMTP_PORT,
+  secure: SMTP_SECURE,
   auth: process.env.SMTP_USER
     ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
     : undefined,
+  // Un port filtré ou un hôte muet ne doit pas bloquer indéfiniment (verify() est aussi appelé depuis l'UI)
+  connectionTimeout: 10_000,
+  greetingTimeout: 10_000,
+  socketTimeout: 20_000,
 })
 
 const FROM = process.env.SMTP_FROM || 'DCB Technologies <noreply@dcb-technologies.fr>'
@@ -26,6 +33,92 @@ export async function sendMail(opts: { to: string; subject: string; html: string
   await transporter.sendMail({ from: FROM, ...opts })
 }
 
+export interface MailerStatus {
+  configured: boolean
+  host: string | null
+  port: number
+  /** 'SSL' (port 465, SMTP_SECURE=true) ou 'STARTTLS' (port 587, SMTP_SECURE absent/false) */
+  mode: 'SSL' | 'STARTTLS'
+  /** Identifiant SMTP masqué (ex. `c.***@dcb-technologies.fr`), null si envoi anonyme */
+  user: string | null
+  from: string
+  frontendUrl: string
+  /** Variables d'environnement SMTP_* / FRONTEND_URL manquantes ou vides */
+  missing: string[]
+  /** Résultat du test de connexion (transporter.verify) — absent si SMTP non configuré ou test non demandé */
+  connection?: { ok: true; latencyMs: number } | { ok: false; code: string | null; message: string }
+}
+
+function maskUser(user: string | undefined): string | null {
+  if (!user) return null
+  const at = user.indexOf('@')
+  const local = at > 0 ? user.slice(0, at) : user
+  const domain = at > 0 ? user.slice(at) : ''
+  return `${local.slice(0, 2)}***${domain}`
+}
+
+/** Résume une erreur nodemailer en une ligne (code + message), sans identifiants. */
+export function describeMailError(err: unknown): { code: string | null; message: string } {
+  const e = err as { code?: string; responseCode?: number; message?: string } | undefined
+  const code = e?.code ?? (e?.responseCode ? String(e.responseCode) : null)
+  const message = (e?.message ?? String(err)).split('\n')[0].slice(0, 300)
+  return { code, message }
+}
+
+/** État de la configuration SMTP, avec un test de connexion réel si `probe` est vrai. */
+export async function getMailerStatus(probe = true): Promise<MailerStatus> {
+  const missing = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM', 'FRONTEND_URL']
+    .filter(k => !process.env[k])
+  const status: MailerStatus = {
+    configured: isMailerConfigured(),
+    host: process.env.SMTP_HOST || null,
+    port: SMTP_PORT,
+    mode: SMTP_SECURE ? 'SSL' : 'STARTTLS',
+    user: maskUser(process.env.SMTP_USER),
+    from: FROM,
+    frontendUrl: APP_URL,
+    missing,
+  }
+  if (status.configured && probe) {
+    const started = Date.now()
+    try {
+      await transporter.verify()
+      status.connection = { ok: true, latencyMs: Date.now() - started }
+    } catch (err) {
+      status.connection = { ok: false, ...describeMailError(err) }
+    }
+  }
+  return status
+}
+
+/** Envoie un email de test (diagnostic admin). Laisse remonter l'erreur SMTP brute pour que la route la décrive. */
+export async function sendTestEmail(to: string): Promise<{ messageId: string | null; accepted: string[]; rejected: string[] }> {
+  const sentAt = new Date().toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })
+  const server = `${process.env.SMTP_HOST ?? ''}:${SMTP_PORT} (${SMTP_SECURE ? 'SSL' : 'STARTTLS'})`
+  const info = await transporter.sendMail({
+    from: FROM,
+    to,
+    subject: 'Test d\'envoi — DCB Technologies CRM',
+    text: `Cet email confirme que l'envoi SMTP du CRM fonctionne.\n\nServeur : ${server}\nLiens générés vers : ${APP_URL}\nEnvoyé le ${sentAt}`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 480px; margin: auto; padding: 32px;">
+        <h2 style="color: #1e293b; margin-bottom: 8px;">Envoi SMTP opérationnel</h2>
+        <p style="color: #475569;">Cet email confirme que l'envoi SMTP du CRM DCB Technologies fonctionne.</p>
+        <table style="font-size: 14px; color: #1e293b; border-collapse: collapse;">
+          <tr><td style="padding: 4px 12px 4px 0; color: #64748b;">Serveur</td><td>${escapeHtml(server)}</td></tr>
+          <tr><td style="padding: 4px 12px 4px 0; color: #64748b;">Liens générés vers</td><td>${escapeHtml(APP_URL)}</td></tr>
+          <tr><td style="padding: 4px 12px 4px 0; color: #64748b;">Envoyé le</td><td>${escapeHtml(sentAt)}</td></tr>
+        </table>
+      </div>
+    `,
+  })
+  return {
+    messageId: info.messageId ?? null,
+    accepted: (info.accepted ?? []).map(String),
+    rejected: (info.rejected ?? []).map(String),
+  }
+}
+
 /** Vérifie la connexion SMTP au démarrage (STARTTLS/SSL, identifiants) et loggue le résultat sans bloquer le boot. */
 export async function verifyMailer(): Promise<void> {
   if (!isMailerConfigured()) {
@@ -34,7 +127,7 @@ export async function verifyMailer(): Promise<void> {
   }
   try {
     await transporter.verify()
-    logger.info(`[MAILER] SMTP prêt — ${process.env.SMTP_HOST}:${process.env.SMTP_PORT || '587'} (${process.env.SMTP_SECURE === 'true' ? 'SSL' : 'STARTTLS'})`)
+    logger.info(`[MAILER] SMTP prêt — ${process.env.SMTP_HOST}:${SMTP_PORT} (${SMTP_SECURE ? 'SSL' : 'STARTTLS'})`)
   } catch (err) {
     logger.error({ err }, '[MAILER] Connexion SMTP impossible — vérifier SMTP_HOST/PORT/SECURE/USER/PASS')
   }
