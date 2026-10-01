@@ -35,7 +35,7 @@
 - Create: `server/tests/api/search-params.test.ts`
 
 **Steps:**
-- [ ] `equipment.ts` : lire `search` dans `req.query` ; si présent, `where.OR = [{ name: ciContains(search) }, { brand: ciContains(search) }, { model: ciContains(search) }, { serialNumber: ciContains(search) }]`.
+- [ ] `equipment.ts` : lire `search` dans `req.query` ; si présent, `where.OR = [{ brand: ciContains(search) }, { model: ciContains(search) }, { serialNumber: ciContains(search) }]` (pas de champ `name` sur `Equipment`).
 - [ ] `contracts.ts` : idem avec `where.OR = [{ title: ciContains(search) }, { reference: ciContains(search) }]` (vérifier le nom exact des colonnes dans `schema.prisma`, modèle `Contract`).
 - [ ] Documenter le paramètre `search` dans API.md (tableau + détail des deux routes) et openapi.json (`parameters` des deux GET).
 - [ ] Tests : créer une entreprise, deux équipements et deux contrats de test ; vérifier que `?search=` renvoie la bonne ligne (insensible à la casse), que la recherche vide renvoie tout, nettoyage en `afterAll`.
@@ -70,7 +70,7 @@
 - [ ] Modales (schémas Zod v4 alignés sur le serveur) :
   - Company : `name` min 1, `phone`, `email` ; `CompanySearchInput` au-dessus, `onSelect` pré-remplit `name`, `siret`, `vatNumber`, `billingAddress`, `city`, `postalCode`, `country`. POST `/companies`.
   - Contact : `firstName`, `lastName` min 1, `email`, `phone`, `companyId` (EntityPicker company avec `noCreate={false}` — ses enfants reçoivent `noCreate`). POST `/contacts`.
-  - Equipment : `companyId` requis (EntityPicker company, pré-rempli), `type` requis (select référentiel `equipment_type`), `name`, `brand`, `model`, `serialNumber`. POST `/equipment`.
+  - Equipment : `companyId` requis (EntityPicker company, pré-rempli), `type` requis (select référentiel `equipment_type`), `brand`, `model`, `serialNumber`. POST `/equipment`.
   - Contract : `companyId`, `type` (référentiel `contract_type`), `title`, `startDate`, `endDate` requis, `endDate >= startDate`. POST `/contracts`.
   - Product : `name`, `category` (référentiel `product_category`, pré-rempli depuis `context.productCategory`), `price` nombre ≥ 0 (« Prix HT »), `reference` ; envoyer `type: context.productType` si fourni et `isActive: true`. POST `/products`.
   - Chaque modale : `reset()` à l'ouverture, erreur API affichée (`error.response.data.error.message`), bouton « Créer et sélectionner », `onCreated({ id, label, sublabel })`.

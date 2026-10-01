@@ -4,6 +4,7 @@ import { optionalDateString } from '../lib/zod'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { ciContains } from '../lib/query'
 import { checkReferences } from '../lib/references'
 import { getSettingInt } from '../lib/settings'
 import { ensureExists, fetchOrFail, ensureCompanyMatch } from '../lib/relationChecks'
@@ -28,13 +29,18 @@ const equipmentSchema = z.object({
 
 router.get('/', requirePermission('equipment:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { companyId, type, status, warrantyExpiringSoon, page, limit } = req.query as Record<string, string>
+    const { companyId, type, status, warrantyExpiringSoon, search, page, limit } = req.query as Record<string, string>
     const pageNum = Math.max(1, parseInt(page) || 1)
     const limitNum = Math.min(200, Math.max(1, parseInt(limit) || 50))
     const where: Record<string, unknown> = {}
     if (companyId) where.companyId = companyId
     if (type) where.type = type
     if (status) where.status = status
+    if (search) where.OR = [
+      { brand: ciContains(search) },
+      { model: ciContains(search) },
+      { serialNumber: ciContains(search) },
+    ]
     if (warrantyExpiringSoon === 'true') {
       const days = await getSettingInt('warrantyExpiringSoonDays', 60)
       const threshold = new Date()

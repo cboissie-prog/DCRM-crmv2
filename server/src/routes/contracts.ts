@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client'
 import prisma from '../prisma/client'
 import { authenticate, AuthRequest, requirePermission } from '../middleware/auth'
 import { handleRouteError } from '../middleware/errorHandler'
+import { ciContains } from '../lib/query'
 import { checkReferences } from '../lib/references'
 import { getSettingInt } from '../lib/settings'
 
@@ -36,13 +37,17 @@ const contractSchema = z.object({
 
 router.get('/', requirePermission('contracts:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { status, type, companyId, expiringSoon, page, limit } = req.query as Record<string, string>
+    const { status, type, companyId, expiringSoon, search, page, limit } = req.query as Record<string, string>
     const pageNum = Math.max(1, parseInt(page) || 1)
     const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 25))
     const where: Record<string, unknown> = {}
     if (status) where.status = status
     if (type) where.type = type
     if (companyId) where.companyId = companyId
+    if (search) where.OR = [
+      { title: ciContains(search) },
+      { reference: ciContains(search) },
+    ]
     if (expiringSoon === 'true') {
       const days = await getSettingInt('contractExpiringSoonDays', 60)
       const threshold = new Date()

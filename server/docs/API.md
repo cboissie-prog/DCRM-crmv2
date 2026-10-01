@@ -1203,7 +1203,7 @@ Réponse (201) : l'article créé.
 | PUT | `/equipment/:id` | Permission `equipment:update` | Mise à jour partielle |
 | DELETE | `/equipment/:id` | Permission `equipment:delete` | Suppression |
 
-**GET /equipment** — Query : `companyId`, `type`, `status`, `warrantyExpiringSoon` (`"true"` → garantie expirant entre aujourd'hui et +90 jours), `page` (défaut 1), `limit` (défaut 50, max 200).
+**GET /equipment** — Query : `search` (contient, insensible à la casse, sur `brand`/`model`/`serialNumber`), `companyId`, `type`, `status`, `warrantyExpiringSoon` (`"true"` → garantie expirant entre aujourd'hui et +90 jours), `page` (défaut 1), `limit` (défaut 50, max 200).
 Réponse : tableau d'équipements (`company`, `contract`, `product`, `_count.tickets/licenses`) + `meta`.
 
 **POST /equipment**
@@ -1312,7 +1312,7 @@ Réponse (201) : la licence créée. FK vides (`productId`/`equipmentId`) normal
 | DELETE | `/contracts/:id` | Permission `contracts:delete` | Suppression |
 | GET | `/contracts/stats/mrr` | Permission `contracts:read` | Statistiques MRR / ARR des contrats actifs |
 
-**GET /contracts** — Query : `status`, `type`, `companyId`, `expiringSoon` (`"true"` → `endDate` dans les 60 jours **et** force `status = ACTIVE`, écrasant tout `status` passé en query), `page` (défaut 1), `limit` (défaut 25, max 100). Réponse : tableau de contrats (`company`, `_count.tickets/equipments`) + `meta`, triés par `endDate asc`.
+**GET /contracts** — Query : `search` (contient, insensible à la casse, sur `title`/`reference`), `status`, `type`, `companyId`, `expiringSoon` (`"true"` → `endDate` dans les 60 jours **et** force `status = ACTIVE`, écrasant tout `status` passé en query), `page` (défaut 1), `limit` (défaut 25, max 100). Réponse : tableau de contrats (`company`, `_count.tickets/equipments`) + `meta`, triés par `endDate asc`.
 
 **POST /contracts**
 ```json

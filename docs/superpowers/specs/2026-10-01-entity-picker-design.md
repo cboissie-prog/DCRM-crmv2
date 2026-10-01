@@ -99,7 +99,7 @@ Comportement :
   `GET /<ressource>?search=<query>&limit=20` plus les filtres du contexte
   (`companyId` pour contacts/équipements/contrats, `category`/`type`/`isActive=true` pour produits).
   Les libellés sont construits par entité : nom + ville (entreprise), prénom nom + entreprise
-  (contact), nom ou marque modèle + n° de série (équipement), titre + type + dates (contrat),
+  (contact), marque modèle + n° de série (équipement), titre + type + dates (contrat),
   nom + référence + prix HT (produit).
 - **Bouton « + Créer »** à droite du champ, rendu seulement si `usePermission('<ressource>:create')`
   est vrai et `noCreate` faux. Il ouvre la mini-modale de création de l'entité.
@@ -126,7 +126,7 @@ react-hook-form + Zod v4, les mêmes contraintes que les schémas serveur.
 |---|---|---|
 | Entreprise | nom*, recherche SIRENE (`CompanySearchInput`), téléphone, email | SIRENE → SIRET, TVA, adresse, ville, code postal |
 | Contact | prénom*, nom*, email, téléphone, entreprise (`EntityPicker company`) | `companyId` |
-| Équipement | entreprise* (`EntityPicker company`), type* (référentiel `equipment_type`), nom, marque, modèle, n° de série | `companyId` |
+| Équipement | entreprise* (`EntityPicker company`), type* (référentiel `equipment_type`), marque, modèle, n° de série | `companyId` |
 | Contrat | entreprise* (`EntityPicker company`), type* (référentiel `contract_type`), titre*, date de début*, date de fin* | `companyId` |
 | Produit | nom*, catégorie* (référentiel `product_category`), prix HT*, référence | `productCategory`, `productType` ; `isActive = true` |
 
@@ -152,7 +152,7 @@ Règles :
 ## 5. Côté serveur
 
 - `GET /equipment` : nouveau paramètre `search` (contains insensible à la casse via `ciContains`
-  sur `name`, `brand`, `model`, `serialNumber`).
+  sur `brand`, `model`, `serialNumber` — le modèle `Equipment` n'a pas de champ `name`).
 - `GET /contracts` : nouveau paramètre `search` (sur `title`, `reference`).
 - Les routes entreprises, contacts et produits ont déjà `search`. Aucune modification de
   schéma Prisma, aucune migration.

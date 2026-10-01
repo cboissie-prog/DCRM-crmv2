@@ -4629,6 +4629,14 @@
         "x-permission": "equipment:read",
         "parameters": [
           {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Recherche (contient, insensible à la casse) sur brand, model, serialNumber"
+          },
+          {
             "name": "companyId",
             "in": "query",
             "schema": {
@@ -5279,6 +5287,14 @@
         ],
         "x-permission": "contracts:read",
         "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Recherche (contient, insensible à la casse) sur title, reference"
+          },
           {
             "name": "status",
             "in": "query",
