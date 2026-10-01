@@ -1,4 +1,8 @@
 import nodemailer from 'nodemailer'
+import logger from '../lib/logger'
+
+/** SMTP configuré dès qu'un hôte ou un utilisateur est fourni (sinon les envois sont ignorés silencieusement). */
+export const isMailerConfigured = (): boolean => Boolean(process.env.SMTP_HOST || process.env.SMTP_USER)
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.ethereal.email',
@@ -10,12 +14,30 @@ const transporter = nodemailer.createTransport({
 })
 
 const FROM = process.env.SMTP_FROM || 'DCB Technologies <noreply@dcb-technologies.fr>'
-const APP_URL = process.env.APP_URL || 'http://localhost:5173'
+// Base des liens contenus dans les emails — même variable que les redirections OAuth (APP_URL conservé en repli)
+const APP_URL = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:5173'
 
 /** Envoi générique — retourne silencieusement si le mailer n'est pas configuré */
 export async function sendMail(opts: { to: string; subject: string; html: string; text?: string }): Promise<void> {
-  if (!process.env.SMTP_HOST && !process.env.SMTP_USER) return
+  if (!isMailerConfigured()) {
+    logger.warn({ to: opts.to, subject: opts.subject }, '[MAILER] SMTP non configuré — email non envoyé')
+    return
+  }
   await transporter.sendMail({ from: FROM, ...opts })
+}
+
+/** Vérifie la connexion SMTP au démarrage (STARTTLS/SSL, identifiants) et loggue le résultat sans bloquer le boot. */
+export async function verifyMailer(): Promise<void> {
+  if (!isMailerConfigured()) {
+    logger.warn('[MAILER] SMTP non configuré (SMTP_HOST/SMTP_USER absents) — aucun email ne sera envoyé (réinitialisation de mot de passe, clôture de tickets)')
+    return
+  }
+  try {
+    await transporter.verify()
+    logger.info(`[MAILER] SMTP prêt — ${process.env.SMTP_HOST}:${process.env.SMTP_PORT || '587'} (${process.env.SMTP_SECURE === 'true' ? 'SSL' : 'STARTTLS'})`)
+  } catch (err) {
+    logger.error({ err }, '[MAILER] Connexion SMTP impossible — vérifier SMTP_HOST/PORT/SECURE/USER/PASS')
+  }
 }
 
 /** Neutralise le HTML dans les valeurs interpolées (titres de tickets saisis par l'utilisateur). */
@@ -75,8 +97,7 @@ export async function sendTicketClosedEmail(params: {
 
 export async function sendPasswordResetEmail(email: string, token: string): Promise<void> {
   const resetUrl = `${APP_URL}/reset-password?token=${token}`
-  await transporter.sendMail({
-    from: FROM,
+  await sendMail({
     to: email,
     subject: 'Réinitialisation de votre mot de passe — DCB Technologies',
     html: `
