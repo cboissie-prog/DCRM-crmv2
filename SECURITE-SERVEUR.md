@@ -168,13 +168,13 @@ automatiquement** car ils touchent la base de données ou l'infra et demandent t
 
 ## Checklist rapide (dans l'ordre)
 
-- [ ] Firewall Plesk activé — seuls 80/443/SSH/8443 ouverts, 3001 et 5432 bloqués
-- [ ] Test `curl :3001` depuis l'extérieur → doit échouer
-- [ ] Fail2ban activé (jails nginx, ssh, plesk-panel, recidive)
-- [ ] Directives nginx anti-scan `.php` (return 444) en place
-- [ ] ModSecurity (OWASP/Comodo) activé
-- [ ] 2FA sur le panel Plesk + MAJ auto Plesk
-- [ ] SSH par clé uniquement, root par mot de passe désactivé
-- [ ] HTTPS forcé (301) + TLS 1.2+ uniquement
-- [ ] PostgreSQL local uniquement + backups quotidiens externalisés
-- [ ] Services inutilisés (FTP/mail/DNS) désactivés
+- [x] Firewall Plesk activé — seuls 80/443/SSH/8443 ouverts, 3001 et 5432 bloqués
+- [x] Test `curl :3001` depuis l'extérieur → doit échouer
+- [x] Fail2ban activé (jails nginx, ssh, plesk-panel, recidive)
+- [x] Directives nginx anti-scan `.php` (return 444) en place
+- [x] ModSecurity (OWASP/Comodo) activé
+- [x] 2FA sur le panel Plesk + MAJ auto Plesk
+- [x] SSH par clé uniquement, root par mot de passe désactivé
+- [x] HTTPS forcé (301) + TLS 1.2+ uniquement
+- [x] PostgreSQL local uniquement + backups quotidiens externalisés
+- [x] Services inutilisés (FTP/mail/DNS) désactivés
