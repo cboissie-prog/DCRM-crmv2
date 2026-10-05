@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -16,13 +17,14 @@ import {
   MoreHorizontal, Edit2, Trash2, ChevronRight,
   Building2, User, Calendar, X, Settings, GripVertical,
   Pencil, Bell, BellOff, FileText, CalendarCheck, Phone, Zap, Link2,
-  PartyPopper, UserPlus, Archive,
+  PartyPopper, UserPlus, Archive, LayoutGrid, List as ListIcon,
 } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import api from '../../lib/api'
 import { useUsersList } from '../../hooks/useApi'
 import { useAuthStore } from '../../store/authStore'
 import { usePermission } from '../../hooks/usePermission'
+import { useReferences } from '../../hooks/useReferences'
 import { formatCurrency, formatDate, cn } from '../../lib/utils'
 import { Modal } from '../../components/ui/Modal'
 import { PageSpinner } from '../../components/ui/Spinner'
@@ -30,8 +32,9 @@ import { toast } from '../../components/ui/Toast'
 import type { Opportunity, Contact, User as UserType } from '../../types'
 import { EntityPicker } from '../../components/ui/EntityPicker'
 import { ArchivesDrawer } from './ArchivesDrawer'
+import { PipelineListView } from './PipelineListView'
 
-interface PipelineStage {
+export interface PipelineStage {
   id: string
   pipelineId: string
   key: string
@@ -42,7 +45,7 @@ interface PipelineStage {
   isLost: boolean
 }
 
-interface Pipeline {
+export interface Pipeline {
   id: string
   name: string
   description?: string
@@ -63,6 +66,9 @@ const opportunitySchema = z.object({
   expectedCloseDate: z.string().optional(),
   notes: z.string().optional(),
   assignedToId: z.string().optional(),
+  source: z.string().optional(),
+  nextAction: z.string().optional(),
+  remindAt: z.string().optional(),
 })
 type OpportunityForm = z.infer<typeof opportunitySchema>
 
@@ -459,8 +465,9 @@ interface OppModalProps {
   canAssign: boolean
 }
 
-function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, stages, users, canAssign }: OppModalProps) {
+export function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, stages, users, canAssign }: OppModalProps) {
   const qc = useQueryClient()
+  const refs = useReferences()
   const [companyLabel, setCompanyLabel] = useState<string | undefined>(undefined)
   const [contactLabel, setContactLabel] = useState<string | undefined>(undefined)
 
@@ -488,6 +495,9 @@ function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, st
           : '',
         notes: editing.notes || '',
         assignedToId: editing.assignedToId || '',
+        source: editing.source || '',
+        nextAction: editing.nextAction || '',
+        remindAt: editing.remindAt ? editing.remindAt.slice(0, 16) : '',
       })
       setCompanyLabel(editing.company?.name)
       setContactLabel(editing.contact ? `${editing.contact.firstName} ${editing.contact.lastName}`.trim() : undefined)
@@ -504,7 +514,7 @@ function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, st
   const watchedCompanyId = watch('companyId')
 
   const createMutation = useMutation({
-    mutationFn: (values: OpportunityForm) => api.post('/pipeline/opportunities', { ...values, pipelineId }),
+    mutationFn: (values: Record<string, unknown>) => api.post('/pipeline/opportunities', { ...values, pipelineId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pipeline-opportunities'] })
       toast.success('Opportunité créée')
@@ -514,7 +524,7 @@ function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, st
   })
 
   const updateMutation = useMutation({
-    mutationFn: (values: OpportunityForm) =>
+    mutationFn: (values: Record<string, unknown>) =>
       api.put(`/pipeline/opportunities/${editing!.id}`, values),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pipeline-opportunities'] })
@@ -525,8 +535,16 @@ function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, st
   })
 
   const onSubmit = (values: OpportunityForm) => {
-    if (editing) updateMutation.mutate(values)
-    else createMutation.mutate(values)
+    // remindAt vide : à la création on omet le champ, en édition on efface explicitement
+    // (sinon une chaîne vide partirait telle quelle vers une colonne DateTime côté serveur).
+    const payload = {
+      ...values,
+      source: values.source || undefined,
+      nextAction: values.nextAction || undefined,
+      remindAt: values.remindAt || (editing ? null : undefined),
+    }
+    if (editing) updateMutation.mutate(payload)
+    else createMutation.mutate(payload)
   }
 
   if (!open) return null
@@ -660,6 +678,33 @@ function OpportunityModal({ open, onClose, editing, defaultStage, pipelineId, st
             </select>
           </div>
         )}
+
+        {/* Source + Prochaine action */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="form-group">
+            <label className="label">Source</label>
+            <select {...register('source')} className="input">
+              <option value="">— Non renseignée —</option>
+              {refs.options('lead_source').map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="label">Prochaine action</label>
+            <input
+              {...register('nextAction')}
+              className="input"
+              placeholder="Ex: rappeler le gérant, absent le lundi"
+            />
+          </div>
+        </div>
+
+        {/* Rappel */}
+        <div className="form-group">
+          <label className="label">Rappel</label>
+          <input {...register('remindAt')} type="datetime-local" className="input" />
+        </div>
 
         {/* Notes */}
         <div className="form-group">
@@ -923,6 +968,28 @@ export function PipelinePage() {
   const qc = useQueryClient()
   const canAssign = user?.role === 'ADMIN' || user?.role === 'MANAGER'
 
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [view, setView] = useState<'kanban' | 'list'>(() => {
+    const fromUrl = searchParams.get('view')
+    if (fromUrl === 'list' || fromUrl === 'kanban') return fromUrl
+    return localStorage.getItem('pipeline-view') === 'list' ? 'list' : 'kanban'
+  })
+
+  const changeView = (next: 'kanban' | 'list') => {
+    setView(next)
+    try { localStorage.setItem('pipeline-view', next) } catch { /* ignore */ }
+    setSearchParams(prev => {
+      const nextParams = new URLSearchParams(prev)
+      if (next === 'list') nextParams.set('view', 'list')
+      else nextParams.delete('view')
+      return nextParams
+    }, { replace: true })
+  }
+
+  // Colonnes Kanban dépliées (« Afficher les N autres ») — par clé d'étape, réinitialisé au
+  // changement de pipeline (spec §5 Kanban allégé).
+  const [showAllStages, setShowAllStages] = useState<Record<string, boolean>>({})
+
   const [search, setSearch] = useState('')
   const [assignedFilter, setAssignedFilter] = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -949,6 +1016,14 @@ export function PipelinePage() {
   const effectivePipelineId = selectedPipeline?.id ?? ''
   const stages = selectedPipeline?.stages ?? []
 
+  // Changer de pipeline referme les colonnes dépliées du Kanban précédent — ajustement pendant
+  // le rendu (pattern React recommandé), pas dans un effet.
+  const [prevPipelineId, setPrevPipelineId] = useState(effectivePipelineId)
+  if (effectivePipelineId !== prevPipelineId) {
+    setPrevPipelineId(effectivePipelineId)
+    setShowAllStages({})
+  }
+
   const { data: opportunities = [], isLoading } = useQuery<Opportunity[]>({
     queryKey: ['pipeline-opportunities', { search, assignedFilter, effectivePipelineId }],
     queryFn: async () => {
@@ -962,7 +1037,7 @@ export function PipelinePage() {
       })
       return data.data ?? data
     },
-    enabled: isAuthenticated && !!effectivePipelineId,
+    enabled: isAuthenticated && !!effectivePipelineId && view === 'kanban',
     staleTime: 30_000,
   })
 
@@ -1123,8 +1198,22 @@ export function PipelinePage() {
   const totalPipelineValue = activeOpps.reduce((acc, o) => acc + (o.value * o.probability) / 100, 0)
 
   // ── Groupement par stage ──────────────────────────────────────────────────
+  // Tri Kanban (spec §5) : rappel du jour ou dépassé d'abord, puis dernière mise à jour.
+  const isReminderDueOrOverdue = (o: Opportunity) => {
+    if (!o.remindAt) return false
+    const endOfToday = new Date()
+    endOfToday.setHours(23, 59, 59, 999)
+    return new Date(o.remindAt).getTime() <= endOfToday.getTime()
+  }
   const byStage = (stage: string) =>
-    opportunities.filter(o => o.stage === stage)
+    [...opportunities.filter(o => o.stage === stage)].sort((a, b) => {
+      const aDue = isReminderDueOrOverdue(a) ? 1 : 0
+      const bDue = isReminderDueOrOverdue(b) ? 1 : 0
+      if (aDue !== bDue) return bDue - aDue
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    })
+  const toggleShowAllStage = (stageKey: string) =>
+    setShowAllStages(prev => ({ ...prev, [stageKey]: !prev[stageKey] }))
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleEdit = (opp: Opportunity) => setEditingOpp(opp)
@@ -1139,8 +1228,6 @@ export function PipelinePage() {
     scheduleTagMutation.mutate({ oppId, tagType, scheduledAt })
   }
   const handleArchive = (id: string) => archiveMutation.mutate(id)
-
-  if (isLoading) return <PageSpinner />
 
   return (
     <div className="flex flex-col h-full fade-in">
@@ -1176,6 +1263,27 @@ export function PipelinePage() {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Bascule Kanban | Liste (spec §5) */}
+          <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+            <button
+              onClick={() => changeView('kanban')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                view === 'kanban' ? 'bg-white text-slate-900 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700',
+              )}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" /> Kanban
+            </button>
+            <button
+              onClick={() => changeView('list')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                view === 'list' ? 'bg-white text-slate-900 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700',
+              )}
+            >
+              <ListIcon className="w-3.5 h-3.5" /> Liste
+            </button>
+          </div>
           {canAssign && (
             <button
               className="btn-secondary"
@@ -1201,6 +1309,16 @@ export function PipelinePage() {
         </div>
       </div>
 
+      {/* ── Vue Liste ──────────────────────────────────────────────────────── */}
+      {view === 'list' ? (
+        <PipelineListView
+          pipelineId={effectivePipelineId}
+          stages={stages}
+          canAssign={canAssign}
+          onEdit={handleEdit}
+        />
+      ) : isLoading ? <PageSpinner /> : (
+      <>
       {/* ── Stats rapides ──────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
         <div className="bg-white rounded-2xl border border-slate-200 p-4 flex items-center gap-4">
@@ -1271,8 +1389,11 @@ export function PipelinePage() {
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="flex gap-4 overflow-x-auto pb-6 flex-1 min-h-0">
           {stages.map(stage => {
-            const stageOpps = byStage(stage.key)
-            const stageValue = stageOpps.reduce((acc, o) => acc + o.value, 0)
+            const stageOppsAll = byStage(stage.key)
+            const stageValue = stageOppsAll.reduce((acc, o) => acc + o.value, 0)
+            const expanded = showAllStages[stage.key] ?? false
+            const stageOpps = expanded ? stageOppsAll : stageOppsAll.slice(0, 5)
+            const hiddenCount = stageOppsAll.length - stageOpps.length
 
             return (
               <div
@@ -1287,7 +1408,7 @@ export function PipelinePage() {
                       <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={stageDot(stage.color)} />
                       <span className="text-sm font-semibold text-slate-800">{stage.name}</span>
                       <span className="text-xs font-bold text-slate-500 bg-white/70 px-1.5 py-0.5 rounded-full">
-                        {stageOpps.length}
+                        {stageOppsAll.length}
                       </span>
                     </div>
                     {!stage.isWon && !stage.isLost && (
@@ -1336,6 +1457,18 @@ export function PipelinePage() {
                   )}
                 </Droppable>
 
+                {/* « Afficher les N autres » — Kanban allégé (spec §5), 5 cartes par colonne */}
+                {(hiddenCount > 0 || expanded) && stageOppsAll.length > 5 && (
+                  <div className="px-3 py-2 border-t border-current/10">
+                    <button
+                      onClick={() => toggleShowAllStage(stage.key)}
+                      className="text-xs text-slate-500 hover:text-slate-700 hover:underline transition-colors font-medium"
+                    >
+                      {expanded ? 'Réduire' : `Afficher les ${hiddenCount} autres`}
+                    </button>
+                  </div>
+                )}
+
                 {/* Lien discret vers les archives (colonnes gagné/perdu) */}
                 {stage.isWon && (archiveCounts?.won ?? 0) > 0 && (
                   <div className="px-3 py-2 border-t border-current/10">
@@ -1363,6 +1496,8 @@ export function PipelinePage() {
 
         </div>
       </DragDropContext>
+      </>
+      )}
 
       {/* ── Modale création/édition ────────────────────────────────────────── */}
       <OpportunityModal

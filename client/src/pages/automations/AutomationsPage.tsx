@@ -49,7 +49,6 @@ const TRIGGERS: Record<string, { label: string; description: string; category: '
   OPPORTUNITY_STAGE_CHANGED: { label: 'Étape opportunité changée', description: 'Se déclenche lors d\'un changement d\'étape dans le pipeline',   category: 'event',     conditionFields: [{ key: 'fromStage', label: 'Depuis l\'étape', type: 'text', placeholder: 'ex: QUALIFICATION' }, { key: 'toStage', label: 'Vers l\'étape', type: 'text', placeholder: 'ex: WON' }] },
   OPPORTUNITY_INACTIVE:      { label: 'Opportunité inactive',      description: 'Se déclenche si une opportunité n\'a pas bougé depuis N jours',  category: 'scheduled', conditionFields: [{ key: 'inactiveDays', label: 'Jours sans activité', type: 'number', placeholder: '15' }] },
   CONTRACT_EXPIRING:         { label: 'Contrat expirant',          description: 'Se déclenche N jours avant l\'expiration d\'un contrat',         category: 'scheduled', conditionFields: [{ key: 'daysBeforeExpiry', label: 'Jours avant expiration', type: 'number', placeholder: '30' }] },
-  LEAD_SCORE_THRESHOLD:      { label: 'Score lead atteint',        description: 'Se déclenche quand un lead atteint un score minimum',            category: 'event',     conditionFields: [{ key: 'minScore', label: 'Score minimum', type: 'number', placeholder: '70' }] },
 }
 
 interface ConditionField {

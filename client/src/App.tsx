@@ -35,9 +35,6 @@ const CompanyMapPage = lazy(() =>
 const PipelinePage = lazy(() =>
   import('./pages/pipeline/PipelinePage').then(m => ({ default: m.PipelinePage }))
 )
-const LeadsPage = lazy(() =>
-  import('./pages/pipeline/LeadsPage').then(m => ({ default: m.LeadsPage }))
-)
 const TicketsListView = lazy(() =>
   import('./pages/tickets/TicketsPage').then(m => ({ default: m.TicketsListView }))
 )
@@ -171,8 +168,10 @@ export default function App() {
               {/* pipeline:read */}
               <Route element={<ProtectedRoute permission="pipeline:read" />}>
                 <Route path="/pipeline" element={<PipelinePage />} />
-                <Route path="/leads" element={<LeadsPage />} />
               </Route>
+
+              {/* Ancienne page Leads fusionnée dans le pipeline (vue Liste) */}
+              <Route path="/leads" element={<Navigate to="/pipeline?view=list" replace />} />
 
               {/* tickets:read */}
               <Route element={<ProtectedRoute permission="tickets:read" />}>

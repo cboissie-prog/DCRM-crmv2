@@ -372,7 +372,7 @@ export function CallDetailPage() {
   const qc = useQueryClient()
   const [showEdit, setShowEdit]           = useState(false)
   const [showTicketModal, setShowTicket]  = useState(false)
-  const [showLeadModal, setShowLead]      = useState(false)
+  const [showOpportunityModal, setShowOpportunity] = useState(false)
   const [activeTab, setActiveTab]         = useState<'info' | 'notes' | 'recording'>('info')
   const [showStatusMenu, setShowStatusMenu] = useState(false)
   const refs = useReferences()
@@ -490,9 +490,9 @@ export function CallDetailPage() {
           </button>
           <button
             className="btn-secondary flex items-center gap-1.5"
-            onClick={() => setShowLead(true)}
+            onClick={() => setShowOpportunity(true)}
           >
-            <TrendingUp className="w-4 h-4" /> Créer un lead
+            <TrendingUp className="w-4 h-4" /> Créer une opportunité
           </button>
           <CanDo permission="calls:update">
             <button className="btn-secondary" onClick={() => setShowEdit(true)}>
@@ -710,13 +710,13 @@ export function CallDetailPage() {
           setShowTicket(false); toast.success('Ticket créé')
         }}
       />
-      <LeadFromCallModal
-        open={showLeadModal}
+      <OpportunityFromCallModal
+        open={showOpportunityModal}
         call={call}
-        onClose={() => setShowLead(false)}
+        onClose={() => setShowOpportunity(false)}
         onSuccess={() => {
           qc.invalidateQueries({ queryKey: ['call', id] })
-          setShowLead(false); toast.success('Lead créé')
+          setShowOpportunity(false); toast.success('Opportunité créée')
         }}
       />
     </div>
@@ -1257,78 +1257,123 @@ function TicketFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose:
   )
 }
 
-// ─── Modal lead depuis appel ──────────────────────────────────────────────────
+// ─── Modal opportunité depuis appel ────────────────────────────────────────────
 
-const leadFromCallSchema = z.object({
+const opportunityFromCallSchema = z.object({
   title:       z.string().min(1, 'Titre requis'),
-  description: z.string().optional(),
+  notes:       z.string().optional(),
   source:      z.string(),
   contactId:   z.string().optional(),
+  companyId:   z.string().optional(),
 })
-type LeadFromCallData = z.infer<typeof leadFromCallSchema>
+type OpportunityFromCallData = z.infer<typeof opportunityFromCallSchema>
 
-function LeadFromCallModal({ open, call, onClose, onSuccess }: { open: boolean; call: Call; onClose: () => void; onSuccess: () => void }) {
+interface CallPipelineStage { key: string; isWon: boolean; isLost: boolean; order: number }
+interface CallPipeline { id: string; name: string; isDefault: boolean; stages: CallPipelineStage[] }
+
+function OpportunityFromCallModal({ open, call, onClose, onSuccess }: { open: boolean; call: Call; onClose: () => void; onSuccess: () => void }) {
   // Le formulaire est un enfant de Modal : démonté à la fermeture, il repart
   // toujours de valeurs fraîches (pas d'effet de reset nécessaire)
   return (
-    <Modal open={open} onClose={onClose} title="Créer un lead depuis cet appel" size="md">
-      <LeadFromCallForm call={call} onClose={onClose} onSuccess={onSuccess} />
+    <Modal open={open} onClose={onClose} title="Créer une opportunité depuis cet appel" size="md">
+      <OpportunityFromCallForm call={call} onClose={onClose} onSuccess={onSuccess} />
     </Modal>
   )
 }
 
-function LeadFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose: () => void; onSuccess: () => void }) {
+function OpportunityFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose: () => void; onSuccess: () => void }) {
   const refs = useReferences()
+
+  // Pipeline par défaut : l'opportunité créée depuis un appel part toujours sur la première
+  // étape (ouverte) de ce pipeline.
+  const { data: pipelines = [] } = useQuery<CallPipeline[]>({
+    queryKey: ['pipelines'],
+    queryFn: async () => { const { data } = await api.get('/pipelines'); return data.data ?? [] },
+    staleTime: 60_000,
+  })
+  const defaultPipeline = pipelines.find(p => p.isDefault) ?? pipelines[0]
+  const firstStage = [...(defaultPipeline?.stages ?? [])].sort((a, b) => a.order - b.order).find(s => !s.isWon && !s.isLost)
+
   // Préselection selon le sens de l'appel : entrant → prospect qui a appelé, sortant → prospection à froid
   const defaultSource = call.direction === 'OUTBOUND' ? 'COLD_CALL' : 'PHONE_INBOUND'
-  const { register, handleSubmit, control, setValue, formState: { errors, isSubmitting } } = useForm<LeadFromCallData>({
-    resolver: zodResolver(leadFromCallSchema) as Resolver<LeadFromCallData>,
+  const defaultTitle = `${call.company?.name ?? call.callerName ?? call.callerNumber} — ${formatDate(call.startedAt)}`
+  const { register, handleSubmit, control, setValue, formState: { errors, isSubmitting } } = useForm<OpportunityFromCallData>({
+    resolver: zodResolver(opportunityFromCallSchema) as Resolver<OpportunityFromCallData>,
     defaultValues: {
-      title: `Lead — ${call.callerName ?? call.callerNumber} — ${formatDate(call.startedAt)}`,
-      description: call.notes ?? '',
+      title: defaultTitle,
+      notes: call.notes ?? '',
       source: defaultSource,
       contactId: call.contactId ?? '',
+      companyId: call.companyId ?? '',
     },
   })
   // Le formulaire est démonté à la fermeture de la modale : pas de resynchronisation nécessaire.
   const [contactLabel, setContactLabel] = useState(call.contact ? `${call.contact.firstName} ${call.contact.lastName}` : undefined)
-  const [contactError, setContactError] = useState<string | null>(null)
+  const [companyLabel, setCompanyLabel] = useState(call.company?.name)
   const contactId = useWatch({ control, name: 'contactId' })
+  const companyId = useWatch({ control, name: 'companyId' })
 
   const mutation = useMutation({
-    mutationFn: async (values: LeadFromCallData) => {
-      if (!values.contactId) throw new Error('Contact requis')
-      const { data } = await api.post('/pipeline/leads', { title: values.title, description: values.description || undefined, source: values.source, contactId: values.contactId })
+    mutationFn: async (values: OpportunityFromCallData) => {
+      const { data } = await api.post('/pipeline/opportunities', {
+        title: values.title,
+        notes: values.notes || undefined,
+        source: values.source,
+        contactId: values.contactId || undefined,
+        companyId: values.companyId || undefined,
+        pipelineId: defaultPipeline?.id,
+        stage: firstStage?.key,
+      })
       return data
     },
-    onSuccess, onError: () => toast.error('Erreur lors de la création du lead'),
+    onSuccess, onError: () => toast.error('Erreur lors de la création de l\'opportunité'),
   })
 
-  const submit = (values: LeadFromCallData) => {
-    if (!values.contactId) { setContactError('Sélectionnez un contact'); return }
-    mutation.mutate(values)
+  const submit = (values: OpportunityFromCallData) => mutation.mutate(values)
+
+  // Choisir un contact ayant une entreprise synchronise le champ entreprise
+  const handleContactChange = (id: string | null, option?: SearchSelectOption) => {
+    setValue('contactId', id ?? undefined)
+    setContactLabel(option?.label)
+    const metaCompany = (option?.meta as { company?: { id: string; name: string } | null } | undefined)?.company
+    if (metaCompany) {
+      setValue('companyId', metaCompany.id)
+      setCompanyLabel(metaCompany.name)
+    }
   }
 
   return (
     <form onSubmit={handleSubmit(submit)} className="space-y-4">
         <div className="form-group">
-          <label className="label">Titre du lead *</label>
+          <label className="label">Titre de l'opportunité *</label>
           <input {...register('title')} className={`input ${errors.title ? 'input-error' : ''}`} />
           {errors.title && <p className="form-error">{errors.title.message}</p>}
         </div>
-        <div className="form-group">
-          <label className="label">Contact * <span className="text-xs text-slate-400">(requis pour créer un lead)</span></label>
-          <EntityPicker
-            entity="contact"
-            value={contactId ?? null}
-            valueLabel={contactLabel}
-            onChange={(id, option) => { setValue('contactId', id ?? undefined); setContactLabel(option?.label); setContactError(null) }}
-            error={contactError ?? undefined}
-            context={{ companyId: call.companyId, contactDefaults: callerContactDefaults(call) }}
-          />
-          {!call.contactId && (
-            <p className="text-xs text-amber-600 mt-1">Cet appel n'a pas de contact identifié. Sélectionnez-en un ou créez-le.</p>
-          )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="form-group">
+            <label className="label">Contact</label>
+            <EntityPicker
+              entity="contact"
+              value={contactId ?? null}
+              valueLabel={contactLabel}
+              onChange={handleContactChange}
+              context={{ companyId, contactDefaults: callerContactDefaults(call) }}
+              allowNone
+            />
+            {!call.contactId && (
+              <p className="text-xs text-amber-600 mt-1">Cet appel n'a pas de contact identifié. Sélectionnez-en un ou créez-le.</p>
+            )}
+          </div>
+          <div className="form-group">
+            <label className="label">Entreprise</label>
+            <EntityPicker
+              entity="company"
+              value={companyId ?? null}
+              valueLabel={companyLabel}
+              onChange={(id, option) => { setValue('companyId', id ?? undefined); setCompanyLabel(option?.label) }}
+              allowNone
+            />
+          </div>
         </div>
         <div className="form-group">
           <label className="label">Source</label>
@@ -1337,14 +1382,14 @@ function LeadFromCallForm({ call, onClose, onSuccess }: { call: Call; onClose: (
           </select>
         </div>
         <div className="form-group">
-          <label className="label">Description</label>
-          <textarea {...register('description')} className="input resize-none" rows={3} />
+          <label className="label">Notes</label>
+          <textarea {...register('notes')} className="input resize-none" rows={3} />
         </div>
         <div className="flex justify-end gap-3 pt-2">
           <button type="button" className="btn-secondary" onClick={onClose}>Annuler</button>
           <button type="submit" className="btn-primary" disabled={isSubmitting || mutation.isPending}>
             {isSubmitting || mutation.isPending ? <Spinner className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />}
-            Créer le lead
+            Créer l'opportunité
           </button>
         </div>
     </form>

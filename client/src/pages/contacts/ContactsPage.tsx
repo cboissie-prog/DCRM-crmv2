@@ -339,7 +339,7 @@ function ContactFormFields({
 }) {
   const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = form
   const refs = useReferences()
-  // État local : la modale démonte le formulaire à la fermeture (cf. LeadsPage).
+  // État local : la modale démonte le formulaire à la fermeture.
   const [localCompanyLabel, setLocalCompanyLabel] = useState(companyLabel)
   const companyId = watch('companyId')
 

@@ -25,7 +25,6 @@ const navItems: NavItem[] = [
   { label: 'Appels', module: 'calls', icon: <Phone className="w-4 h-4" />, to: '/calls' },
   { label: 'Commercial', module: 'commercial', icon: <TrendingUp className="w-4 h-4" />, children: [
     { label: 'Pipeline',            to: '/pipeline' },
-    { label: 'Leads',               to: '/leads' },
     { label: 'Objectifs & Prévisions', to: '/targets' },
   ]},
   { label: 'Tickets', module: 'tickets', icon: <Wrench className="w-4 h-4" />, to: '/tickets' },

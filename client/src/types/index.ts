@@ -59,24 +59,13 @@ export interface Contact {
   updatedAt: string
 }
 
-export interface Lead {
-  id: string
-  contactId: string
-  contact: Contact & { company?: { id: string; name: string } | null }
-  source: string
-  title: string
-  description?: string
-  score: number
-  status: string
-  createdAt: string
-  updatedAt: string
-}
+export type ProspectStatus = 'TODO' | 'NO_ANSWER' | 'REACHED' | 'CALLBACK'
 
 export interface Opportunity {
   id: string
   title: string
   contactId?: string
-  contact?: { id: string; firstName: string; lastName: string }
+  contact?: { id: string; firstName: string; lastName: string; phone?: string; mobile?: string; email?: string }
   companyId?: string
   company?: { id: string; name: string }
   stage: string
@@ -84,12 +73,23 @@ export interface Opportunity {
   probability: number
   expectedCloseDate?: string
   closedAt?: string
+  archivedAt?: string
   lostReason?: string
   assignedToId?: string
   assignedTo?: { id: string; firstName: string; lastName: string; avatar?: string }
   notes?: string
   tags?: string
   remindAt?: string
+  /** Référentiel `lead_source` — origine du prospect/de l'opportunité */
+  source?: string
+  /** Statut de prospection : À traiter · Appelé sans réponse · Joint · À rappeler */
+  prospectStatus?: ProspectStatus
+  /** Dernier clic Appelé sans réponse / Joint */
+  lastContactedAt?: string
+  /** Nombre de tentatives d'appel (incrémenté par PATCH /prospect) */
+  callAttempts?: number
+  /** Note courte libre : « rappeler le gérant, absent le lundi » */
+  nextAction?: string
   createdAt: string
   updatedAt: string
 }
