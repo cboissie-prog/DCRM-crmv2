@@ -732,7 +732,9 @@ export function TicketDetailPage() {
       form.append('content', content)
       form.append('isInternal', isInternal ? 'true' : 'false')
       files.forEach(f => form.append('files', f))
-      return api.post(`/tickets/${id}/comments`, form)
+      // L'instance axios impose Content-Type: application/json ; avec un FormData, axios 1.x le convertirait
+      // alors en JSON (fichiers perdus). Forcer multipart : le navigateur ajoute la frontière (boundary).
+      return api.post(`/tickets/${id}/comments`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ticket', id] })
