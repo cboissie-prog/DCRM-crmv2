@@ -7,6 +7,7 @@ import { checkReferences } from '../lib/references'
 import { fireAutomations } from '../automation-engine'
 import { getWonLostStageKeys } from '../services/pipelineService'
 import { ensureExists, fetchOrFail, ensureCompanyMatch } from '../lib/relationChecks'
+import { audit } from '../lib/audit'
 
 const router = Router()
 router.use(authenticate)
@@ -163,17 +164,22 @@ router.post('/leads/:id/convert', requirePermission('pipeline:update'), async (r
 
 router.get('/opportunities', requirePermission('pipeline:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { stage, assignedToId, companyId, pipelineId, page = '1', limit = '50' } = req.query as Record<string, string>
+    const { stage, assignedToId, companyId, pipelineId, archived = 'all', page = '1', limit = '50' } = req.query as Record<string, string>
     const where: Record<string, unknown> = {}
     if (stage) where.stage = stage
     if (assignedToId) where.assignedToId = assignedToId
     if (companyId) where.companyId = companyId
     if (pipelineId) where.pipelineId = pipelineId
+    // `archived` par défaut à 'all' : comportement strictement inchangé pour les appelants
+    // existants (dashboard, objectifs, exports) qui n'envoient jamais ce paramètre.
+    if (archived === 'exclude') where.archivedAt = null
+    else if (archived === 'only') where.archivedAt = { not: null }
+    const orderBy = archived === 'only' ? { closedAt: 'desc' as const } : { createdAt: 'desc' as const }
     const [total, opportunities] = await Promise.all([
       prisma.opportunity.count({ where }),
       prisma.opportunity.findMany({
         where, skip: (parseInt(page) - 1) * parseInt(limit), take: parseInt(limit),
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         include: {
           contact: { select: { id: true, firstName: true, lastName: true } },
           company: { select: { id: true, name: true } },
@@ -269,6 +275,38 @@ router.post('/opportunities/reattach-orphans', requirePermission('pipeline:updat
   } catch (err) { handleRouteError(err, res) }
 })
 
+// GET /pipeline/opportunities/archives/count — compte des opportunités archivées par type
+// d'étape (gagné/perdu), pour les liens « N archivées » en pied de colonnes du Kanban.
+// Déclarée AVANT /opportunities/:id pour ne pas être capturée par le paramètre :id.
+router.get('/opportunities/archives/count', requirePermission('pipeline:read'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { pipelineId } = req.query as Record<string, string>
+    let wonKeys: string[]
+    let lostKeys: string[]
+    if (pipelineId) {
+      // Scopé au pipeline demandé : une même clé d'étape peut avoir un sens différent
+      // (gagné/perdu/ouvert) selon le pipeline.
+      const stages = await prisma.pipelineStage.findMany({
+        where: { pipelineId, OR: [{ isWon: true }, { isLost: true }] },
+        select: { key: true, isWon: true, isLost: true },
+      })
+      wonKeys = stages.filter(s => s.isWon).map(s => s.key)
+      lostKeys = stages.filter(s => s.isLost).map(s => s.key)
+    } else {
+      const keys = await getWonLostStageKeys()
+      wonKeys = keys.wonKeys
+      lostKeys = keys.lostKeys
+    }
+    const baseWhere: Record<string, unknown> = { archivedAt: { not: null } }
+    if (pipelineId) baseWhere.pipelineId = pipelineId
+    const [won, lost] = await Promise.all([
+      prisma.opportunity.count({ where: { ...baseWhere, stage: { in: wonKeys } } }),
+      prisma.opportunity.count({ where: { ...baseWhere, stage: { in: lostKeys } } }),
+    ])
+    res.json({ success: true, data: { won, lost } })
+  } catch (err) { handleRouteError(err, res) }
+})
+
 router.get('/opportunities/:id', requirePermission('pipeline:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const opp = await prisma.opportunity.findUnique({
@@ -359,7 +397,14 @@ router.patch('/opportunities/:id/stage', requirePermission('pipeline:update'), a
     if (lostReason) data.lostReason = lostReason
     if (previous && previous.stage !== stage) {
       const { wonKeys, lostKeys } = await getWonLostStageKeys()
-      data.closedAt = wonKeys.includes(stage) || lostKeys.includes(stage) ? new Date() : null
+      const isClosed = wonKeys.includes(stage) || lostKeys.includes(stage)
+      data.closedAt = isClosed ? new Date() : null
+      // Réouverture d'une affaire : une opportunité qui revient vers une étape ouverte
+      // ne doit plus être archivée, et redevient éligible à l'archivage automatique futur.
+      if (!isClosed) {
+        data.archivedAt = null
+        data.autoArchive = true
+      }
     }
     const opp = await prisma.opportunity.update({ where: { id: req.params.id }, data: data as Parameters<typeof prisma.opportunity.update>[0]['data'] })
     if (previous && previous.stage !== stage) {
@@ -368,6 +413,38 @@ router.patch('/opportunities/:id/stage', requirePermission('pipeline:update'), a
       }).catch(console.error)
     }
     res.json({ success: true, data: opp })
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// PATCH /pipeline/opportunities/:id/archive — archivage manuel (menu Actions des cartes
+// gagnées/perdues du Kanban). Refuse une opportunité dont l'étape n'est ni gagnée ni perdue.
+router.patch('/opportunities/:id/archive', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const opp = await prisma.opportunity.findUnique({ where: { id: req.params.id }, select: { id: true, stage: true } })
+    if (!opp) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Opportunité introuvable' } }); return }
+
+    const { wonKeys, lostKeys } = await getWonLostStageKeys()
+    if (!wonKeys.includes(opp.stage) && !lostKeys.includes(opp.stage)) {
+      res.status(400).json({ success: false, error: { code: 'NOT_CLOSED', message: 'Seule une opportunité gagnée ou perdue peut être archivée' } })
+      return
+    }
+
+    const updated = await prisma.opportunity.update({ where: { id: opp.id }, data: { archivedAt: new Date() } })
+    audit(req, 'OPPORTUNITY_ARCHIVED', 'Opportunity', opp.id)
+    res.json({ success: true, data: updated })
+  } catch (err) { handleRouteError(err, res) }
+})
+
+// PATCH /pipeline/opportunities/:id/unarchive — désarchivage manuel. Pose autoArchive=false
+// pour que l'automate ne la range pas à nouveau la nuit suivante.
+router.patch('/opportunities/:id/unarchive', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const opp = await prisma.opportunity.findUnique({ where: { id: req.params.id }, select: { id: true } })
+    if (!opp) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Opportunité introuvable' } }); return }
+
+    const updated = await prisma.opportunity.update({ where: { id: opp.id }, data: { archivedAt: null, autoArchive: false } })
+    audit(req, 'OPPORTUNITY_UNARCHIVED', 'Opportunity', opp.id)
+    res.json({ success: true, data: updated })
   } catch (err) { handleRouteError(err, res) }
 })
 

@@ -35,6 +35,54 @@ export async function runContractStatusUpdate(): Promise<{ expired: number; expi
   return { expired, expiringSoon, reactivated }
 }
 
+// ─── Job : archivage des opportunités gagnées/perdues ────────────────────────
+
+/**
+ * Archive (archivedAt = now) les opportunités dont l'étape est gagnée ou perdue
+ * DANS LEUR PROPRE PIPELINE (PipelineStage.isWon/isLost, scopé par pipelineId —
+ * une même clé d'étape peut avoir un sens différent selon le pipeline), closes
+ * depuis plus de `pipelineArchiveAfterDays` jours (réglage, défaut 30), pas déjà
+ * archivées et pas exclues de l'automate (`autoArchive = false`, posé après un
+ * désarchivage manuel).
+ */
+export async function runOpportunityArchiving(): Promise<{ archived: number }> {
+  const days = await getSettingInt('pipelineArchiveAfterDays', 30)
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+
+  const closedStages = await prisma.pipelineStage.findMany({
+    where: { OR: [{ isWon: true }, { isLost: true }] },
+    select: { pipelineId: true, key: true },
+  })
+  const closedKeysByPipeline = new Map<string, Set<string>>()
+  for (const s of closedStages) {
+    const set = closedKeysByPipeline.get(s.pipelineId) ?? new Set<string>()
+    set.add(s.key)
+    closedKeysByPipeline.set(s.pipelineId, set)
+  }
+
+  const candidates = await prisma.opportunity.findMany({
+    where: {
+      archivedAt: null,
+      autoArchive: true,
+      closedAt: { lt: cutoff },
+      pipelineId: { in: [...closedKeysByPipeline.keys()] },
+    },
+    select: { id: true, pipelineId: true, stage: true },
+  })
+
+  const toArchive = candidates.filter(o => o.pipelineId && closedKeysByPipeline.get(o.pipelineId)?.has(o.stage))
+
+  if (toArchive.length > 0) {
+    await prisma.opportunity.updateMany({
+      where: { id: { in: toArchive.map(o => o.id) } },
+      data: { archivedAt: new Date() },
+    })
+  }
+
+  logger.info(`[ARCHIVES] ${toArchive.length} opportunité(s) archivée(s)`)
+  return { archived: toArchive.length }
+}
+
 // ─── Job : rappels agenda (toutes les 15 min) ─────────────────────────────────
 
 export async function runAppointmentReminders(): Promise<number> {
@@ -148,6 +196,10 @@ function parseCronTime(hhmm: string): string {
 }
 
 export async function startScheduler() {
+  // Archivage des opportunités gagnées/perdues anciennes, une fois au démarrage.
+  // Fire-and-forget : ne doit jamais retarder le boot du serveur.
+  runOpportunityArchiving().catch(err => logger.error({ err }, '  ❌ Erreur archivage opportunités au démarrage'))
+
   const enabled = await getSettingStr('schedulerEnabled', 'true')
   const time = await getSettingStr('schedulerTime', '02:00')
 
@@ -227,6 +279,13 @@ export async function startScheduler() {
       }
     } catch (err) {
       logger.error({ err }, '  ❌ Erreur scheduler purge RGPD enregistrements')
+    }
+
+    // Archivage des opportunités gagnées/perdues anciennes (log [ARCHIVES] interne à la fonction)
+    try {
+      await runOpportunityArchiving()
+    } catch (err) {
+      logger.error({ err }, '  ❌ Erreur scheduler archivage opportunités')
     }
   }, { timezone: 'Europe/Paris' })
 

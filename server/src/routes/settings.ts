@@ -31,6 +31,7 @@ const DEFAULTS: Record<string, { value: string; label: string }> = {
   slaHoursLow:              { value: '72',      label: 'SLA tickets — priorité faible (heures)' },
   googleAllowedDomain:        { value: 'dcb-technologies.fr', label: 'Domaine email autorisé pour l\'auto-création via Google OAuth' },
   googleAutoCreateRole:       { value: 'COMMERCIAL', label: 'Rôle attribué lors de l\'auto-création d\'un compte via Google OAuth' },
+  pipelineArchiveAfterDays:   { value: '30',       label: 'Archiver les opportunités gagnées/perdues après (jours)' },
 }
 
 // GET /api/settings — all settings (settings:read)

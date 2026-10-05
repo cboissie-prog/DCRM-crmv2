@@ -6390,6 +6390,17 @@
             }
           },
           {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["exclude", "only", "all"],
+              "default": "all"
+            },
+            "description": "exclude = non archivées ; only = archivées uniquement (triées par closedAt desc) ; all = comportement inchangé (défaut, tous appelants existants)"
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -6539,6 +6550,45 @@
           },
           "400": {
             "description": "NO_PIPELINE — aucun pipeline actif disponible"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          }
+        }
+      }
+    },
+    "/pipeline/opportunities/archives/count": {
+      "get": {
+        "tags": [
+          "Pipeline"
+        ],
+        "summary": "Compte des opportunités archivées, par type d'étape",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "pipeline:read",
+        "parameters": [
+          {
+            "name": "pipelineId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Si fourni, scope le comptage à ce pipeline (étapes gagnées/perdues propres à ce pipeline)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ won: number, lost: number }"
           },
           "401": {
             "description": "Non authentifié"
@@ -6785,10 +6835,95 @@
         },
         "responses": {
           "200": {
-            "description": "Opportunité mise à jour, automatisation OPPORTUNITY_STAGE_CHANGED si l'étape a changé"
+            "description": "Opportunité mise à jour, automatisation OPPORTUNITY_STAGE_CHANGED si l'étape a changé. Si la nouvelle étape n'est ni gagnée ni perdue, archivedAt est remis à null et autoArchive à true (réouverture)"
           },
           "400": {
             "description": "VALIDATION_ERROR ou INVALID_STAGE (étape inconnue de tout pipeline non-template)"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          },
+          "404": {
+            "description": "Opportunité introuvable"
+          }
+        }
+      }
+    },
+    "/pipeline/opportunities/{id}/archive": {
+      "patch": {
+        "tags": [
+          "Pipeline"
+        ],
+        "summary": "Archive manuellement une opportunité gagnée/perdue",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "pipeline:update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Opportunité archivée (archivedAt = now). Audit OPPORTUNITY_ARCHIVED"
+          },
+          "400": {
+            "description": "NOT_CLOSED — l'étape n'est ni gagnée ni perdue"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          },
+          "404": {
+            "description": "Opportunité introuvable"
+          }
+        }
+      }
+    },
+    "/pipeline/opportunities/{id}/unarchive": {
+      "patch": {
+        "tags": [
+          "Pipeline"
+        ],
+        "summary": "Désarchive manuellement une opportunité",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "pipeline:update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Opportunité désarchivée (archivedAt = null, autoArchive = false). Audit OPPORTUNITY_UNARCHIVED"
           },
           "401": {
             "description": "Non authentifié"

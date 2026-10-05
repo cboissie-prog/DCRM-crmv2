@@ -361,7 +361,7 @@ Toutes les routes exigent `authenticate` (posé via `router.use(authenticate)`).
 | GET | `/settings/mail/status` | Permission `settings:write` | État de la configuration SMTP (hôte, port, mode STARTTLS/SSL, compte masqué, variables manquantes) + test de connexion réel |
 | POST | `/settings/mail/test` | Permission `settings:write` | Envoie un email de test à l'adresse fournie |
 
-Clés connues (`DEFAULTS`) : `contractExpiringSoonDays`, `licenseExpiringSoonDays`, `warrantyExpiringSoonDays`, `schedulerEnabled`, `schedulerTime`, `companyName`, `companyLogoUrl`, `companyAddress`, `companyContactEmail`, `companyPhone`, `companySiret`, `companyVatNumber`, `callRecordingRetentionDays`, `slaHoursCritical`, `slaHoursHigh`, `slaHoursNormal`, `slaHoursLow`, `googleAllowedDomain`, `googleAutoCreateRole`.
+Clés connues (`DEFAULTS`) : `contractExpiringSoonDays`, `licenseExpiringSoonDays`, `warrantyExpiringSoonDays`, `schedulerEnabled`, `schedulerTime`, `companyName`, `companyLogoUrl`, `companyAddress`, `companyContactEmail`, `companyPhone`, `companySiret`, `companyVatNumber`, `callRecordingRetentionDays`, `slaHoursCritical`, `slaHoursHigh`, `slaHoursNormal`, `slaHoursLow`, `googleAllowedDomain`, `googleAutoCreateRole`, `pipelineArchiveAfterDays`.
 
 Les seuils `contractExpiringSoonDays`, `licenseExpiringSoonDays` et `warrantyExpiringSoonDays` pilotent désormais les filtres `expiringSoon`/`warrantyExpiringSoon` des routes contrats/licences/équipements, les compteurs et alertes du dashboard et la vue Parc (plus aucun seuil 60/90 jours codé en dur).
 
@@ -756,9 +756,12 @@ Fichier : `server/src/routes/pipeline.ts`. Gère les leads et les opportunités.
 | GET | `/pipeline/opportunities` | Permission `pipeline:read` | Liste paginée des opportunités (filtrable) |
 | POST | `/pipeline/opportunities` | Permission `pipeline:create` | Crée une opportunité |
 | POST | `/pipeline/opportunities/reattach-orphans` | Permission `pipeline:update` | Rattache au pipeline par défaut les opportunités sans `pipelineId` |
+| GET | `/pipeline/opportunities/archives/count` | Permission `pipeline:read` | Compte des opportunités archivées, par type d'étape (gagné/perdu) |
 | GET | `/pipeline/opportunities/:id` | Permission `pipeline:read` | Détail d'une opportunité |
 | PUT | `/pipeline/opportunities/:id` | Permission `pipeline:update` | Met à jour une opportunité (partiel) |
 | PATCH | `/pipeline/opportunities/:id/stage` | Permission `pipeline:update` | Déplace une opportunité vers une autre étape (drag & drop Kanban) |
+| PATCH | `/pipeline/opportunities/:id/archive` | Permission `pipeline:update` | Archive manuellement une opportunité gagnée/perdue |
+| PATCH | `/pipeline/opportunities/:id/unarchive` | Permission `pipeline:update` | Désarchive manuellement une opportunité |
 | DELETE | `/pipeline/opportunities/:id` | Permission `pipeline:delete` | Supprime une opportunité (produits liés en cascade, activités détachées) |
 
 **GET /pipeline/leads**
@@ -799,7 +802,7 @@ Corps identique à la création, tous les champs optionnels (`.partial()`). Red�
 Crée une `Opportunity` liée au lead, passe le lead en `CONVERTED`, déclenche `OPPORTUNITY_CREATED`. Erreurs spécifiques : `404 NOT_FOUND` si le lead n'existe pas ; `400 PIPELINE_NOT_FOUND` si `pipelineId` est fourni mais introuvable.
 
 **GET /pipeline/opportunities**
-Query : `stage`, `assignedToId`, `companyId`, `pipelineId` (tous optionnels), `page` (défaut `'1'`), `limit` (défaut `'50'`). Réponse : `data` = opportunités (avec `contact`, `company`, `assignedTo`, `products.product`), `meta: { total, page, limit }`.
+Query : `stage`, `assignedToId`, `companyId`, `pipelineId` (tous optionnels), `archived` = `exclude` | `only` | `all` (optionnel, défaut `all` — comportement strictement inchangé pour les appelants existants qui n'envoient pas ce paramètre : dashboard, objectifs, exports), `page` (défaut `'1'`), `limit` (défaut `'50'`). `exclude` → n'affiche que les opportunités non archivées (`archivedAt: null`) ; `only` → n'affiche que les archivées (`archivedAt` non null), triées par `closedAt desc` (au lieu de `createdAt desc`). Réponse : `data` = opportunités (avec `contact`, `company`, `assignedTo`, `products.product`), `meta: { total, page, limit }`.
 
 **POST /pipeline/opportunities**
 ```json
@@ -826,6 +829,9 @@ Erreurs spécifiques : `400 CONTACT_NOT_FOUND`, `400 COMPANY_NOT_FOUND`, `400 LE
 **POST /pipeline/opportunities/reattach-orphans**
 Pas de corps. Réponse : `{ reattached: number, pipeline: string }`. Erreur spécifique : `400 NO_PIPELINE` si aucun pipeline actif.
 
+**GET /pipeline/opportunities/archives/count**
+Query : `pipelineId` (optionnel). Réponse : `{ won: number, lost: number }` — nombre d'opportunités archivées (`archivedAt` non null) dont l'étape est respectivement gagnée ou perdue. Si `pipelineId` est fourni, le comptage est scopé aux opportunités de ce pipeline et aux étapes gagnées/perdues propres à ce pipeline (une même clé d'étape peut avoir un sens différent selon le pipeline) ; sinon, dérivé de `getWonLostStageKeys()` (tous pipelines). Déclarée avant `GET /pipeline/opportunities/:id` pour ne pas être capturée par le paramètre `:id`.
+
 **GET /pipeline/opportunities/:id**
 Réponse : opportunité avec `contact`, `company`, `assignedTo`, `products.product`, `activities` (20 dernières), `lead`. `404 NOT_FOUND` si absente.
 
@@ -839,7 +845,13 @@ Corps identique à la création (`.partial()`). Si `stage` change réellement, `
   "lostReason": "string (optionnel)"
 }
 ```
-La clé `stage` doit correspondre à une étape existante (tous pipelines non-template confondus), sinon `400 INVALID_STAGE`. `404 NOT_FOUND` si l'opportunité n'existe pas. Si l'étape change, déclenche `OPPORTUNITY_STAGE_CHANGED` avec `previousStage`.
+La clé `stage` doit correspondre à une étape existante (tous pipelines non-template confondus), sinon `400 INVALID_STAGE`. `404 NOT_FOUND` si l'opportunité n'existe pas. Si l'étape change, déclenche `OPPORTUNITY_STAGE_CHANGED` avec `previousStage`. Si la nouvelle étape n'est ni gagnée ni perdue (réouverture d'une affaire), `archivedAt` est remis à `null` et `autoArchive` à `true`.
+
+**PATCH /pipeline/opportunities/:id/archive**
+Pas de corps. Archive l'opportunité (`archivedAt = now`). Erreurs spécifiques : `404 NOT_FOUND` si l'opportunité n'existe pas ; `400 NOT_CLOSED` si son étape n'est ni gagnée ni perdue (`getWonLostStageKeys()`). Audit `OPPORTUNITY_ARCHIVED`.
+
+**PATCH /pipeline/opportunities/:id/unarchive**
+Pas de corps. Désarchive l'opportunité (`archivedAt = null`) et pose `autoArchive = false` pour que l'automate ne la réarchive pas la nuit suivante. `404 NOT_FOUND` si l'opportunité n'existe pas. Audit `OPPORTUNITY_UNARCHIVED`.
 
 **DELETE /pipeline/opportunities/:id**
 Réponse : `{ success: true, data: null }`.
