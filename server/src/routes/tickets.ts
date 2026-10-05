@@ -289,10 +289,10 @@ router.get('/:id', requirePermission('tickets:read'), async (req: AuthRequest, r
           equipment: true,
           assignedTo: { select: { id: true, firstName: true, lastName: true, avatar: true } },
           createdBy: { select: { id: true, firstName: true, lastName: true } },
-          comments: { orderBy: { createdAt: 'asc' } },
+          comments: { orderBy: { createdAt: 'asc' }, include: { attachments: { orderBy: { createdAt: 'asc' } } } },
           events: { orderBy: { createdAt: 'desc' }, include: { author: { select: { id: true, firstName: true, lastName: true } } } },
           timeEntries: { orderBy: { createdAt: 'desc' }, include: { user: { select: { id: true, firstName: true, lastName: true } } } },
-          attachments: { orderBy: { createdAt: 'desc' }, include: { uploadedBy: { select: { id: true, firstName: true, lastName: true } } } },
+          attachments: { where: { commentId: null }, orderBy: { createdAt: 'desc' }, include: { uploadedBy: { select: { id: true, firstName: true, lastName: true } } } },
           npsResponse: true,
         },
       }),
@@ -460,26 +460,100 @@ router.patch('/:id/status', requirePermission('tickets:update'), async (req: Aut
 
 // ─── Commentaires ────────────────────────────────────────────────────────────
 
-router.post('/:id/comments', requirePermission('tickets:update'), async (req: AuthRequest, res: Response): Promise<void> => {
+/** Supprime du disque les fichiers déjà écrits par multer (upload partiel ou invalide). */
+function cleanupUploadedFiles(files: Express.Multer.File[]): void {
+  for (const f of files) {
+    fs.promises.unlink(f.path).catch(() => {})
+  }
+}
+
+/** Traduit une erreur multer (type/taille) en réponse 400 cohérente avec le reste du module. */
+function multerErrorResponse(err: unknown): { code: string; message: string } {
+  if (err instanceof multer.MulterError) {
+    const code = (err as unknown as Record<string, string>)['customCode'] === 'INVALID_FILE_TYPE' ? 'INVALID_FILE_TYPE' : 'UPLOAD_ERROR'
+    const message = code === 'INVALID_FILE_TYPE'
+      ? 'Type de fichier non autorisé (images, PDF, documents Office, txt, csv, zip)'
+      : err.code === 'LIMIT_FILE_SIZE' ? 'Fichier trop volumineux (10 Mo max)' : 'Erreur lors de l\'upload'
+    return { code, message }
+  }
+  return { code: 'UPLOAD_ERROR', message: 'Erreur lors de l\'upload' }
+}
+
+const commentBodySchema = z.object({
+  content: z.string().trim().optional(),
+  isInternal: z.union([z.boolean(), z.enum(['true', 'false']).transform(v => v === 'true')]).optional().default(false),
+})
+
+async function handleCommentSubmit(req: AuthRequest, res: Response, uploadErr: unknown): Promise<void> {
+  const files = (req.files as Express.Multer.File[] | undefined) ?? []
   try {
-    const { content, isInternal } = z.object({
-      content: z.string().trim().min(1, 'Le contenu du commentaire est requis'),
-      isInternal: z.union([z.boolean(), z.enum(['true', 'false']).transform(v => v === 'true')]).optional().default(false),
-    }).parse(req.body)
+    if (uploadErr) {
+      cleanupUploadedFiles(files)
+      const { code, message } = multerErrorResponse(uploadErr)
+      res.status(400).json({ success: false, error: { code, message } })
+      return
+    }
+    const parsed = commentBodySchema.safeParse(req.body)
+    if (!parsed.success) {
+      cleanupUploadedFiles(files)
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: parsed.error.issues[0]?.message ?? 'Payload invalide' } })
+      return
+    }
+    const content = parsed.data.content ?? ''
+    const isInternal = parsed.data.isInternal
+    if (!content && files.length === 0) {
+      cleanupUploadedFiles(files)
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Le contenu du commentaire est requis' } })
+      return
+    }
     const ticket = await prisma.ticket.findUnique({
       where: { id: req.params.id },
       select: { id: true, reference: true, title: true, assignedToId: true },
     })
-    if (!ticket) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ticket introuvable' } }); return }
+    if (!ticket) {
+      cleanupUploadedFiles(files)
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ticket introuvable' } })
+      return
+    }
     // Résoudre le nom de l'auteur depuis l'utilisateur authentifié (pas depuis le body client)
     let authorName = 'Inconnu'
     if (req.userId) {
       const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { firstName: true, lastName: true } })
       if (user) authorName = `${user.firstName} ${user.lastName}`.trim()
     }
-    const comment = await prisma.ticketComment.create({
-      data: { ticketId: ticket.id, content, isInternal, authorId: req.userId ?? null, authorName },
-    })
+
+    let comment
+    try {
+      comment = await prisma.$transaction(async (tx) => {
+        const created = await tx.ticketComment.create({
+          data: { ticketId: ticket.id, content, isInternal, authorId: req.userId ?? null, authorName },
+        })
+        if (files.length > 0) {
+          await tx.ticketAttachment.createMany({
+            data: files.map(f => ({
+              ticketId: ticket.id,
+              commentId: created.id,
+              filename: f.originalname,
+              storedName: f.filename,
+              mimeType: f.mimetype,
+              size: f.size,
+              uploadedById: req.userId ?? null,
+            })),
+          })
+        }
+        return tx.ticketComment.findUniqueOrThrow({
+          where: { id: created.id },
+          include: { attachments: { orderBy: { createdAt: 'asc' }, select: { id: true, filename: true, mimeType: true, size: true, createdAt: true } } },
+        })
+      })
+    } catch (e) {
+      cleanupUploadedFiles(files)
+      throw e
+    }
+
+    for (const f of files) {
+      audit(req, 'TICKET_ATTACHMENT_UPLOADED', 'Ticket', ticket.id, { filename: f.originalname, size: f.size })
+    }
     if (ticket.assignedToId && ticket.assignedToId !== req.userId) {
       await notifyUsers([ticket.assignedToId], {
         type: 'TICKET_COMMENT',
@@ -490,6 +564,14 @@ router.post('/:id/comments', requirePermission('tickets:update'), async (req: Au
     }
     res.status(201).json({ success: true, data: comment })
   } catch (err) { handleRouteError(err, res) }
+}
+
+router.post('/:id/comments', requirePermission('tickets:update'), (req: AuthRequest, res: Response): void => {
+  if (req.is('multipart/form-data')) {
+    attachmentUpload.array('files', 5)(req, res, (err) => { handleCommentSubmit(req, res, err) })
+  } else {
+    handleCommentSubmit(req, res, null)
+  }
 })
 
 // ─── Temps passé ─────────────────────────────────────────────────────────────
@@ -516,49 +598,6 @@ router.patch('/:id/time', requirePermission('tickets:update'), async (req: AuthR
 })
 
 // ─── Pièces jointes ──────────────────────────────────────────────────────────
-
-router.post('/:id/attachments', requirePermission('tickets:update'), (req: AuthRequest, res: Response): void => {
-  attachmentUpload.single('file')(req, res, async (err) => {
-    try {
-      if (err) {
-        if (err instanceof multer.MulterError) {
-          const code = (err as unknown as Record<string, string>)['customCode'] === 'INVALID_FILE_TYPE' ? 'INVALID_FILE_TYPE' : 'UPLOAD_ERROR'
-          const message = code === 'INVALID_FILE_TYPE'
-            ? 'Type de fichier non autorisé (images, PDF, documents Office, txt, csv, zip)'
-            : err.code === 'LIMIT_FILE_SIZE' ? 'Fichier trop volumineux (10 Mo max)' : 'Erreur lors de l\'upload'
-          res.status(400).json({ success: false, error: { code, message } })
-          return
-        }
-        res.status(400).json({ success: false, error: { code: 'UPLOAD_ERROR', message: 'Erreur lors de l\'upload' } })
-        return
-      }
-      if (!req.file) {
-        res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Aucun fichier reçu (champ "file")' } })
-        return
-      }
-      const ticket = await prisma.ticket.findUnique({ where: { id: req.params.id }, select: { id: true } })
-      if (!ticket) {
-        fs.promises.unlink(req.file.path).catch(() => {})
-        res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ticket introuvable' } })
-        return
-      }
-      const attachment = await prisma.ticketAttachment.create({
-        data: {
-          ticketId: ticket.id,
-          filename: req.file.originalname,
-          storedName: req.file.filename,
-          mimeType: req.file.mimetype,
-          size: req.file.size,
-          uploadedById: req.userId ?? null,
-        },
-        include: { uploadedBy: { select: { id: true, firstName: true, lastName: true } } },
-      })
-      await logTicketEvent({ ticketId: ticket.id, type: 'ATTACHMENT_ADDED', authorId: req.userId, toValue: req.file.originalname })
-      audit(req, 'TICKET_ATTACHMENT_UPLOADED', 'Ticket', ticket.id, { filename: req.file.originalname, size: req.file.size })
-      res.status(201).json({ success: true, data: attachment })
-    } catch (e) { handleRouteError(e, res) }
-  })
-})
 
 router.get('/attachments/:attachmentId/download', requirePermission('tickets:read'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {

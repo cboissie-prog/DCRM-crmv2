@@ -1063,9 +1063,8 @@ Réponse : `data` = 50 derniers `AutomationLog` (avec `user.firstName/lastName`)
 | GET | `/tickets/:id` | Permission `tickets:read` | Détail d'un ticket (+ rendez-vous liés) |
 | PUT | `/tickets/:id` | Permission `tickets:update` | Mise à jour partielle |
 | PATCH | `/tickets/:id/status` | Permission `tickets:update` | Changement de statut (+ temps passé optionnel) |
-| POST | `/tickets/:id/comments` | Permission `tickets:update` | Ajout d'un commentaire |
+| POST | `/tickets/:id/comments` | Permission `tickets:update` | Ajout d'un commentaire (JSON ou `multipart/form-data` avec pièces jointes) |
 | PATCH | `/tickets/:id/time` | Permission `tickets:update` | Ajout de temps passé (crée une `TicketTimeEntry`) |
-| POST | `/tickets/:id/attachments` | Permission `tickets:update` | Upload d'une pièce jointe (`multipart/form-data`) |
 | GET | `/tickets/attachments/:attachmentId/download` | Permission `tickets:read` | Téléchargement d'une pièce jointe |
 | DELETE | `/tickets/attachments/:attachmentId` | Permission `tickets:update` | Suppression d'une pièce jointe |
 | DELETE | `/tickets/:id` | Permission `tickets:delete` | Suppression d'un ticket (+ fichiers joints sur disque) |
@@ -1095,6 +1094,7 @@ Erreurs spécifiques : si `assignedToId` désigne quelqu'un d'autre que l'auteur
 **GET /tickets/export/csv** — Mêmes filtres query que la liste (hors pagination/tri). Réponse : `text/csv; charset=utf-8` avec BOM UTF-8, colonnes Référence/Titre/Statut/Priorité/Catégorie/Contact/Entreprise/Assigné à/Temps (min)/Créé le.
 
 **GET /tickets/:id** — Réponse : ticket complet (`contact`, `company`, `contract`, `equipment`, `assignedTo`, `createdBy`, `comments`, `events`, `timeEntries`, `attachments`, `npsResponse`) + `appointments` (rendez-vous liés via `Appointment.ticketId`, non typés comme relation Prisma côté Ticket). 404 `NOT_FOUND` si absent.
+Chaque élément de `comments[]` inclut `attachments[]` (pièces jointes rattachées à ce commentaire, triées par `createdAt` croissant). Le tableau `attachments` de premier niveau ne contient plus que les pièces jointes **orphelines** (`commentId: null`, héritage d'avant l'introduction des pièces jointes de commentaire), avec `uploadedBy`.
 
 **PUT /tickets/:id** — Corps : `ticketSchema` en version partielle (tous les champs ci-dessus optionnels). Mêmes règles d'accès sur `assignedToId` que la création, à l'exception de : sans `tickets:assign`, un utilisateur peut toujours se prendre le ticket (`assignedToId = soi-même`) ou se désassigner soi-même. Si un ticket `NEW` reçoit une nouvelle assignation, son statut bascule automatiquement en `IN_PROGRESS`. Si `priority` change, `priorityOrder` et `slaDeadline` sont recalculés (ancrés sur la date de création d'origine). Journalise les événements `PRIORITY_CHANGED` / `STATUS_CHANGED` / `ASSIGNED` / `UNASSIGNED` selon les champs modifiés. 404 si le ticket n'existe pas, 403 `FORBIDDEN` sur assignation non autorisée. Mêmes erreurs de cohérence inter-entités que la création (`CONTACT_NOT_FOUND`, `COMPANY_NOT_FOUND`, `CONTRACT_NOT_FOUND`, `EQUIPMENT_NOT_FOUND`, `CALL_NOT_FOUND`, `CONTRACT_COMPANY_MISMATCH`, `EQUIPMENT_COMPANY_MISMATCH`, `CONTACT_COMPANY_MISMATCH`) — vérifiées sur la valeur effective de chaque relation (celle du corps si fournie, sinon celle déjà en base), de sorte qu'un changement de `companyId` seul reste cohérent avec le contact/contrat/équipement déjà lié.
 
@@ -1107,14 +1107,24 @@ Erreurs spécifiques : si `assignedToId` désigne quelqu'un d'autre que l'auteur
 ```
 Réponse : ticket mis à jour. Idempotent : si le statut soumis est identique au statut actuel et `timeSpent` absent, renvoie le ticket sans effet de bord (pas d'événement, pas d'email, pas d'automatisation). Sinon journalise `STATUS_CHANGED` (ou `REOPENED` si la transition rouvre le ticket, cf. `statusTransitionData`), déclenche l'automatisation `TICKET_RESOLVED` si le nouveau statut est `RESOLVED`/`CLOSED`, et envoie un email de clôture + lien d'enquête NPS si le nouveau statut est `CLOSED` et que le contact a un email (best-effort, n'échoue pas la requête). 404 si ticket introuvable.
 
-**POST /tickets/:id/comments**
+**POST /tickets/:id/comments** — Accepte **soit** `application/json`, **soit** `multipart/form-data` (pour joindre des fichiers).
+
+Corps JSON :
 ```json
 {
   "content": "string (non vide)",
   "isInternal": "boolean, ou \"true\"/\"false\" (optionnel, défaut false)"
 }
 ```
-Réponse (201) : le commentaire créé. L'auteur (`authorName`) est résolu depuis l'utilisateur authentifié, jamais depuis le corps envoyé. Notifie l'assigné du ticket (sauf si c'est l'auteur du commentaire). 404 si ticket introuvable.
+
+Corps `multipart/form-data` :
+| Champ | Type | Obligatoire |
+|---|---|---|
+| `content` | string | Non si au moins un fichier est joint, sinon oui |
+| `isInternal` | `"true"` / `"false"` | Non (défaut `false`) |
+| `files` | fichier(s), 0 à 5 | Non |
+
+Types de fichiers autorisés : images (png/jpeg/gif/webp), PDF, txt, csv, log, doc/docx, xls/xlsx, zip. Taille max 10 Mo par fichier. Réponse (201) : le commentaire créé avec `attachments[]` (`{ id, filename, mimeType, size, createdAt }`). L'auteur (`authorName`) est résolu depuis l'utilisateur authentifié, jamais depuis le corps envoyé. Un audit `TICKET_ATTACHMENT_UPLOADED` est enregistré par fichier joint. Notifie l'assigné du ticket (sauf si c'est l'auteur du commentaire). Erreurs : 400 `VALIDATION_ERROR` (ni contenu ni fichier, ou corps invalide), 400 `INVALID_FILE_TYPE` (type de fichier non autorisé), 400 `UPLOAD_ERROR` (fichier trop volumineux ou autre erreur multer — rien n'est créé, les fichiers déjà écrits sur disque sont supprimés), 404 `NOT_FOUND` (ticket introuvable — fichiers déjà écrits supprimés du disque).
 
 **PATCH /tickets/:id/time**
 ```json
@@ -1124,8 +1134,6 @@ Réponse (201) : le commentaire créé. L'auteur (`authorName`) est résolu depu
 }
 ```
 Réponse : le ticket mis à jour (`timeSpent` incrémenté). Crée aussi une `TicketTimeEntry` détaillée et un événement `TIME_ADDED`. 404 si ticket introuvable.
-
-**POST /tickets/:id/attachments** — `multipart/form-data`, champ **`file`** obligatoire. Types autorisés : images (png/jpeg/gif/webp), PDF, txt, csv, log, doc/docx, xls/xlsx, zip. Taille max 10 Mo. Réponse (201) : la pièce jointe créée. Erreurs spécifiques : 400 `INVALID_FILE_TYPE` (type non autorisé), 400 `UPLOAD_ERROR` (fichier trop volumineux ou autre erreur multer), 400 `VALIDATION_ERROR` (aucun fichier reçu), 404 `NOT_FOUND` (ticket introuvable — le fichier déjà uploadé est alors supprimé du disque).
 
 **GET /tickets/attachments/:attachmentId/download** — Réponse : flux binaire (`res.download`, nom de fichier d'origine restauré). 404 `NOT_FOUND` si la pièce jointe n'existe pas en base ou si le fichier est absent du stockage disque.
 

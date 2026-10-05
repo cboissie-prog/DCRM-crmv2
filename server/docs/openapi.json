@@ -3707,7 +3707,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Ticket + rendez-vous liés"
+            "description": "Ticket + rendez-vous liés. comments[] inclut attachments[] (pièces jointes rattachées à ce commentaire) ; attachments de premier niveau = pièces jointes orphelines (commentId null) uniquement"
           },
           "401": {
             "description": "Non authentifié"
@@ -3952,7 +3952,7 @@
         "tags": [
           "Tickets"
         ],
-        "summary": "Ajouter un commentaire à un ticket",
+        "summary": "Ajouter un commentaire à un ticket (JSON ou multipart avec pièces jointes)",
         "security": [
           {
             "bearerAuth": []
@@ -3993,15 +3993,41 @@
                   }
                 }
               }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "description": "content est optionnel si au moins un fichier est joint dans files",
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "description": "Optionnel si au moins un fichier est joint"
+                  },
+                  "isInternal": {
+                    "type": "string",
+                    "enum": ["true", "false"],
+                    "default": "false"
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    },
+                    "maxItems": 5,
+                    "description": "Max 5 fichiers, 10 Mo chacun. Types autorisés : image/png,jpeg,gif,webp, application/pdf, text/plain, text/csv, doc/docx, xls/xlsx, zip"
+                  }
+                }
+              }
             }
           }
         },
         "responses": {
           "201": {
-            "description": "Commentaire créé"
+            "description": "Commentaire créé, avec attachments[] ({ id, filename, mimeType, size, createdAt })"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR | INVALID_FILE_TYPE | UPLOAD_ERROR"
           },
           "401": {
             "description": "Non authentifié"
@@ -4070,70 +4096,6 @@
           },
           "400": {
             "description": "VALIDATION_ERROR"
-          },
-          "401": {
-            "description": "Non authentifié"
-          },
-          "403": {
-            "description": "Permission tickets:update manquante"
-          },
-          "404": {
-            "description": "NOT_FOUND"
-          }
-        }
-      }
-    },
-    "/tickets/{id}/attachments": {
-      "post": {
-        "tags": [
-          "Tickets"
-        ],
-        "summary": "Uploader une pièce jointe sur un ticket",
-        "security": [
-          {
-            "bearerAuth": []
-          },
-          {
-            "apiKeyAuth": []
-          }
-        ],
-        "x-permission": "tickets:update",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "file"
-                ],
-                "properties": {
-                  "file": {
-                    "type": "string",
-                    "format": "binary",
-                    "description": "Max 10 Mo. Types autorisés : image/png,jpeg,gif,webp, application/pdf, text/plain, text/csv, doc/docx, xls/xlsx, zip"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Pièce jointe créée"
-          },
-          "400": {
-            "description": "INVALID_FILE_TYPE | UPLOAD_ERROR | VALIDATION_ERROR"
           },
           "401": {
             "description": "Non authentifié"

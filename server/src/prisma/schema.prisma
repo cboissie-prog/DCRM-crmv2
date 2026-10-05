@@ -376,6 +376,8 @@ model TicketComment {
   authorName String
   createdAt  DateTime @default(now())
 
+  attachments TicketAttachment[]
+
   @@index([ticketId])
 }
 
@@ -419,9 +421,12 @@ model TicketAttachment {
   size         Int
   uploadedById String?
   uploadedBy   User?    @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  commentId    String?
+  comment      TicketComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
   createdAt    DateTime @default(now())
 
   @@index([ticketId])
+  @@index([commentId])
 }
 
 // ─── PARC INFORMATIQUE ──────────────────────────────────
