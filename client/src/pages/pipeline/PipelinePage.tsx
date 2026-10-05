@@ -16,18 +16,20 @@ import {
   MoreHorizontal, Edit2, Trash2, ChevronRight,
   Building2, User, Calendar, X, Settings, GripVertical,
   Pencil, Bell, BellOff, FileText, CalendarCheck, Phone, Zap, Link2,
-  PartyPopper, UserPlus,
+  PartyPopper, UserPlus, Archive,
 } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import api from '../../lib/api'
 import { useUsersList } from '../../hooks/useApi'
 import { useAuthStore } from '../../store/authStore'
+import { usePermission } from '../../hooks/usePermission'
 import { formatCurrency, formatDate, cn } from '../../lib/utils'
 import { Modal } from '../../components/ui/Modal'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { toast } from '../../components/ui/Toast'
 import type { Opportunity, Contact, User as UserType } from '../../types'
 import { EntityPicker } from '../../components/ui/EntityPicker'
+import { ArchivesDrawer } from './ArchivesDrawer'
 
 interface PipelineStage {
   id: string
@@ -116,9 +118,13 @@ interface OpportunityCardProps {
   onStageChange: (id: string, stage: string) => void
   onQuickUpdate: (id: string, data: Record<string, unknown>) => void
   onScheduleTag: (oppId: string, tagType: string, scheduledAt: string) => void
+  onArchive: (id: string) => void
 }
 
-function OpportunityCard({ opportunity: opp, index, stages, onEdit, onDelete, onStageChange, onQuickUpdate, onScheduleTag }: OpportunityCardProps) {
+function OpportunityCard({ opportunity: opp, index, stages, onEdit, onDelete, onStageChange, onQuickUpdate, onScheduleTag, onArchive }: OpportunityCardProps) {
+  const canUpdatePipeline = usePermission('pipeline:update')
+  const currentStage = stages.find(s => s.key === opp.stage)
+  const isClosed = !!(currentStage?.isWon || currentStage?.isLost)
   const [showMenu, setShowMenu] = useState(false)
   const [showStageDropdown, setShowStageDropdown] = useState(false)
   const [showActionsMenu, setShowActionsMenu] = useState(false)
@@ -360,6 +366,17 @@ function OpportunityCard({ opportunity: opp, index, stages, onEdit, onDelete, on
                     >
                       <BellOff className="w-3.5 h-3.5" /> Supprimer le rappel
                     </button>
+                  )}
+                  {isClosed && canUpdatePipeline && (
+                    <>
+                      <hr className="my-1 border-slate-100" />
+                      <button
+                        onClick={() => { onArchive(opp.id); setShowActionsMenu(false) }}
+                        className="flex items-center gap-2 w-full px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                      >
+                        <Archive className="w-3.5 h-3.5 text-slate-400" /> Archiver
+                      </button>
+                    </>
                   )}
                 </div>,
                 document.body
@@ -915,6 +932,7 @@ export function PipelinePage() {
   const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null)
   const [showPipelineManager, setShowPipelineManager] = useState(false)
   const [wonOpp, setWonOpp] = useState<Opportunity | null>(null)
+  const [archiveDrawerType, setArchiveDrawerType] = useState<'won' | 'lost' | null>(null)
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: pipelines = [] } = useQuery<Pipeline[]>({
@@ -939,7 +957,20 @@ export function PipelinePage() {
           search: search || undefined,
           assignedToId: assignedFilter || undefined,
           pipelineId: effectivePipelineId || undefined,
+          archived: 'exclude',
         },
+      })
+      return data.data ?? data
+    },
+    enabled: isAuthenticated && !!effectivePipelineId,
+    staleTime: 30_000,
+  })
+
+  const { data: archiveCounts } = useQuery<{ won: number; lost: number }>({
+    queryKey: ['pipeline-archives-count', effectivePipelineId],
+    queryFn: async () => {
+      const { data } = await api.get('/pipeline/opportunities/archives/count', {
+        params: { pipelineId: effectivePipelineId },
       })
       return data.data ?? data
     },
@@ -994,6 +1025,16 @@ export function PipelinePage() {
       setShowDeleteConfirm(null)
     },
     onError: () => toast.error('Erreur lors de la suppression'),
+  })
+
+  const archiveMutation = useMutation({
+    mutationFn: (id: string) => api.patch(`/pipeline/opportunities/${id}/archive`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pipeline-opportunities'] })
+      qc.invalidateQueries({ queryKey: ['pipeline-archives-count'] })
+      toast.success('Opportunité archivée')
+    },
+    onError: () => toast.error('Erreur lors de l\'archivage'),
   })
 
   const quickUpdateMutation = useMutation({
@@ -1097,6 +1138,7 @@ export function PipelinePage() {
   const handleScheduleTag = (oppId: string, tagType: string, scheduledAt: string) => {
     scheduleTagMutation.mutate({ oppId, tagType, scheduledAt })
   }
+  const handleArchive = (id: string) => archiveMutation.mutate(id)
 
   if (isLoading) return <PageSpinner />
 
@@ -1286,12 +1328,35 @@ export function PipelinePage() {
                           onStageChange={handleStageChange}
                           onQuickUpdate={handleQuickUpdate}
                           onScheduleTag={handleScheduleTag}
+                          onArchive={handleArchive}
                         />
                       ))}
                       {provided.placeholder}
                     </div>
                   )}
                 </Droppable>
+
+                {/* Lien discret vers les archives (colonnes gagné/perdu) */}
+                {stage.isWon && (archiveCounts?.won ?? 0) > 0 && (
+                  <div className="px-3 py-2 border-t border-current/10">
+                    <button
+                      onClick={() => setArchiveDrawerType('won')}
+                      className="text-xs text-slate-400 hover:text-slate-600 hover:underline transition-colors"
+                    >
+                      {archiveCounts!.won} archivée{archiveCounts!.won > 1 ? 's' : ''}
+                    </button>
+                  </div>
+                )}
+                {stage.isLost && (archiveCounts?.lost ?? 0) > 0 && (
+                  <div className="px-3 py-2 border-t border-current/10">
+                    <button
+                      onClick={() => setArchiveDrawerType('lost')}
+                      className="text-xs text-slate-400 hover:text-slate-600 hover:underline transition-colors"
+                    >
+                      {archiveCounts!.lost} archivée{archiveCounts!.lost > 1 ? 's' : ''}
+                    </button>
+                  </div>
+                )}
               </div>
             )
           })}
@@ -1349,6 +1414,16 @@ export function PipelinePage() {
           onClose={() => setWonOpp(null)}
         />
       )}
+
+      {/* ── Panneau Archives ──────────────────────────────────────────────── */}
+      <ArchivesDrawer
+        open={archiveDrawerType !== null}
+        onClose={() => setArchiveDrawerType(null)}
+        type={archiveDrawerType ?? 'won'}
+        pipelineId={effectivePipelineId}
+        stages={stages}
+        onEditOpportunity={(opp) => { setEditingOpp(opp); setArchiveDrawerType(null) }}
+      />
     </div>
   )
 }

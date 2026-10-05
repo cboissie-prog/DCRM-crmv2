@@ -663,6 +663,20 @@ function SystemTab() {
               <span className="text-sm text-slate-400 flex-shrink-0">jours</span>
             </div>
           </div>
+          <div>
+            <label className="form-label">Archiver les opportunités gagnées/perdues après (jours)</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={3650}
+                className="form-input"
+                value={getValue('pipelineArchiveAfterDays') || '30'}
+                onChange={e => setValue('pipelineArchiveAfterDays', e.target.value)}
+              />
+              <span className="text-sm text-slate-400 flex-shrink-0">jours</span>
+            </div>
+          </div>
         </div>
       </div>
 
