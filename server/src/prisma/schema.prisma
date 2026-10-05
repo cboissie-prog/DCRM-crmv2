@@ -131,7 +131,6 @@ model Contact {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  leads         Lead[]
   opportunities Opportunity[]
   activities    Activity[]
   tickets       Ticket[]
@@ -177,24 +176,10 @@ model PipelineStage {
   @@unique([pipelineId, key])
 }
 
-// ─── LEADS & OPPORTUNITÉS ───────────────────────────────
-// leadStatus: NEW | CONTACTED | UNREACHABLE | QUALIFIED | CONVERTED | LOST
+// ─── OPPORTUNITÉS (prospection + pipeline) ──────────────
 // stage: key référençant PipelineStage.key
-
-model Lead {
-  id          String   @id @default(uuid())
-  contactId   String
-  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  source      String   @default("OTHER")
-  title       String
-  description String?
-  score       Int      @default(0)
-  status      String   @default("NEW")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  opportunity Opportunity?
-}
+// prospectStatus: TODO | NO_ANSWER | REACHED | CALLBACK
+// source: référentiel lead_source (repris de l'ancien modèle Lead, supprimé — cf. migration 20261006_prospection)
 
 model Opportunity {
   id                String    @id @default(uuid())
@@ -203,8 +188,6 @@ model Opportunity {
   contact           Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
   companyId         String?
   company           Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  leadId            String?   @unique
-  lead              Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
   pipelineId        String?
   pipeline          Pipeline? @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
   stage             String    @default("NEW")
@@ -220,6 +203,12 @@ model Opportunity {
   remindAt          DateTime?
   archivedAt        DateTime?
   autoArchive       Boolean  @default(true)
+  // ─── Prospection ───
+  source            String   @default("MANUAL")
+  prospectStatus    String   @default("TODO")
+  lastContactedAt   DateTime?
+  callAttempts      Int      @default(0)
+  nextAction        String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

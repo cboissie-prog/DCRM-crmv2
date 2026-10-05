@@ -31,11 +31,11 @@ const PERMISSIONS = [
   { key: 'tickets:delete', label: 'Supprimer un ticket', category: 'Tickets' },
   { key: 'tickets:assign', label: 'Assigner un ticket à un autre utilisateur', category: 'Tickets' },
   { key: 'tickets:export', label: 'Exporter les tickets (CSV)', category: 'Tickets' },
-  // Pipeline / Leads
+  // Pipeline / Opportunités
   { key: 'pipeline:read', label: 'Voir le pipeline', category: 'Pipeline' },
-  { key: 'pipeline:create', label: 'Créer un lead', category: 'Pipeline' },
-  { key: 'pipeline:update', label: 'Modifier un lead', category: 'Pipeline' },
-  { key: 'pipeline:delete', label: 'Supprimer un lead', category: 'Pipeline' },
+  { key: 'pipeline:create', label: 'Créer une opportunité', category: 'Pipeline' },
+  { key: 'pipeline:update', label: 'Modifier une opportunité', category: 'Pipeline' },
+  { key: 'pipeline:delete', label: 'Supprimer une opportunité', category: 'Pipeline' },
   // Équipements
   { key: 'equipment:read', label: 'Voir les équipements', category: 'Équipements' },
   { key: 'equipment:create', label: 'Créer un équipement', category: 'Équipements' },

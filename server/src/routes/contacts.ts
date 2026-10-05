@@ -208,7 +208,6 @@ router.get('/:id', requirePermission('contacts:read'), async (req: AuthRequest, 
       where: { id: req.params.id },
       include: {
         company: true,
-        leads: { orderBy: { createdAt: 'desc' } },
         opportunities: { include: { company: { select: { id: true, name: true } } }, orderBy: { createdAt: 'desc' } },
         tickets: { orderBy: { createdAt: 'desc' }, take: 10 },
         activities: { orderBy: { createdAt: 'desc' }, take: 20 },

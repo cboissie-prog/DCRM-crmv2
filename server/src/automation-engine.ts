@@ -12,7 +12,6 @@ export type AutomationTrigger =
   | 'OPPORTUNITY_STAGE_CHANGED'
   | 'OPPORTUNITY_INACTIVE'
   | 'CONTRACT_EXPIRING'
-  | 'LEAD_SCORE_THRESHOLD'
 
 interface TicketCtx {
   id: string
@@ -43,18 +42,11 @@ interface ContractCtx {
   companyId?: string | null
 }
 
-interface LeadCtx {
-  id: string
-  contactId?: string | null
-  score: number
-}
-
 export interface AutomationContext {
   triggeredBy?: string
   ticket?: TicketCtx
   opportunity?: OpportunityCtx
   contract?: ContractCtx
-  lead?: LeadCtx
 }
 
 interface Condition {
@@ -65,7 +57,6 @@ interface Condition {
   hoursOpen?:        number
   inactiveDays?:     number
   daysBeforeExpiry?: number
-  minScore?:         number
   renotifyHours?:    number
 }
 
@@ -96,10 +87,6 @@ function matchesConditions(conditions: Condition, ctx: AutomationContext): boole
 
   if (conditions.fromStage && o) {
     if (o.previousStage !== conditions.fromStage) return false
-  }
-
-  if (conditions.minScore !== undefined && ctx.lead) {
-    if (ctx.lead.score < conditions.minScore) return false
   }
 
   return true
@@ -207,7 +194,6 @@ function buildNotifTitle(ctx: AutomationContext): string {
   if (ctx.ticket)      return `Ticket : ${ctx.ticket.title}`
   if (ctx.opportunity) return `Opportunité : ${ctx.opportunity.title}`
   if (ctx.contract)    return 'Contrat expirant bientôt'
-  if (ctx.lead)        return `Lead : score ${ctx.lead.score}`
   return 'Automatisation déclenchée'
 }
 
@@ -215,14 +201,12 @@ function buildDefaultMessage(ctx: AutomationContext): string {
   if (ctx.ticket)      return `Le ticket "${ctx.ticket.title}" a déclenché une automatisation.`
   if (ctx.opportunity) return `L'opportunité "${ctx.opportunity.title}" a déclenché une automatisation.`
   if (ctx.contract)    return 'Un contrat expire bientôt et a déclenché une automatisation.'
-  if (ctx.lead)        return `Un lead a atteint un score de ${ctx.lead.score}.`
   return 'Une automatisation a été déclenchée.'
 }
 
 function buildLink(ctx: AutomationContext): string {
   if (ctx.ticket)      return `/tickets/${ctx.ticket.id}`
   if (ctx.opportunity) return `/pipeline`
-  if (ctx.lead)        return `/leads`
   return '/'
 }
 

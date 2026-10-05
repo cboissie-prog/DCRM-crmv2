@@ -574,7 +574,7 @@ Query : `search`, `status`.
 Réponse : fichier CSV, colonnes Prénom/Nom/Email/Téléphone/Mobile/Poste/Entreprise/Statut/Source/Score/Créé le.
 
 **GET /contacts/:id**
-Réponse : `data` = contact avec `company`, `leads`, `opportunities` (avec `company`), `tickets` (10 derniers), `activities` (20 dernières), `npsResponses`. Erreur `NOT_FOUND` (404) si absent.
+Réponse : `data` = contact avec `company`, `opportunities` (avec `company`), `tickets` (10 derniers), `activities` (20 dernières), `npsResponses`. Erreur `NOT_FOUND` (404) si absent.
 
 **PUT /contacts/:id**
 Corps : même schéma que POST, toutes les clés optionnelles (`.partial()`). Si `phone`/`mobile` présent dans le corps, les champs normalisés correspondants sont recalculés et un rattachement d'appels orphelins est retenté en arrière-plan.
@@ -743,66 +743,39 @@ Codes d'erreur génériques (via `handleRouteError`, valables sur toutes les rou
 
 ### Pipeline `/api/pipeline`
 
-Fichier : `server/src/routes/pipeline.ts`. Gère les leads et les opportunités.
+Fichier : `server/src/routes/pipeline.ts`. Gère les opportunités (le modèle `Lead` a été supprimé et
+fusionné dans `Opportunity` — cf. migration `20261006_prospection` — une opportunité porte désormais
+directement les champs de prospection `source`, `prospectStatus`, `lastContactedAt`, `callAttempts`,
+`nextAction`).
 
 | Méthode | Route | Accès | Description |
 |---------|-------|-------|-------------|
-| GET | `/pipeline/leads` | Permission `pipeline:read` | Liste paginée des leads (filtrable) |
-| POST | `/pipeline/leads` | Permission `pipeline:create` | Crée un lead |
-| PUT | `/pipeline/leads/:id` | Permission `pipeline:update` | Met à jour un lead (partiel) |
-| PATCH | `/pipeline/leads/:id/status` | Permission `pipeline:update` | Change le statut d'un lead |
-| DELETE | `/pipeline/leads/:id` | Permission `pipeline:delete` | Supprime un lead |
-| POST | `/pipeline/leads/:id/convert` | Permission `pipeline:update` | Convertit un lead en opportunité |
-| GET | `/pipeline/opportunities` | Permission `pipeline:read` | Liste paginée des opportunités (filtrable) |
+| GET | `/pipeline/opportunities` | Permission `pipeline:read` | Liste paginée des opportunités (filtrable, triable, recherche) |
 | POST | `/pipeline/opportunities` | Permission `pipeline:create` | Crée une opportunité |
 | POST | `/pipeline/opportunities/reattach-orphans` | Permission `pipeline:update` | Rattache au pipeline par défaut les opportunités sans `pipelineId` |
 | GET | `/pipeline/opportunities/archives/count` | Permission `pipeline:read` | Compte des opportunités archivées, par type d'étape (gagné/perdu) |
+| POST | `/pipeline/opportunities/bulk` | Permission `pipeline:update` | Action groupée sur une sélection d'opportunités |
+| POST | `/pipeline/opportunities/import/csv` | Permission `pipeline:create` | Import de prospects (entreprise + contact + opportunité) depuis un CSV déjà mis en correspondance |
 | GET | `/pipeline/opportunities/:id` | Permission `pipeline:read` | Détail d'une opportunité |
 | PUT | `/pipeline/opportunities/:id` | Permission `pipeline:update` | Met à jour une opportunité (partiel) |
 | PATCH | `/pipeline/opportunities/:id/stage` | Permission `pipeline:update` | Déplace une opportunité vers une autre étape (drag & drop Kanban) |
+| PATCH | `/pipeline/opportunities/:id/prospect` | Permission `pipeline:update` | Statut de prospection à un clic (vue Liste) : appelé/joint/à rappeler |
 | PATCH | `/pipeline/opportunities/:id/archive` | Permission `pipeline:update` | Archive manuellement une opportunité gagnée/perdue |
 | PATCH | `/pipeline/opportunities/:id/unarchive` | Permission `pipeline:update` | Désarchive manuellement une opportunité |
 | DELETE | `/pipeline/opportunities/:id` | Permission `pipeline:delete` | Supprime une opportunité (produits liés en cascade, activités détachées) |
 
-**GET /pipeline/leads**
-Query : `status` (optionnel, ex. `NEW`), `source` (optionnel), `page` (défaut 1), `limit` (défaut 25, max 100).
-Réponse : `data` = tableau de leads (avec `contact.company`), `meta: { total, page, limit }`.
-
-**POST /pipeline/leads**
-```json
-{
-  "contactId": "string",
-  "title": "string",
-  "source": "string (optionnel)",
-  "description": "string (optionnel)",
-  "score": "int 0-100 (optionnel)"
-}
-```
-Réponse `201` : le lead créé. Si `score > 0`, déclenche l'automatisation `LEAD_SCORE_THRESHOLD` (asynchrone, non bloquant). Erreur spécifique : `400 CONTACT_NOT_FOUND` si `contactId` est introuvable.
-
-**PUT /pipeline/leads/:id**
-Corps identique à la création, tous les champs optionnels (`.partial()`). Redéclenche `LEAD_SCORE_THRESHOLD` si `score` est fourni et > 0.
-
-**PATCH /pipeline/leads/:id/status**
-```json
-{ "status": "NEW | CONTACTED | QUALIFIED | CONVERTED | LOST | UNREACHABLE" }
-```
-
-**POST /pipeline/leads/:id/convert**
-```json
-{
-  "pipelineId": "string (optionnel, sinon pipeline par défaut actif)",
-  "stage": "string (optionnel, sinon 1re étape non gagnée/perdue du pipeline, ou 'QUALIFICATION')",
-  "value": "number (optionnel)",
-  "probability": "int 0-100 (optionnel)",
-  "expectedCloseDate": "string ISO (optionnel)",
-  "notes": "string (optionnel)"
-}
-```
-Crée une `Opportunity` liée au lead, passe le lead en `CONVERTED`, déclenche `OPPORTUNITY_CREATED`. Erreurs spécifiques : `404 NOT_FOUND` si le lead n'existe pas ; `400 PIPELINE_NOT_FOUND` si `pipelineId` est fourni mais introuvable.
-
 **GET /pipeline/opportunities**
-Query : `stage`, `assignedToId`, `companyId`, `pipelineId` (tous optionnels), `archived` = `exclude` | `only` | `all` (optionnel, défaut `all` — comportement strictement inchangé pour les appelants existants qui n'envoient pas ce paramètre : dashboard, objectifs, exports), `page` (défaut `'1'`), `limit` (défaut `'50'`). `exclude` → n'affiche que les opportunités non archivées (`archivedAt: null`) ; `only` → n'affiche que les archivées (`archivedAt` non null), triées par `closedAt desc` (au lieu de `createdAt desc`). Réponse : `data` = opportunités (avec `contact`, `company`, `assignedTo`, `products.product`), `meta: { total, page, limit }`.
+Query (tous optionnels) :
+- `stage`, `assignedToId`, `companyId`, `pipelineId`, `prospectStatus` (`TODO|NO_ANSWER|REACHED|CALLBACK`), `source` : filtres d'égalité stricte.
+- `archived` = `exclude` | `only` | `all` (défaut `all` — comportement strictement inchangé pour les appelants existants qui n'envoient pas ce paramètre : dashboard, objectifs, exports). `exclude` → n'affiche que les opportunités non archivées (`archivedAt: null`) ; `only` → n'affiche que les archivées (`archivedAt` non null), triées par `closedAt desc` (au lieu de `createdAt desc`) sauf `sortBy` fourni.
+- `remindToday=true` : `remindAt` dans la journée en cours (heure serveur, `00:00:00` à `23:59:59`).
+- `neverContacted=true` : `lastContactedAt` est `null`.
+- `staleDays=N` : `lastContactedAt` est `null` ou antérieur à `N` jours.
+- `search` : OR insensible à la casse sur `title`, `company.name`, `contact.firstName`, `contact.lastName`.
+- `sortBy` ∈ `createdAt | updatedAt | title | value | remindAt | lastContactedAt | prospectStatus | stage | company` (liste blanche ; une valeur hors liste est ignorée) + `sortOrder` = `asc` | `desc` (défaut `desc`). `company` trie sur `company.name`.
+- `page` (défaut `'1'`), `limit` (défaut `'50'`).
+
+Sans aucun de ces nouveaux paramètres, le comportement est strictement identique à avant (tri `createdAt desc`, ou `closedAt desc` si `archived=only`). Réponse : `data` = opportunités (avec `contact`, `company`, `assignedTo`, `products.product`), `meta: { total, page, limit }`.
 
 **POST /pipeline/opportunities**
 ```json
@@ -810,7 +783,6 @@ Query : `stage`, `assignedToId`, `companyId`, `pipelineId` (tous optionnels), `a
   "title": "string",
   "contactId": "string (optionnel)",
   "companyId": "string (optionnel)",
-  "leadId": "string (optionnel)",
   "pipelineId": "string (optionnel — pipeline par défaut actif utilisé sinon)",
   "stage": "string (optionnel)",
   "value": "number (optionnel)",
@@ -820,11 +792,14 @@ Query : `stage`, `assignedToId`, `companyId`, `pipelineId` (tous optionnels), `a
   "notes": "string (optionnel)",
   "tags": "string ou null (optionnel)",
   "lostReason": "string (optionnel)",
-  "remindAt": "string ISO ou null (optionnel)"
+  "remindAt": "string ISO ou null (optionnel)",
+  "source": "string (optionnel, référentiel lead_source, défaut 'MANUAL')",
+  "prospectStatus": "TODO | NO_ANSWER | REACHED | CALLBACK (optionnel, défaut 'TODO')",
+  "nextAction": "string ou null (optionnel)"
 }
 ```
 Si `pipelineId` absent, rattache au pipeline par défaut (ou premier pipeline actif) et corrige `stage` s'il n'existe pas dans ce pipeline. Réponse `201`. Déclenche `OPPORTUNITY_CREATED`.
-Erreurs spécifiques : `400 CONTACT_NOT_FOUND`, `400 COMPANY_NOT_FOUND`, `400 LEAD_NOT_FOUND`, `400 PIPELINE_NOT_FOUND` (si l'id fourni est introuvable) ; `400 CONTACT_COMPANY_MISMATCH` si le contact a une société différente de `companyId` (cohérence souple : ignorée si le contact ou l'opportunité n'a pas de société).
+Erreurs spécifiques : `400 INVALID_REFERENCE` si `source` ne correspond à aucune valeur active du référentiel `lead_source` ; `400 CONTACT_NOT_FOUND`, `400 COMPANY_NOT_FOUND`, `400 PIPELINE_NOT_FOUND` (si l'id fourni est introuvable) ; `400 CONTACT_COMPANY_MISMATCH` si le contact a une société différente de `companyId` (cohérence souple : ignorée si le contact ou l'opportunité n'a pas de société).
 
 **POST /pipeline/opportunities/reattach-orphans**
 Pas de corps. Réponse : `{ reattached: number, pipeline: string }`. Erreur spécifique : `400 NO_PIPELINE` si aucun pipeline actif.
@@ -832,11 +807,49 @@ Pas de corps. Réponse : `{ reattached: number, pipeline: string }`. Erreur spé
 **GET /pipeline/opportunities/archives/count**
 Query : `pipelineId` (optionnel). Réponse : `{ won: number, lost: number }` — nombre d'opportunités archivées (`archivedAt` non null) dont l'étape est respectivement gagnée ou perdue. Si `pipelineId` est fourni, le comptage est scopé aux opportunités de ce pipeline et aux étapes gagnées/perdues propres à ce pipeline (une même clé d'étape peut avoir un sens différent selon le pipeline) ; sinon, dérivé de `getWonLostStageKeys()` (tous pipelines). Déclarée avant `GET /pipeline/opportunities/:id` pour ne pas être capturée par le paramètre `:id`.
 
+**POST /pipeline/opportunities/bulk**
+```json
+{
+  "ids": ["string", "..."],
+  "action": "assign | stage | archive | prospectStatus",
+  "value": "string (optionnel selon l'action)"
+}
+```
+Jusqu'à 200 `ids`. `value` requis pour `stage` (clé d'étape existante, sinon `400 INVALID_STAGE`) et `prospectStatus` (`TODO|NO_ANSWER|REACHED|CALLBACK`, sinon `400 INVALID_STATUS`) ; optionnel pour `assign` (vide/absent = désassigne). `archive` ignore (compte dans `skipped`) les opportunités dont l'étape n'est ni gagnée ni perdue — seules les autres sont archivées. `stage` recalcule `closedAt`/`archivedAt`/`autoArchive` comme `PATCH /:id/stage`. Réponse : `{ updated: number, skipped: number }`. Erreur : `400 VALUE_REQUIRED` si `value` manque pour `stage`/`prospectStatus`.
+
+**POST /pipeline/opportunities/import/csv**
+```json
+{
+  "pipelineId": "string (optionnel, sinon pipeline par défaut actif)",
+  "stage": "string (optionnel, sinon 1re étape ouverte du pipeline)",
+  "source": "string (optionnel, référentiel lead_source, défaut 'MANUAL')",
+  "assignedToId": "string (optionnel)",
+  "rows": [
+    {
+      "companyName": "string (requis, sinon ligne en erreur)",
+      "firstName": "string (optionnel)",
+      "lastName": "string (optionnel)",
+      "phone": "string (optionnel)",
+      "email": "string (optionnel)",
+      "title": "string (optionnel, défaut = nom de l'entreprise)",
+      "value": "string ou number (optionnel, défaut 0)",
+      "notes": "string (optionnel)",
+      "city": "string (optionnel)",
+      "postalCode": "string (optionnel)",
+      "website": "string (optionnel)",
+      "siret": "string (optionnel)"
+    }
+  ]
+}
+```
+Le client applique déjà la correspondance colonnes-fichier → champs CRM : les clés de `rows[]` sont les champs ci-dessus, pas les en-têtes du fichier importé. Règles, par ligne : `companyName` manquant → ligne en erreur (`errors`), pas de ligne créée ; entreprise retrouvée par nom exact insensible à la casse (sinon créée, avec `city`/`postalCode`/`website`/`siret`) ; contact retrouvé par email (si fourni) puis par nom + prénom dans l'entreprise (insensible à la casse), sinon créé si prénom ou nom est fourni ; une opportunité non archivée déjà sur une étape ouverte pour la même entreprise et le même pipeline est considérée comme doublon → ligne ignorée (comptée dans `skipped`), sinon une opportunité est créée (`title`, `value`, `source`, `prospectStatus: 'TODO'`, `assignedToId`, `pipelineId`, `stage`). Traité en transaction par lots de 50 lignes (une ligne en erreur n'annule pas le reste du lot). Maximum 500 lignes (sinon `400 VALIDATION_ERROR`).
+Réponse : `{ created: { companies: number, contacts: number, opportunities: number }, skipped: number, errors: [{ row: number, reason: string }] }` (`row` = index dans `rows`, base 0). Erreurs spécifiques : `400 INVALID_REFERENCE` (`source` invalide), `400 PIPELINE_NOT_FOUND`, `400 USER_NOT_FOUND` (`assignedToId` introuvable).
+
 **GET /pipeline/opportunities/:id**
-Réponse : opportunité avec `contact`, `company`, `assignedTo`, `products.product`, `activities` (20 dernières), `lead`. `404 NOT_FOUND` si absente.
+Réponse : opportunité avec `contact`, `company`, `assignedTo`, `products.product`, `activities` (20 dernières). `404 NOT_FOUND` si absente.
 
 **PUT /pipeline/opportunities/:id**
-Corps identique à la création (`.partial()`). Si `stage` change réellement, `closedAt` est recalculé (daté si gagné/perdu, sinon `null`). Mêmes erreurs de cohérence que la création (`CONTACT_NOT_FOUND`, `COMPANY_NOT_FOUND`, `LEAD_NOT_FOUND`, `PIPELINE_NOT_FOUND`, `CONTACT_COMPANY_MISMATCH`) — vérifiées sur la valeur effective (celle du corps si fournie, sinon celle déjà en base). 404 `NOT_FOUND` si l'opportunité n'existe pas.
+Corps identique à la création (`.partial()`). Si `stage` change réellement, `closedAt` est recalculé (daté si gagné/perdu, sinon `null`). Mêmes erreurs de cohérence que la création (`INVALID_REFERENCE`, `CONTACT_NOT_FOUND`, `COMPANY_NOT_FOUND`, `PIPELINE_NOT_FOUND`, `CONTACT_COMPANY_MISMATCH`) — vérifiées sur la valeur effective (celle du corps si fournie, sinon celle déjà en base). 404 `NOT_FOUND` si l'opportunité n'existe pas.
 
 **PATCH /pipeline/opportunities/:id/stage**
 ```json
@@ -846,6 +859,16 @@ Corps identique à la création (`.partial()`). Si `stage` change réellement, `
 }
 ```
 La clé `stage` doit correspondre à une étape existante (tous pipelines non-template confondus), sinon `400 INVALID_STAGE`. `404 NOT_FOUND` si l'opportunité n'existe pas. Si l'étape change, déclenche `OPPORTUNITY_STAGE_CHANGED` avec `previousStage`. Si la nouvelle étape n'est ni gagnée ni perdue (réouverture d'une affaire), `archivedAt` est remis à `null` et `autoArchive` à `true`.
+
+**PATCH /pipeline/opportunities/:id/prospect**
+```json
+{
+  "prospectStatus": "TODO | NO_ANSWER | REACHED | CALLBACK (optionnel)",
+  "remindAt": "string ISO ou null (optionnel)",
+  "nextAction": "string ou null (optionnel)"
+}
+```
+`NO_ANSWER` ou `REACHED` posent `lastContactedAt = now`, incrémentent `callAttempts` et créent une `Activity` (`type: 'CALL'`, titre « Appel sans réponse » / « Joint par téléphone », liée à `opportunityId`, `contactId` et `userId`). `CALLBACK` exige `remindAt` (sinon `400 REMIND_AT_REQUIRED`). `TODO` ne touche à aucun compteur. `404 NOT_FOUND` si l'opportunité n'existe pas. Réponse : l'opportunité mise à jour.
 
 **PATCH /pipeline/opportunities/:id/archive**
 Pas de corps. Archive l'opportunité (`archivedAt = now`). Erreurs spécifiques : `404 NOT_FOUND` si l'opportunité n'existe pas ; `400 NOT_CLOSED` si son étape n'est ni gagnée ni perdue (`getWonLostStageKeys()`). Audit `OPPORTUNITY_ARCHIVED`.

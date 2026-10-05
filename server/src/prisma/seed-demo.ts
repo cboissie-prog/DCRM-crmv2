@@ -249,10 +249,12 @@ async function main() {
   }})
   console.log('✅ Rendez-vous créés')
 
-  // ─── LEADS ─────────────────────────────────────────────
-  await prisma.lead.create({ data: { contactId: contact6.id, source: 'WEBSITE', title: 'Demande info site web + maintenance', score: 78, status: 'QUALIFIED' } })
-  await prisma.lead.create({ data: { contactId: contact5.id, source: 'PHONE_INBOUND', title: 'Extension boutique - nouveau point de vente', score: 55, status: 'CONTACTED' } })
-  console.log('✅ Leads créés')
+  // ─── PROSPECTS (opportunités en première étape) ────────
+  // Anciennement des `Lead` — le modèle a été fusionné dans Opportunity (cf. migration
+  // 20261006_prospection). Placées sur la première étape ouverte du pipeline par défaut.
+  await prisma.opportunity.create({ data: { title: 'Demande info site web + maintenance', contactId: contact6.id, companyId: startup.id, pipelineId: defaultPipeline.id, stage: 'NEW', source: 'WEBSITE', prospectStatus: 'REACHED', notes: 'Demande entrante via le site, qualifiée' } })
+  await prisma.opportunity.create({ data: { title: 'Extension boutique - nouveau point de vente', contactId: contact5.id, companyId: boutique.id, pipelineId: defaultPipeline.id, stage: 'NEW', source: 'PHONE_INBOUND', prospectStatus: 'REACHED', callAttempts: 1, lastContactedAt: new Date('2026-03-18') } })
+  console.log('✅ Prospects créés')
 
   // ─── SALES TARGETS ─────────────────────────────────────
   await prisma.salesTarget.createMany({ data: [
@@ -276,7 +278,7 @@ async function main() {
     { userId: admin.id, type: 'TICKET_URGENT', title: 'Ticket critique', message: 'TKT-2026-0003 : Connexion internet instable - CRITIQUE', link: '/tickets', isRead: false },
     { userId: admin.id, type: 'CONTRACT_EXPIRING', title: 'Contrat expirant bientôt', message: 'Contrat CTR-2025-0002 (Boulangerie Dupont) expire dans 38 jours', link: '/contracts', isRead: false },
     { userId: technicien1.id, type: 'TICKET_ASSIGNED', title: 'Ticket assigné', message: 'TKT-2026-0001 vous a été assigné', link: '/tickets', isRead: false },
-    { userId: commercial1.id, type: 'LEAD_SCORED', title: 'Lead qualifié', message: 'Thomas Girard (TechStartup) a un score de 78 - À contacter', link: '/pipeline/leads', isRead: true },
+    { userId: commercial1.id, type: 'LEAD_SCORED', title: 'Prospect qualifié', message: 'Thomas Girard (TechStartup) a été joint par téléphone - À relancer', link: '/pipeline?view=list', isRead: true },
   ]})
   console.log('✅ Notifications créées')
 

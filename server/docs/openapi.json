@@ -1419,7 +1419,20 @@
             "required": true,
             "schema": {
               "type": "string",
-              "enum": ["ticket_category", "call_category", "equipment_type", "equipment_status", "contract_type", "license_type", "contact_status", "lead_source", "sector", "appointment_type", "knowledge_category", "product_category"]
+              "enum": [
+                "ticket_category",
+                "call_category",
+                "equipment_type",
+                "equipment_status",
+                "contract_type",
+                "license_type",
+                "contact_status",
+                "lead_source",
+                "sector",
+                "appointment_type",
+                "knowledge_category",
+                "product_category"
+              ]
             }
           }
         ],
@@ -1443,7 +1456,22 @@
                   },
                   "color": {
                     "type": "string",
-                    "enum": ["gray", "slate", "blue", "indigo", "violet", "purple", "pink", "red", "orange", "amber", "yellow", "green", "emerald", "cyan"],
+                    "enum": [
+                      "gray",
+                      "slate",
+                      "blue",
+                      "indigo",
+                      "violet",
+                      "purple",
+                      "pink",
+                      "red",
+                      "orange",
+                      "amber",
+                      "yellow",
+                      "green",
+                      "emerald",
+                      "cyan"
+                    ],
                     "nullable": true
                   },
                   "icon": {
@@ -2904,7 +2932,10 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": ["todo", "done"]
+              "enum": [
+                "todo",
+                "done"
+              ]
             }
           },
           {
@@ -2912,7 +2943,11 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": ["LOW", "NORMAL", "HIGH"]
+              "enum": [
+                "LOW",
+                "NORMAL",
+                "HIGH"
+              ]
             }
           }
         ],
@@ -2964,7 +2999,11 @@
                   },
                   "priority": {
                     "type": "string",
-                    "enum": ["LOW", "NORMAL", "HIGH"],
+                    "enum": [
+                      "LOW",
+                      "NORMAL",
+                      "HIGH"
+                    ],
                     "default": "NORMAL"
                   },
                   "dueDate": {
@@ -3046,7 +3085,11 @@
                   },
                   "priority": {
                     "type": "string",
-                    "enum": ["LOW", "NORMAL", "HIGH"]
+                    "enum": [
+                      "LOW",
+                      "NORMAL",
+                      "HIGH"
+                    ]
                   },
                   "dueDate": {
                     "type": "string",
@@ -4005,7 +4048,10 @@
                   },
                   "isInternal": {
                     "type": "string",
-                    "enum": ["true", "false"],
+                    "enum": [
+                      "true",
+                      "false"
+                    ],
                     "default": "false"
                   },
                   "files": {
@@ -5666,7 +5712,10 @@
             "description": "'true' = actifs seuls, 'false' = inactifs seuls, absent = tous",
             "schema": {
               "type": "string",
-              "enum": ["true", "false"]
+              "enum": [
+                "true",
+                "false"
+              ]
             }
           },
           {
@@ -5953,394 +6002,6 @@
         }
       }
     },
-    "/pipeline/leads": {
-      "get": {
-        "tags": [
-          "Pipeline"
-        ],
-        "summary": "Liste paginée des leads",
-        "security": [
-          {
-            "bearerAuth": []
-          },
-          {
-            "apiKeyAuth": []
-          }
-        ],
-        "x-permission": "pipeline:read",
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "source",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 25,
-              "maximum": 100
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Liste des leads"
-          },
-          "401": {
-            "description": "Non authentifié"
-          },
-          "403": {
-            "description": "Permission insuffisante"
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "Pipeline"
-        ],
-        "summary": "Crée un lead",
-        "security": [
-          {
-            "bearerAuth": []
-          },
-          {
-            "apiKeyAuth": []
-          }
-        ],
-        "x-permission": "pipeline:create",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "contactId",
-                  "title"
-                ],
-                "properties": {
-                  "contactId": {
-                    "type": "string"
-                  },
-                  "title": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "source": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "score": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 100
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Lead créé"
-          },
-          "400": {
-            "description": "VALIDATION_ERROR ; CONTACT_NOT_FOUND si contactId introuvable"
-          },
-          "401": {
-            "description": "Non authentifié"
-          },
-          "403": {
-            "description": "Permission insuffisante"
-          }
-        }
-      }
-    },
-    "/pipeline/leads/{id}": {
-      "put": {
-        "tags": [
-          "Pipeline"
-        ],
-        "summary": "Met à jour un lead (partiel)",
-        "security": [
-          {
-            "bearerAuth": []
-          },
-          {
-            "apiKeyAuth": []
-          }
-        ],
-        "x-permission": "pipeline:update",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "contactId": {
-                    "type": "string"
-                  },
-                  "title": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "source": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "score": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 100
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Lead mis à jour"
-          },
-          "400": {
-            "description": "VALIDATION_ERROR"
-          },
-          "401": {
-            "description": "Non authentifié"
-          },
-          "403": {
-            "description": "Permission insuffisante"
-          },
-          "404": {
-            "description": "Lead introuvable"
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "Pipeline"
-        ],
-        "summary": "Supprime un lead",
-        "security": [
-          {
-            "bearerAuth": []
-          },
-          {
-            "apiKeyAuth": []
-          }
-        ],
-        "x-permission": "pipeline:delete",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Lead supprimé"
-          },
-          "401": {
-            "description": "Non authentifié"
-          },
-          "403": {
-            "description": "Permission insuffisante"
-          },
-          "404": {
-            "description": "Lead introuvable"
-          }
-        }
-      }
-    },
-    "/pipeline/leads/{id}/status": {
-      "patch": {
-        "tags": [
-          "Pipeline"
-        ],
-        "summary": "Change le statut d'un lead",
-        "security": [
-          {
-            "bearerAuth": []
-          },
-          {
-            "apiKeyAuth": []
-          }
-        ],
-        "x-permission": "pipeline:update",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "status"
-                ],
-                "properties": {
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "NEW",
-                      "CONTACTED",
-                      "QUALIFIED",
-                      "CONVERTED",
-                      "LOST",
-                      "UNREACHABLE"
-                    ]
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Lead mis à jour"
-          },
-          "400": {
-            "description": "VALIDATION_ERROR"
-          },
-          "401": {
-            "description": "Non authentifié"
-          },
-          "403": {
-            "description": "Permission insuffisante"
-          },
-          "404": {
-            "description": "Lead introuvable"
-          }
-        }
-      }
-    },
-    "/pipeline/leads/{id}/convert": {
-      "post": {
-        "tags": [
-          "Pipeline"
-        ],
-        "summary": "Convertit un lead en opportunité",
-        "security": [
-          {
-            "bearerAuth": []
-          },
-          {
-            "apiKeyAuth": []
-          }
-        ],
-        "x-permission": "pipeline:update",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "pipelineId": {
-                    "type": "string"
-                  },
-                  "stage": {
-                    "type": "string"
-                  },
-                  "value": {
-                    "type": "number"
-                  },
-                  "probability": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 100
-                  },
-                  "expectedCloseDate": {
-                    "type": "string",
-                    "format": "date-time"
-                  },
-                  "notes": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Opportunité créée depuis le lead"
-          },
-          "400": {
-            "description": "VALIDATION_ERROR ; PIPELINE_NOT_FOUND si pipelineId fourni mais introuvable"
-          },
-          "401": {
-            "description": "Non authentifié"
-          },
-          "403": {
-            "description": "Permission insuffisante"
-          },
-          "404": {
-            "description": "Lead introuvable (NOT_FOUND)"
-          }
-        }
-      }
-    },
     "/pipeline/opportunities": {
       "get": {
         "tags": [
@@ -6395,10 +6056,110 @@
             "required": false,
             "schema": {
               "type": "string",
-              "enum": ["exclude", "only", "all"],
+              "enum": [
+                "exclude",
+                "only",
+                "all"
+              ],
               "default": "all"
             },
             "description": "exclude = non archivées ; only = archivées uniquement (triées par closedAt desc) ; all = comportement inchangé (défaut, tous appelants existants)"
+          },
+          {
+            "name": "prospectStatus",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "TODO",
+                "NO_ANSWER",
+                "REACHED",
+                "CALLBACK"
+              ]
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "remindToday",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true"
+              ]
+            },
+            "description": "remindAt dans la journée en cours (heure serveur)"
+          },
+          {
+            "name": "neverContacted",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true"
+              ]
+            },
+            "description": "lastContactedAt est null"
+          },
+          {
+            "name": "staleDays",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "lastContactedAt null ou antérieur à N jours"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "OR insensible à la casse sur title, company.name, contact.firstName/lastName"
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "createdAt",
+                "updatedAt",
+                "title",
+                "value",
+                "remindAt",
+                "lastContactedAt",
+                "prospectStatus",
+                "stage",
+                "company"
+              ]
+            }
+          },
+          {
+            "name": "sortOrder",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            }
           },
           {
             "name": "page",
@@ -6465,9 +6226,6 @@
                   "companyId": {
                     "type": "string"
                   },
-                  "leadId": {
-                    "type": "string"
-                  },
                   "pipelineId": {
                     "type": "string"
                   },
@@ -6507,6 +6265,26 @@
                       "null"
                     ],
                     "format": "date-time"
+                  },
+                  "source": {
+                    "type": "string",
+                    "description": "référentiel lead_source, défaut 'MANUAL'"
+                  },
+                  "prospectStatus": {
+                    "type": "string",
+                    "enum": [
+                      "TODO",
+                      "NO_ANSWER",
+                      "REACHED",
+                      "CALLBACK"
+                    ],
+                    "description": "défaut 'TODO'"
+                  },
+                  "nextAction": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   }
                 }
               }
@@ -6518,7 +6296,7 @@
             "description": "Opportunité créée"
           },
           "400": {
-            "description": "VALIDATION_ERROR ; CONTACT_NOT_FOUND, COMPANY_NOT_FOUND, LEAD_NOT_FOUND, PIPELINE_NOT_FOUND si l'id fourni est introuvable ; CONTACT_COMPANY_MISMATCH (cohérence souple)"
+            "description": "VALIDATION_ERROR ; INVALID_REFERENCE (source) ; CONTACT_NOT_FOUND, COMPANY_NOT_FOUND, PIPELINE_NOT_FOUND si l'id fourni est introuvable ; CONTACT_COMPANY_MISMATCH (cohérence souple)"
           },
           "401": {
             "description": "Non authentifié"
@@ -6599,6 +6377,186 @@
         }
       }
     },
+    "/pipeline/opportunities/bulk": {
+      "post": {
+        "tags": [
+          "Pipeline"
+        ],
+        "summary": "Action groupée sur une sélection d'opportunités",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "pipeline:update",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "ids",
+                  "action"
+                ],
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 200
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "assign",
+                      "stage",
+                      "archive",
+                      "prospectStatus"
+                    ]
+                  },
+                  "value": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "requis pour stage/prospectStatus"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ updated: number, skipped: number }"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR ; VALUE_REQUIRED ; INVALID_STAGE ; INVALID_STATUS"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          }
+        }
+      }
+    },
+    "/pipeline/opportunities/import/csv": {
+      "post": {
+        "tags": [
+          "Pipeline"
+        ],
+        "summary": "Import de prospects (entreprise + contact + opportunité) depuis un CSV mis en correspondance",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "pipeline:create",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "rows"
+                ],
+                "properties": {
+                  "pipelineId": {
+                    "type": "string"
+                  },
+                  "stage": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string",
+                    "description": "référentiel lead_source, défaut 'MANUAL'"
+                  },
+                  "assignedToId": {
+                    "type": "string"
+                  },
+                  "rows": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 500,
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "companyName": {
+                          "type": "string",
+                          "description": "requis, sinon ligne en erreur"
+                        },
+                        "firstName": {
+                          "type": "string"
+                        },
+                        "lastName": {
+                          "type": "string"
+                        },
+                        "phone": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "value": {
+                          "type": [
+                            "string",
+                            "number"
+                          ]
+                        },
+                        "notes": {
+                          "type": "string"
+                        },
+                        "city": {
+                          "type": "string"
+                        },
+                        "postalCode": {
+                          "type": "string"
+                        },
+                        "website": {
+                          "type": "string"
+                        },
+                        "siret": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ created: { companies, contacts, opportunities }, skipped, errors: [{ row, reason }] }"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR (vide ou >500 lignes) ; INVALID_REFERENCE (source) ; PIPELINE_NOT_FOUND ; USER_NOT_FOUND (assignedToId)"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          }
+        }
+      }
+    },
     "/pipeline/opportunities/{id}": {
       "get": {
         "tags": [
@@ -6626,7 +6584,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Opportunité (contact, company, assignedTo, products, activities, lead)"
+            "description": "Opportunité (contact, company, assignedTo, products, activities)"
           },
           "401": {
             "description": "Non authentifié"
@@ -6680,9 +6638,6 @@
                   "companyId": {
                     "type": "string"
                   },
-                  "leadId": {
-                    "type": "string"
-                  },
                   "pipelineId": {
                     "type": "string"
                   },
@@ -6722,6 +6677,26 @@
                       "null"
                     ],
                     "format": "date-time"
+                  },
+                  "source": {
+                    "type": "string",
+                    "description": "référentiel lead_source, défaut 'MANUAL'"
+                  },
+                  "prospectStatus": {
+                    "type": "string",
+                    "enum": [
+                      "TODO",
+                      "NO_ANSWER",
+                      "REACHED",
+                      "CALLBACK"
+                    ],
+                    "description": "défaut 'TODO'"
+                  },
+                  "nextAction": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   }
                 }
               }
@@ -6733,7 +6708,7 @@
             "description": "Opportunité mise à jour"
           },
           "400": {
-            "description": "VALIDATION_ERROR ; mêmes erreurs de cohérence que la création (CONTACT_NOT_FOUND, COMPANY_NOT_FOUND, LEAD_NOT_FOUND, PIPELINE_NOT_FOUND, CONTACT_COMPANY_MISMATCH), vérifiées sur la valeur effective"
+            "description": "VALIDATION_ERROR ; INVALID_REFERENCE (source) ; mêmes erreurs de cohérence que la création (CONTACT_NOT_FOUND, COMPANY_NOT_FOUND, PIPELINE_NOT_FOUND, CONTACT_COMPANY_MISMATCH), vérifiées sur la valeur effective"
           },
           "401": {
             "description": "Non authentifié"
@@ -6839,6 +6814,84 @@
           },
           "400": {
             "description": "VALIDATION_ERROR ou INVALID_STAGE (étape inconnue de tout pipeline non-template)"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          },
+          "404": {
+            "description": "Opportunité introuvable"
+          }
+        }
+      }
+    },
+    "/pipeline/opportunities/{id}/prospect": {
+      "patch": {
+        "tags": [
+          "Pipeline"
+        ],
+        "summary": "Statut de prospection à un clic (appelé / joint / à rappeler)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "pipeline:update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "prospectStatus": {
+                    "type": "string",
+                    "enum": [
+                      "TODO",
+                      "NO_ANSWER",
+                      "REACHED",
+                      "CALLBACK"
+                    ]
+                  },
+                  "remindAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "nextAction": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Opportunité mise à jour"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR ; REMIND_AT_REQUIRED (CALLBACK sans remindAt)"
           },
           "401": {
             "description": "Non authentifié"
