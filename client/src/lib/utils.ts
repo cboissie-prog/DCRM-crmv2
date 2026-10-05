@@ -180,6 +180,14 @@ export const CALL_PRIORITIES: Record<string, { label: string; color: string }> =
   URGENT: { label: 'Urgent',  color: 'badge-red' },
 }
 
+/** Durée en minutes → libellé compact (ex. "45 min", "1h 30min"). Utilisé par les tickets (temps passé). */
+export function formatTime(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return m > 0 ? `${h}h ${m}min` : `${h}h`
+}
+
 export function formatDuration(seconds: number | null | undefined): string {
   if (seconds == null) return '—'
   if (seconds < 60) return `${seconds}s`

@@ -169,6 +169,8 @@ export interface TicketComment {
   authorId?: string
   authorName: string
   createdAt: string
+  /** Pièces jointes rattachées à ce commentaire (0 à 5, voir ALLOWED_ATTACHMENT_MIMES côté serveur) */
+  attachments?: TicketAttachment[]
 }
 
 export interface TicketEvent {
@@ -206,6 +208,7 @@ export interface TicketAppointment {
   type: string
   startAt: string
   endAt: string
+  createdAt: string
   users?: { user: { id: string; firstName: string; lastName: string } }[]
 }
 
@@ -214,6 +217,7 @@ export interface TicketDetail extends Ticket {
   comments: TicketComment[]
   events: TicketEvent[]
   timeEntries: TicketTimeEntry[]
+  /** Pièces jointes orphelines (sans commentId, héritage pré-fil unique) */
   attachments: TicketAttachment[]
   appointments: TicketAppointment[]
   npsResponse?: { id: string; score: number; comment?: string; createdAt: string }

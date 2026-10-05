@@ -6,7 +6,7 @@ import { useUsersList } from '../../hooks/useApi'
 import { usePermissions } from '../../hooks/usePermission'
 import { useReferences } from '../../hooks/useReferences'
 import {
-  formatDate, formatDateTime, formatRelative,
+  formatDate, formatDateTime, formatRelative, formatTime,
   TICKET_STATUSES, TICKET_PRIORITIES,
 } from '../../lib/utils'
 import { Badge } from '../../components/ui/Badge'
@@ -15,11 +15,12 @@ import { PageSpinner, Spinner } from '../../components/ui/Spinner'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
 import { EntityPicker } from '../../components/ui/EntityPicker'
+import { Tooltip } from '../../components/ui/Tooltip'
 import type { SearchSelectOption } from '../../components/ui/SearchSelect'
 import {
   Plus, Search, ArrowLeft, Clock, MessageSquare,
   ChevronDown, Send, Lock, Unlock, Trash2, Edit2, Timer, Download, X, CalendarPlus, Wrench,
-  List, LayoutGrid, ArrowUp, ArrowDown, ArrowUpDown, Paperclip, Upload, History, Star, PlusCircle,
+  List, LayoutGrid, ArrowUp, ArrowDown, ArrowUpDown, Paperclip, Star, PlusCircle,
 } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import { downloadCsv } from '../../lib/exportCsv'
@@ -27,7 +28,8 @@ import { useForm, useWatch, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useAuthStore } from '../../store/authStore'
-import type { Ticket, TicketDetail, TicketEvent, TicketAttachment, PaginatedResponse } from '../../types'
+import { buildTicketThread, type ThreadItem } from '../../lib/ticketThread'
+import type { Ticket, TicketDetail, TicketAttachment, PaginatedResponse } from '../../types'
 
 // ─── Schémas ────────────────────────────────────────────────────────────────
 
@@ -42,8 +44,10 @@ const ticketSchema = z.object({
 })
 type TicketForm = z.infer<typeof ticketSchema>
 
+// Le texte devient optionnel : un commentaire peut n'être qu'une ou plusieurs pièces jointes
+// (validation « texte ou fichier requis » faite à la soumission, cf. TicketDetailPage).
 const commentSchema = z.object({
-  content: z.string().min(1, 'Commentaire requis'),
+  content: z.string().max(5000).optional(),
   isInternal: z.boolean().default(false),
 })
 type CommentForm = z.infer<typeof commentSchema>
@@ -61,36 +65,16 @@ const timeEntrySchema = z.object({
 type TimeEntryForm = z.infer<typeof timeEntrySchema>
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+// `formatTime` vit désormais dans lib/utils.ts (réutilisé par lib/ticketThread.ts).
+// `eventLabel` vit désormais dans lib/ticketThread.ts (seul consommateur : le fil du ticket).
 
-function formatTime(minutes: number): string {
-  if (minutes < 60) return `${minutes} min`
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  return m > 0 ? `${h}h ${m}min` : `${h}h`
-}
+/** Extensions/types acceptés pour les pièces jointes (identique au serveur, cf. ALLOWED_ATTACHMENT_EXTS) */
+const ATTACHMENT_ACCEPT = '.png,.jpg,.jpeg,.gif,.webp,.pdf,.txt,.csv,.log,.doc,.docx,.xls,.xlsx,.zip'
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} o`
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} Ko`
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`
-}
-
-/** Libellé français d'un évènement d'historique */
-function eventLabel(e: TicketEvent): string {
-  const s = (k?: string) => (k ? TICKET_STATUSES[k]?.label ?? k : '')
-  const p = (k?: string) => (k ? TICKET_PRIORITIES[k]?.label ?? k : '')
-  switch (e.type) {
-    case 'CREATED': return 'Ticket créé'
-    case 'STATUS_CHANGED': return `Statut : ${s(e.fromValue)} → ${s(e.toValue)}`
-    case 'REOPENED': return `Ticket réouvert (${s(e.fromValue)} → ${s(e.toValue)})`
-    case 'PRIORITY_CHANGED': return `Priorité : ${p(e.fromValue)} → ${p(e.toValue)}`
-    case 'ASSIGNED': return `Assigné à ${e.toValue ?? '?'}`
-    case 'UNASSIGNED': return 'Assignation retirée'
-    case 'TIME_ADDED': return `Temps ajouté : ${formatTime(parseInt(e.toValue ?? '0', 10) || 0)}`
-    case 'ATTACHMENT_ADDED': return `Pièce jointe ajoutée : ${e.toValue ?? ''}`
-    case 'NPS_RECEIVED': return `Avis client reçu : ${e.toValue}/10`
-    default: return e.type
-  }
 }
 
 /** Indicateur SLA : basé sur l'échéance calculée à la création (fallback : âge du ticket) */
@@ -663,6 +647,8 @@ export function TicketDetailPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [showIntervention, setShowIntervention] = useState(false)
   const [showTimeEntry, setShowTimeEntry] = useState(false)
+  const [commentFiles, setCommentFiles] = useState<File[]>([])
+  const commentFileInputRef = useRef<HTMLInputElement>(null)
 
   const { data: ticket, isLoading } = useQuery({
     queryKey: ['ticket', id],
@@ -681,7 +667,9 @@ export function TicketDetailPage() {
     const saved = localStorage.getItem(`ticket-timer-${id}`)
     if (saved) {
       const elapsed = Math.floor((Date.now() - parseInt(saved)) / 1000)
-      // Restauration ponctuelle de l'état timer depuis localStorage au montage
+      // Restauration ponctuelle de l'état timer depuis localStorage au montage (pas de boucle :
+      // dépend de [id], pas de timerSeconds/timerRunning)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTimerSeconds(elapsed)
       setTimerRunning(true)
     }
@@ -732,25 +720,79 @@ export function TicketDetailPage() {
 
   const { register: regComment, handleSubmit: handleComment, reset: resetComment, control: controlComment, formState: { isSubmitting: submittingComment } } = useForm<CommentForm>({
     resolver: zodResolver(commentSchema) as Resolver<CommentForm>,
-    defaultValues: { isInternal: false },
+    defaultValues: { content: '', isInternal: false },
   })
   const isInternalComment = useWatch({ control: controlComment, name: 'isInternal' })
+  const commentContent = useWatch({ control: controlComment, name: 'content' })
 
+  // JSON ou multipart selon la présence de fichiers — cf. spec §3 (POST /tickets/:id/comments).
   const addCommentMutation = useMutation({
-    mutationFn: (values: CommentForm) => api.post(`/tickets/${id}/comments`, values),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ticket', id] }); resetComment({ content: '', isInternal: false }); toast.success('Commentaire ajouté') },
-    onError: () => toast.error('Erreur lors de l\'ajout du commentaire'),
+    mutationFn: ({ content, isInternal, files }: { content: string; isInternal: boolean; files: File[] }) => {
+      const form = new FormData()
+      form.append('content', content)
+      form.append('isInternal', isInternal ? 'true' : 'false')
+      files.forEach(f => form.append('files', f))
+      return api.post(`/tickets/${id}/comments`, form)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ticket', id] })
+      resetComment({ content: '', isInternal: false })
+      setCommentFiles([])
+      toast.success('Commentaire ajouté')
+    },
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
+      toast.error(message ?? 'Erreur lors de l\'ajout du commentaire')
+    },
   })
+
+  const handleDownloadAttachment = async (a: TicketAttachment) => {
+    try {
+      const response = await api.get(`/tickets/attachments/${a.id}/download`, { responseType: 'blob' })
+      const url = URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = a.filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Erreur lors du téléchargement')
+    }
+  }
+
+  const deleteAttachmentMutation = useMutation({
+    mutationFn: (attachmentId: string) => api.delete(`/tickets/attachments/${attachmentId}`),
+    onSuccess: () => { invalidateTicket(); toast.success('Pièce jointe supprimée') },
+    onError: () => toast.error('Erreur lors de la suppression'),
+  })
+
+  const handleDeleteAttachment = (a: TicketAttachment) => {
+    if (!window.confirm(`Supprimer « ${a.filename} » ?`)) return
+    deleteAttachmentMutation.mutate(a.id)
+  }
+
+  const removeCommentFile = (index: number) => {
+    setCommentFiles(prev => prev.filter((_, i) => i !== index))
+  }
 
   if (isLoading) return <PageSpinner />
   if (!ticket) return <div className="p-8 text-center text-slate-500">Ticket introuvable</div>
 
   const timerDisplay = `${String(Math.floor(timerSeconds / 3600)).padStart(2, '0')}:${String(Math.floor((timerSeconds % 3600) / 60)).padStart(2, '0')}:${String(timerSeconds % 60).padStart(2, '0')}`
   const isOpen = ticket.status !== 'RESOLVED' && ticket.status !== 'CLOSED'
-  // Heure courante lue au render pour des libellés d'affichage (impureté bénigne, non réactive)
-  // eslint-disable-next-line react-hooks/purity
-  const nowTs = Date.now()
   const sla = ticket.slaDeadline && isOpen ? slaRemainingLabel(ticket.slaDeadline) : null
+  const thread = buildTicketThread(ticket)
+  const canSendComment = !submittingComment && !addCommentMutation.isPending && (!!commentContent?.trim() || commentFiles.length > 0)
+
+  // Libellés texte de la colonne Informations — calculés une fois, réutilisés par la valeur affichée et son infobulle
+  const categoryLabel = refs.label('ticket_category', ticket.category)
+  const contactLabel = ticket.contact ? `${ticket.contact.firstName} ${ticket.contact.lastName}` : ''
+  const assignedLabel = ticket.assignedTo ? `${ticket.assignedTo.firstName} ${ticket.assignedTo.lastName}` : ''
+  const equipmentLabel = ticket.equipment ? `${ticket.equipment.brand ?? ''} ${ticket.equipment.model ?? ''}`.trim() : ''
+  const createdByLabel = ticket.createdBy ? `${ticket.createdBy.firstName} ${ticket.createdBy.lastName}` : ''
+  const npsLabel = ticket.npsResponse ? `${ticket.npsResponse.score}/10` : ''
 
   return (
     <div className="space-y-5 fade-in">
@@ -840,15 +882,17 @@ export function TicketDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Colonne info */}
-        <div className="space-y-4">
+        <div className="space-y-4 lg:col-span-1">
           <div className="card card-body">
             <h3 className="text-sm font-semibold text-slate-700 mb-3">Informations</h3>
             <div className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-slate-500">Catégorie</span>
-                <span className="text-slate-800 font-medium">{refs.label('ticket_category', ticket.category)}</span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-500 shrink-0">Catégorie</span>
+                <Tooltip content={categoryLabel} className="min-w-0 flex-1">
+                  <span className="block truncate text-right text-slate-800 font-medium">{categoryLabel}</span>
+                </Tooltip>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Priorité</span>
@@ -859,30 +903,38 @@ export function TicketDetailPage() {
                 <Badge variant={TICKET_STATUSES[ticket.status]?.color}>{TICKET_STATUSES[ticket.status]?.label}</Badge>
               </div>
               {ticket.company && (
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Entreprise</span>
-                  <span className="text-slate-800 font-medium">{ticket.company.name}</span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500 shrink-0">Entreprise</span>
+                  <Tooltip content={ticket.company.name} className="min-w-0 flex-1">
+                    <span className="block truncate text-right text-slate-800 font-medium">{ticket.company.name}</span>
+                  </Tooltip>
                 </div>
               )}
               {ticket.contact && (
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Contact</span>
-                  <span className="text-slate-800 font-medium">{ticket.contact.firstName} {ticket.contact.lastName}</span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500 shrink-0">Contact</span>
+                  <Tooltip content={contactLabel} className="min-w-0 flex-1">
+                    <span className="block truncate text-right text-slate-800 font-medium">{contactLabel}</span>
+                  </Tooltip>
                 </div>
               )}
               {ticket.assignedTo && (
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-500">Technicien</span>
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500 shrink-0">Technicien</span>
+                  <div className="flex items-center justify-end gap-2 min-w-0 flex-1">
                     <Avatar firstName={ticket.assignedTo.firstName} lastName={ticket.assignedTo.lastName} size="sm" />
-                    <span className="text-slate-800 font-medium">{ticket.assignedTo.firstName} {ticket.assignedTo.lastName}</span>
+                    <Tooltip content={assignedLabel} className="min-w-0">
+                      <span className="block truncate text-right text-slate-800 font-medium">{assignedLabel}</span>
+                    </Tooltip>
                   </div>
                 </div>
               )}
               {ticket.equipment && (
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Équipement</span>
-                  <span className="text-slate-800 font-medium">{ticket.equipment.brand} {ticket.equipment.model}</span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500 shrink-0">Équipement</span>
+                  <Tooltip content={equipmentLabel} className="min-w-0 flex-1">
+                    <span className="block truncate text-right text-slate-800 font-medium">{equipmentLabel}</span>
+                  </Tooltip>
                 </div>
               )}
               {ticket.slaDeadline && (
@@ -899,9 +951,11 @@ export function TicketDetailPage() {
                 <span className="text-slate-800">{formatDate(ticket.createdAt)}</span>
               </div>
               {ticket.createdBy && (
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Créé par</span>
-                  <span className="text-slate-800">{ticket.createdBy.firstName} {ticket.createdBy.lastName}</span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500 shrink-0">Créé par</span>
+                  <Tooltip content={createdByLabel} className="min-w-0 flex-1">
+                    <span className="block truncate text-right text-slate-800">{createdByLabel}</span>
+                  </Tooltip>
                 </div>
               )}
               {ticket.resolvedAt && (
@@ -911,11 +965,13 @@ export function TicketDetailPage() {
                 </div>
               )}
               {ticket.npsResponse && (
-                <div className="flex justify-between items-center pt-2 border-t border-slate-100">
-                  <span className="text-slate-500 flex items-center gap-1"><Star className="w-3.5 h-3.5 text-amber-400" /> Avis client</span>
-                  <span className={`font-semibold ${ticket.npsResponse.score >= 9 ? 'text-emerald-600' : ticket.npsResponse.score >= 7 ? 'text-amber-500' : 'text-red-500'}`}>
-                    {ticket.npsResponse.score}/10
-                  </span>
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                  <span className="text-slate-500 flex items-center gap-1 shrink-0"><Star className="w-3.5 h-3.5 text-amber-400" /> Avis client</span>
+                  <Tooltip content={npsLabel} className="min-w-0 flex-1">
+                    <span className={`block truncate text-right font-semibold ${ticket.npsResponse.score >= 9 ? 'text-emerald-600' : ticket.npsResponse.score >= 7 ? 'text-amber-500' : 'text-red-500'}`}>
+                      {npsLabel}
+                    </span>
+                  </Tooltip>
                 </div>
               )}
               {ticket.npsResponse?.comment && (
@@ -926,7 +982,7 @@ export function TicketDetailPage() {
 
           {/* Temps passé */}
           <div className="card card-body">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
                 <Clock className="w-4 h-4 text-slate-400" /> Temps passé
               </h3>
@@ -939,164 +995,109 @@ export function TicketDetailPage() {
                 )}
               </div>
             </div>
-            {ticket.timeEntries.length === 0 ? (
-              <p className="text-xs text-slate-400">Aucune entrée de temps</p>
-            ) : (
-              <div className="space-y-2">
-                {ticket.timeEntries.map(e => (
-                  <div key={e.id} className="flex items-start justify-between gap-2 text-xs border-b border-slate-50 last:border-b-0 pb-2 last:pb-0">
-                    <div className="min-w-0">
-                      <span className="text-slate-700 font-medium">
-                        {e.user ? `${e.user.firstName} ${e.user.lastName}` : 'Inconnu'}
-                      </span>
-                      {e.note && <p className="text-slate-400 truncate">{e.note}</p>}
-                      <p className="text-slate-300">{formatRelative(e.createdAt)}</p>
-                    </div>
-                    <span className="text-slate-600 font-medium whitespace-nowrap">{formatTime(e.minutes)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Historique */}
-          <div className="card card-body">
-            <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-1.5">
-              <History className="w-4 h-4 text-slate-400" /> Historique
-            </h3>
-            {ticket.events.length === 0 ? (
-              <p className="text-xs text-slate-400">Aucun évènement</p>
-            ) : (
-              <div className="relative space-y-3">
-                {ticket.events.map(e => (
-                  <div key={e.id} className="flex gap-2.5 text-xs">
-                    <span className={`mt-1 inline-block w-2 h-2 rounded-full shrink-0 ${
-                      e.type === 'REOPENED' ? 'bg-orange-400'
-                      : e.type === 'NPS_RECEIVED' ? 'bg-amber-400'
-                      : e.type === 'CREATED' ? 'bg-indigo-400'
-                      : 'bg-slate-300'}`} />
-                    <div className="min-w-0">
-                      <p className="text-slate-700">{eventLabel(e)}</p>
-                      <p className="text-slate-400">
-                        {e.author ? `${e.author.firstName} ${e.author.lastName} · ` : ''}{formatRelative(e.createdAt)}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
 
-        {/* Colonne principale */}
-        <div className="lg:col-span-2 space-y-5">
-          {/* Description */}
-          <div className="card card-body">
-            <h3 className="text-sm font-semibold text-slate-700 mb-3">Description</h3>
-            <p className="text-sm text-slate-600 whitespace-pre-wrap leading-relaxed">{ticket.description}</p>
-            {ticket.notes && (
-              <>
-                <div className="border-t border-slate-100 mt-4 pt-4">
-                  <p className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Notes internes</p>
-                  <p className="text-sm text-slate-600 whitespace-pre-wrap">{ticket.notes}</p>
-                </div>
-              </>
-            )}
+        {/* Fil du ticket */}
+        <div className="lg:col-span-3 card">
+          <div className="card-header">
+            <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+              <MessageSquare className="w-4 h-4" />
+              Fil du ticket
+              <span className="text-xs text-slate-400">
+                ({ticket.comments?.length ?? 0} commentaire{(ticket.comments?.length ?? 0) === 1 ? '' : 's'})
+              </span>
+            </h3>
           </div>
 
-          {/* Pièces jointes */}
-          <AttachmentsCard ticket={ticket} canEdit={perms['tickets:update']} onChanged={invalidateTicket} />
-
-          {/* Interventions liées */}
-          <div className="card">
-            <div className="card-header flex items-center justify-between">
-              <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                <CalendarPlus className="w-4 h-4" />
-                Interventions
-                <span className="text-xs text-slate-400">({ticket.appointments.length})</span>
-              </h3>
-            </div>
-            {ticket.appointments.length === 0 ? (
-              <div className="py-6 text-center text-sm text-slate-400">Aucune intervention planifiée</div>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {ticket.appointments.map(a => (
-                  <div key={a.id} className="px-4 py-3 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-800 truncate">{a.title}</p>
-                      <p className="text-xs text-slate-400">
-                        {formatDateTime(a.startAt)}
-                        {a.users && a.users.length > 0 && ` · ${a.users.map(u => `${u.user.firstName} ${u.user.lastName}`).join(', ')}`}
-                      </p>
-                    </div>
-                    <span className={`text-xs whitespace-nowrap ${new Date(a.startAt).getTime() > nowTs ? 'text-indigo-500' : 'text-slate-400'}`}>
-                      {new Date(a.startAt).getTime() > nowTs ? 'À venir' : 'Passée'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+          <div className="divide-y divide-slate-100">
+            {thread.map(item => (
+              <ThreadItemRow
+                key={item.id}
+                item={item}
+                canEdit={perms['tickets:update']}
+                onDownloadAttachment={handleDownloadAttachment}
+                onDeleteAttachment={handleDeleteAttachment}
+              />
+            ))}
           </div>
 
-          {/* Commentaires */}
-          <div className="card">
-            <div className="card-header">
-              <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                <MessageSquare className="w-4 h-4" />
-                Commentaires
-                <span className="text-xs text-slate-400">({ticket.comments?.length ?? 0})</span>
-              </h3>
-            </div>
-
-            {/* Liste commentaires */}
-            <div className="divide-y divide-slate-100">
-              {ticket.comments?.length === 0 ? (
-                <div className="py-8 text-center text-sm text-slate-400">Aucun commentaire</div>
-              ) : ticket.comments?.map(c => (
-                <div key={c.id} className={`px-4 py-3 ${c.isInternal ? 'bg-amber-50/60' : ''}`}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-slate-800">{c.authorName}</span>
-                      {c.isInternal && (
-                        <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded">
-                          <Lock className="w-3 h-3" /> Interne
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-xs text-slate-400 whitespace-nowrap">{formatRelative(c.createdAt)}</span>
-                  </div>
-                  <p className="text-sm text-slate-600 mt-1 whitespace-pre-wrap">{c.content}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Ajouter commentaire */}
-            {perms['tickets:update'] && (
-              <div className="p-4 border-t border-slate-100">
-                <form onSubmit={handleComment((v: CommentForm) => addCommentMutation.mutate(v))} className="space-y-3">
-                  <textarea
-                    {...regComment('content')}
-                    className="input resize-none"
-                    rows={3}
-                    placeholder="Ajouter un commentaire..."
-                  />
-                  <div className="flex items-center justify-between">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" {...regComment('isInternal')} className="rounded" />
-                      <span className="text-sm text-slate-600 flex items-center gap-1">
-                        {isInternalComment ? <Lock className="w-3.5 h-3.5 text-amber-500" /> : <Unlock className="w-3.5 h-3.5 text-slate-400" />}
-                        Commentaire interne
+          {/* Ajouter un commentaire */}
+          {perms['tickets:update'] && (
+            <div className="p-4 border-t border-slate-100">
+              <form
+                onSubmit={handleComment((v: CommentForm) => {
+                  const content = v.content?.trim() ?? ''
+                  if (!content && commentFiles.length === 0) {
+                    toast.error('Ajoutez du texte ou une pièce jointe')
+                    return
+                  }
+                  addCommentMutation.mutate({ content, isInternal: v.isInternal, files: commentFiles })
+                })}
+                className="space-y-3"
+              >
+                <textarea
+                  {...regComment('content')}
+                  className="input resize-none"
+                  rows={3}
+                  placeholder="Ajouter un commentaire..."
+                />
+                {commentFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {commentFiles.map((f, idx) => (
+                      <span key={`${f.name}-${idx}`} className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-slate-50 pl-2 pr-1 py-1 text-xs text-slate-600">
+                        <Paperclip className="w-3 h-3 shrink-0 text-slate-400" />
+                        <span className="truncate max-w-[12rem]">{f.name}</span>
+                        <button
+                          type="button"
+                          className="shrink-0 rounded-full p-0.5 text-slate-300 hover:text-red-600"
+                          onClick={() => removeCommentFile(idx)}
+                          title="Retirer"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
                       </span>
-                    </label>
-                    <button type="submit" className="btn-primary btn-sm" disabled={submittingComment || addCommentMutation.isPending}>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" {...regComment('isInternal')} className="rounded" />
+                    <span className="text-sm text-slate-600 flex items-center gap-1">
+                      {isInternalComment ? <Lock className="w-3.5 h-3.5 text-amber-500" /> : <Unlock className="w-3.5 h-3.5 text-slate-400" />}
+                      Commentaire interne
+                    </span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={commentFileInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      accept={ATTACHMENT_ACCEPT}
+                      onChange={e => {
+                        const files = Array.from(e.target.files ?? [])
+                        if (files.length > 0) setCommentFiles(prev => [...prev, ...files])
+                        if (commentFileInputRef.current) commentFileInputRef.current.value = ''
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm flex items-center gap-1.5"
+                      onClick={() => commentFileInputRef.current?.click()}
+                      title="Joindre un fichier"
+                    >
+                      <Paperclip className="w-3.5 h-3.5" /> Joindre
+                    </button>
+                    <button type="submit" className="btn-primary btn-sm" disabled={!canSendComment}>
                       {(submittingComment || addCommentMutation.isPending) ? <Spinner className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
                       Envoyer
                     </button>
                   </div>
-                </form>
-              </div>
-            )}
-          </div>
+                </div>
+              </form>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1127,125 +1128,123 @@ export function TicketDetailPage() {
   )
 }
 
-// ─── Pièces jointes ──────────────────────────────────────────────────────────
+// ─── Fil du ticket — rendu des items ────────────────────────────────────────
 
-function AttachmentsCard({ ticket, canEdit, onChanged }: { ticket: TicketDetail; canEdit: boolean; onChanged: () => void }) {
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [uploading, setUploading] = useState(false)
-
-  const handleUpload = async (file: File) => {
-    setUploading(true)
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      await api.post(`/tickets/${ticket.id}/attachments`, form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      toast.success('Pièce jointe ajoutée')
-      onChanged()
-    } catch (err: unknown) {
-      const message = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
-      toast.error(message ?? 'Erreur lors de l\'upload')
-    } finally {
-      setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
-
-  const handleDownload = async (a: TicketAttachment) => {
-    try {
-      const response = await api.get(`/tickets/attachments/${a.id}/download`, { responseType: 'blob' })
-      const url = URL.createObjectURL(new Blob([response.data]))
-      const link = document.createElement('a')
-      link.href = url
-      link.download = a.filename
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
-    } catch {
-      toast.error('Erreur lors du téléchargement')
-    }
-  }
-
-  const handleDelete = async (a: TicketAttachment) => {
-    if (!window.confirm(`Supprimer « ${a.filename} » ?`)) return
-    try {
-      await api.delete(`/tickets/attachments/${a.id}`)
-      toast.success('Pièce jointe supprimée')
-      onChanged()
-    } catch {
-      toast.error('Erreur lors de la suppression')
-    }
-  }
-
+/** Puce téléchargeable (clic = blob authentifié via l'intercepteur axios), croix de suppression optionnelle */
+function AttachmentChip({ attachment, canDelete, onDownload, onDelete }: {
+  attachment: TicketAttachment
+  canDelete: boolean
+  onDownload: (a: TicketAttachment) => void
+  onDelete: (a: TicketAttachment) => void
+}) {
   return (
-    <div className="card">
-      <div className="card-header flex items-center justify-between">
-        <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-          <Paperclip className="w-4 h-4" />
-          Pièces jointes
-          <span className="text-xs text-slate-400">({ticket.attachments.length})</span>
-        </h3>
-        {canEdit && (
-          <>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.txt,.csv,.log,.doc,.docx,.xls,.xlsx,.zip"
-              onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f) }}
-            />
-            <button
-              className="btn-secondary btn-sm flex items-center gap-1.5"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-            >
-              {uploading ? <Spinner className="w-3.5 h-3.5" /> : <Upload className="w-3.5 h-3.5" />}
-              Ajouter
-            </button>
-          </>
+    <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-slate-200 bg-white pl-2 pr-1 py-1 text-xs text-slate-600">
+      <button
+        type="button"
+        className="flex min-w-0 items-center gap-1 hover:text-indigo-600"
+        onClick={() => onDownload(attachment)}
+        title="Télécharger"
+      >
+        <Paperclip className="w-3 h-3 shrink-0 text-slate-400" />
+        <span className="truncate max-w-[10rem]">{attachment.filename}</span>
+        <span className="shrink-0 text-slate-400">· {formatFileSize(attachment.size)}</span>
+      </button>
+      {canDelete && (
+        <button
+          type="button"
+          className="shrink-0 rounded-full p-0.5 text-slate-300 hover:text-red-600"
+          onClick={() => onDelete(attachment)}
+          title="Supprimer"
+        >
+          <X className="w-3 h-3" />
+        </button>
+      )}
+    </span>
+  )
+}
+
+/** Une ligne du fil : description, note interne, commentaire (+ pièces jointes) ou ligne système compacte */
+function ThreadItemRow({ item, canEdit, onDownloadAttachment, onDeleteAttachment }: {
+  item: ThreadItem
+  canEdit: boolean
+  onDownloadAttachment: (a: TicketAttachment) => void
+  onDeleteAttachment: (a: TicketAttachment) => void
+}) {
+  if (item.type === 'description') {
+    return (
+      <div className="px-4 py-3">
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="text-xs font-semibold text-indigo-600">Description</span>
+            <span className="text-xs text-slate-400 whitespace-nowrap">{formatRelative(item.date)}</span>
+          </div>
+          <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{item.text}</p>
+          {item.author && <p className="text-xs text-slate-400 mt-1.5">{item.author.firstName} {item.author.lastName}</p>}
+        </div>
+      </div>
+    )
+  }
+
+  if (item.type === 'note') {
+    return (
+      <div className="px-4 py-3">
+        <div className="rounded-xl border border-amber-100 bg-amber-50/60 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="flex items-center gap-1 text-xs font-semibold text-amber-600">
+              <Lock className="w-3 h-3" /> Note interne
+            </span>
+            <span className="text-xs text-slate-400 whitespace-nowrap">{formatRelative(item.date)}</span>
+          </div>
+          <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{item.text}</p>
+          {item.author && <p className="text-xs text-slate-400 mt-1.5">{item.author.firstName} {item.author.lastName}</p>}
+        </div>
+      </div>
+    )
+  }
+
+  if (item.type === 'comment') {
+    const c = item.comment
+    return (
+      <div className={`px-4 py-3 ${c.isInternal ? 'bg-amber-50/60' : ''}`}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-slate-800">{c.authorName}</span>
+            {c.isInternal && (
+              <span className="flex items-center gap-1 text-xs text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded">
+                <Lock className="w-3 h-3" /> Interne
+              </span>
+            )}
+          </div>
+          <span className="text-xs text-slate-400 whitespace-nowrap">{formatRelative(c.createdAt)}</span>
+        </div>
+        {c.content && <p className="text-sm text-slate-600 mt-1 whitespace-pre-wrap">{c.content}</p>}
+        {c.attachments && c.attachments.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {c.attachments.map(a => (
+              <AttachmentChip key={a.id} attachment={a} canDelete={canEdit} onDownload={onDownloadAttachment} onDelete={onDeleteAttachment} />
+            ))}
+          </div>
         )}
       </div>
-      {ticket.attachments.length === 0 ? (
-        <div className="py-6 text-center text-sm text-slate-400">Aucune pièce jointe (10 Mo max — images, PDF, documents)</div>
-      ) : (
-        <div className="divide-y divide-slate-100">
-          {ticket.attachments.map(a => (
-            <div key={a.id} className="px-4 py-2.5 flex items-center gap-3">
-              <Paperclip className="w-4 h-4 text-slate-300 shrink-0" />
-              <button
-                className="flex-1 min-w-0 text-left group"
-                onClick={() => handleDownload(a)}
-                title="Télécharger"
-              >
-                <p className="text-sm text-slate-800 truncate group-hover:text-indigo-600 group-hover:underline">{a.filename}</p>
-                <p className="text-xs text-slate-400">
-                  {formatFileSize(a.size)}
-                  {a.uploadedBy && ` · ${a.uploadedBy.firstName} ${a.uploadedBy.lastName}`}
-                  {` · ${formatRelative(a.createdAt)}`}
-                </p>
-              </button>
-              <button
-                className="btn-ghost btn-sm p-1.5 rounded-lg text-slate-400 hover:text-indigo-600"
-                onClick={() => handleDownload(a)}
-                title="Télécharger"
-              >
-                <Download className="w-3.5 h-3.5" />
-              </button>
-              {canEdit && (
-                <button
-                  className="btn-ghost btn-sm p-1.5 rounded-lg text-red-300 hover:text-red-600"
-                  onClick={() => handleDelete(a)}
-                  title="Supprimer"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
+    )
+  }
+
+  // system (event, intervention, time, attachment orpheline)
+  return (
+    <div className="px-4 py-2 flex items-center gap-2.5 text-xs text-slate-500">
+      <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${item.dotColor}`} />
+      <span className="min-w-0 flex-1 truncate">
+        {item.text}
+        {item.suffix && (
+          <span className={item.suffix === 'À venir' ? 'text-indigo-500 font-medium' : 'text-slate-400'}> · {item.suffix}</span>
+        )}
+      </span>
+      {item.subtype === 'attachment' && item.attachment && (
+        <AttachmentChip attachment={item.attachment} canDelete={canEdit} onDownload={onDownloadAttachment} onDelete={onDeleteAttachment} />
       )}
+      <span className="shrink-0 whitespace-nowrap text-slate-400">
+        {item.author ? `${item.author.firstName} ${item.author.lastName} · ` : ''}{formatRelative(item.date)}
+      </span>
     </div>
   )
 }
