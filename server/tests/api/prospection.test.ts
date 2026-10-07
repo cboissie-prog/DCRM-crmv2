@@ -399,11 +399,11 @@ describe('Prospection — leads fusionnés dans les opportunités', () => {
       expect(res.body.data.created.opportunities).toBe(0)
     })
 
-    it('ligne sans entreprise → errors, pas de création', async () => {
+    it('ligne sans entreprise ni contact → errors, pas de création', async () => {
       const res = await request(app)
         .post('/api/pipeline/opportunities/import/csv')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ pipelineId, stage: openStageKey, rows: [{ firstName: 'Sans', lastName: 'Entreprise' }] })
+        .send({ pipelineId, stage: openStageKey, rows: [{ phone: '0600000000', notes: 'ni société ni personne' }] })
       expect(res.status).toBe(200)
       expect(res.body.data.errors.length).toBe(1)
       expect(res.body.data.errors[0].row).toBe(0)

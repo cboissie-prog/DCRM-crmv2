@@ -603,16 +603,21 @@ export function OpportunityModal({ open, onClose, editing, defaultStage, pipelin
                 entity="contact"
                 value={field.value || null}
                 valueLabel={contactLabel}
-                onChange={(id, option) => { field.onChange(id ?? ''); setContactLabel(option?.label) }}
+                onChange={(id, option) => {
+                  field.onChange(id ?? '')
+                  setContactLabel(option?.label)
+                  // Un contact rattaché à une entreprise la renseigne si le champ est vide
+                  const metaCompany = (option?.meta as { company?: { id: string; name: string } | null } | undefined)?.company
+                  if (metaCompany && !watchedCompanyId) { setValue('companyId', metaCompany.id); setCompanyLabel(metaCompany.name) }
+                }}
                 context={{ companyId: watchedCompanyId || null }}
                 allowNone
-                disabled={!watchedCompanyId}
                 placeholder="Rechercher un contact…"
               />
             )}
           />
           {!watchedCompanyId && (
-            <p className="text-xs text-slate-400 mt-1">Choisir une entreprise pour sélectionner un contact</p>
+            <p className="text-xs text-slate-400 mt-1">Sans entreprise, le contact suffit (particulier, société en création).</p>
           )}
         </div>
 

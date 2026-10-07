@@ -144,11 +144,12 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
     setMapping(prev => ({ ...prev, [field]: header || undefined }))
   }
 
-  const companyMapped = !!mapping.companyName
+  // Entreprise OU contact (prénom/nom) : un particulier qui monte sa boutique n'a pas encore de société
+  const companyMapped = !!mapping.companyName || !!mapping.firstName || !!mapping.lastName
   const missingCompanyCount = useMemo(() => {
-    if (!mapping.companyName) return rawRows.length
-    return rawRows.filter(r => !r[mapping.companyName!]?.trim()).length
-  }, [rawRows, mapping.companyName])
+    const has = (r: Record<string, string>, key?: string) => !!key && !!r[key]?.trim()
+    return rawRows.filter(r => !has(r, mapping.companyName) && !has(r, mapping.firstName) && !has(r, mapping.lastName)).length
+  }, [rawRows, mapping.companyName, mapping.firstName, mapping.lastName])
 
   // ── Étape 3 : import ───────────────────────────────────────────────────────
   const mappedRows = useMemo(() => {
@@ -324,7 +325,7 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
             </div>
             {!companyMapped && (
               <p className="text-xs text-red-600 flex items-center gap-1.5">
-                <AlertCircle className="w-3.5 h-3.5" /> Le champ Entreprise doit être associé à une colonne du fichier.
+                <AlertCircle className="w-3.5 h-3.5" /> Associez au moins le champ Entreprise, ou Prénom/Nom du contact, à une colonne du fichier.
               </p>
             )}
 
@@ -377,7 +378,7 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
               <p className="text-slate-700">
                 <strong>{rawRows.length}</strong> ligne(s) au total
                 {missingCompanyCount > 0 && (
-                  <>, dont <strong className="text-amber-600">{missingCompanyCount}</strong> sans entreprise (ignorée{missingCompanyCount > 1 ? 's' : ''})</>
+                  <>, dont <strong className="text-amber-600">{missingCompanyCount}</strong> sans entreprise ni contact (ignorée{missingCompanyCount > 1 ? 's' : ''})</>
                 )}
                 .
               </p>

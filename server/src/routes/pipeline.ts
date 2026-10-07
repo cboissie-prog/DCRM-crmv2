@@ -379,52 +379,44 @@ router.post('/opportunities/import/csv', requirePermission('pipeline:create'), a
           const row = batch[i]
           try {
             const companyName = row.companyName?.trim()
-            if (!companyName) {
-              errors.push({ row: rowIndex, reason: 'Entreprise manquante' })
+            const firstName = row.firstName?.trim() || ''
+            const lastName = row.lastName?.trim() || ''
+            // Un prospect peut être un particulier (société en création) : entreprise OU contact suffit.
+            if (!companyName && !firstName && !lastName) {
+              errors.push({ row: rowIndex, reason: 'Entreprise ou contact manquant' })
               continue
             }
 
-            const cacheKey = companyName.toLowerCase()
-            let companyId = companyByName.get(cacheKey)
-            if (!companyId) {
-              const created = await tx.company.create({
-                data: {
-                  name: companyName,
-                  city: row.city?.trim() || undefined,
-                  postalCode: row.postalCode?.trim() || undefined,
-                  website: row.website?.trim() || undefined,
-                  siret: row.siret?.trim() || undefined,
-                },
-              })
-              companyId = created.id
-              companyByName.set(cacheKey, companyId)
-              createdCompanies++
+            let companyId: string | undefined
+            if (companyName) {
+              const cacheKey = companyName.toLowerCase()
+              companyId = companyByName.get(cacheKey)
+              if (!companyId) {
+                const created = await tx.company.create({
+                  data: {
+                    name: companyName,
+                    city: row.city?.trim() || undefined,
+                    postalCode: row.postalCode?.trim() || undefined,
+                    website: row.website?.trim() || undefined,
+                    siret: row.siret?.trim() || undefined,
+                  },
+                })
+                companyId = created.id
+                companyByName.set(cacheKey, companyId)
+                createdCompanies++
+              }
             }
 
-            // Doublon : opportunité non archivée, étape ouverte, même entreprise et même pipeline.
-            const existingOpen = await tx.opportunity.findFirst({
-              where: {
-                companyId,
-                pipelineId: resolvedPipelineId,
-                archivedAt: null,
-                stage: { notIn: [...wonKeys, ...lostKeys] },
-              },
-              select: { id: true },
-            })
-            if (existingOpen) { skipped++; continue }
-
-            // Contact : email, puis nom + prénom dans l'entreprise, sinon création.
+            // Contact : email, puis nom + prénom (dans l'entreprise, ou parmi les contacts sans entreprise), sinon création.
             let contactId: string | undefined
             const email = row.email?.trim()
             if (email) {
               const existing = await tx.contact.findFirst({ where: { email }, select: { id: true } })
               if (existing) contactId = existing.id
             }
-            const firstName = row.firstName?.trim() || ''
-            const lastName = row.lastName?.trim() || ''
             if (!contactId && (firstName || lastName)) {
               const candidates = await tx.contact.findMany({
-                where: { companyId },
+                where: { companyId: companyId ?? null },
                 select: { id: true, firstName: true, lastName: true },
               })
               const match = candidates.find(c =>
@@ -433,6 +425,18 @@ router.post('/opportunities/import/csv', requirePermission('pipeline:create'), a
               )
               if (match) contactId = match.id
             }
+
+            // Doublon : opportunité non archivée en étape ouverte, même pipeline, même entreprise
+            // (ou même contact quand il n'y a pas d'entreprise).
+            const dupScope = companyId ? { companyId } : contactId ? { contactId } : null
+            if (dupScope) {
+              const existingOpen = await tx.opportunity.findFirst({
+                where: { ...dupScope, pipelineId: resolvedPipelineId, archivedAt: null, stage: { notIn: [...wonKeys, ...lostKeys] } },
+                select: { id: true },
+              })
+              if (existingOpen) { skipped++; continue }
+            }
+
             if (!contactId && (firstName || lastName)) {
               const phone = row.phone?.trim() || undefined
               const createdContact = await tx.contact.create({
@@ -456,7 +460,7 @@ router.post('/opportunities/import/csv', requirePermission('pipeline:create'), a
 
             await tx.opportunity.create({
               data: {
-                title: row.title?.trim() || companyName,
+                title: row.title?.trim() || companyName || `${firstName} ${lastName}`.trim(),
                 companyId,
                 contactId,
                 pipelineId: resolvedPipelineId,
