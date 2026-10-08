@@ -265,7 +265,7 @@ export function ProspectListPage() {
                 </th>
               ))}
               <th className="px-3 py-2 text-left font-medium text-slate-500">Traité par</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-500 min-w-56">Actions</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-500 min-w-56 sticky right-0 bg-slate-50 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)]">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -327,8 +327,8 @@ export function ProspectListPage() {
                   <td className="px-3 py-2 align-top text-xs text-slate-500 whitespace-nowrap">
                     {opp.assignedTo ? `${opp.assignedTo.firstName} ${opp.assignedTo.lastName}` : '—'}
                   </td>
-                  <td className={cn('px-3 py-2 align-top transition-opacity', isActive || selected.has(opp.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100')}>
-                    <div className="flex items-center gap-1">
+                  <td className={cn('px-3 py-2 align-top' + ' sticky right-0 bg-white group-hover:bg-slate-50 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)]', isActive || selected.has(opp.id) ? '' : '[&>div]:opacity-0 group-hover:[&>div]:opacity-100 focus-within:[&>div]:opacity-100')}>
+                    <div className="flex items-center gap-1 transition-opacity">
                       <ProspectActionBar
                         opportunity={opp}
                         mode="prospect"

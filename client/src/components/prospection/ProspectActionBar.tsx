@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation } from '@tanstack/react-query'
 import api from '../../lib/api'
 import { useReferences } from '../../hooks/useReferences'
@@ -36,6 +37,10 @@ export function ProspectActionBar({ opportunity, mode, compact = false, isActive
   const [values, setValues] = useState<ProspectActionValues>({})
   const [errors, setErrors] = useState<Record<string, string> | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  // Bouton d'ancrage du mini-formulaire : le popover est rendu en portail (position fixe) pour ne jamais
+  // sortir de la fenêtre ni être coupé par le conteneur défilant du tableau.
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
 
   const endpoint = actionsEndpoint(mode, opportunity.id)
 
@@ -66,18 +71,34 @@ export function ProspectActionBar({ opportunity, mode, compact = false, isActive
     mutation.mutate({ action: action.key, ...draft })
   }
 
-  const openPopover = (action: ProspectActionDef) => {
+  const openPopover = (action: ProspectActionDef, el?: HTMLElement | null) => {
     if (action.fields.length === 0) { run(action); return }
+    setAnchor(el ?? containerRef.current?.querySelector<HTMLElement>(`[data-action="${action.key}"]`) ?? null)
     setOpenKey(action.key)
     setValues({})
     setErrors(null)
+  }
+
+  /** Position fixe du popover : à gauche du bouton si le bord droit déborde, au-dessus si le bas déborde. */
+  const popoverStyle = (): React.CSSProperties => {
+    const width = 272
+    if (!anchor) return { position: 'fixed', top: 80, right: 16, width }
+    const r = anchor.getBoundingClientRect()
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8))
+    const estimatedHeight = 340
+    const below = r.bottom + 6 + estimatedHeight <= window.innerHeight
+    return below
+      ? { position: 'fixed', top: r.bottom + 6, left, width }
+      : { position: 'fixed', bottom: Math.max(8, window.innerHeight - r.top + 6), left, width }
   }
 
   // Ferme le mini-formulaire au clic extérieur
   useEffect(() => {
     if (!openKey) return
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpenKey(null)
+      const t = e.target as Node
+      if (containerRef.current?.contains(t) || popoverRef.current?.contains(t)) return
+      setOpenKey(null)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -109,7 +130,8 @@ export function ProspectActionBar({ opportunity, mode, compact = false, isActive
               <button
                 type="button"
                 disabled={mutation.isPending}
-                onClick={() => openPopover(action)}
+                data-action={action.key}
+                onClick={e => openPopover(action, e.currentTarget)}
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-lg border transition-colors disabled:opacity-50',
                   compact ? 'p-1.5' : 'px-2.5 py-1.5 text-xs font-medium',
@@ -121,8 +143,8 @@ export function ProspectActionBar({ opportunity, mode, compact = false, isActive
               </button>
             </Tooltip>
 
-            {open && (
-              <div className="absolute left-0 top-full mt-1 z-30 w-64 bg-white rounded-xl shadow-xl border border-slate-100 p-3 space-y-2.5">
+            {open && createPortal(
+              <div ref={popoverRef} style={popoverStyle()} className="z-[1100] bg-white rounded-xl shadow-xl border border-slate-100 p-3 space-y-2.5">
                 <p className="text-xs font-semibold text-slate-700">{action.label}</p>
 
                 {action.fields.map(field => (
@@ -194,7 +216,8 @@ export function ProspectActionBar({ opportunity, mode, compact = false, isActive
                     Valider
                   </button>
                 </div>
-              </div>
+              </div>,
+              document.body,
             )}
           </div>
         )

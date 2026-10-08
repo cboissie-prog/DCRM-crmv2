@@ -364,7 +364,7 @@ export function PipelineListView({ pipelineId, stages, canAssign, onEdit }: Pipe
                 </th>
               ))}
               <th className="px-3 py-2 text-left font-medium text-slate-500">Source</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-500 min-w-40">Actions</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-500 min-w-40 sticky right-0 bg-slate-50 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)]">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -469,7 +469,7 @@ export function PipelineListView({ pipelineId, stages, canAssign, onEdit }: Pipe
                   {/* Source */}
                   <td className="px-3 py-2 align-top text-xs text-slate-500 whitespace-nowrap">{refs.label('lead_source', opp.source) || '—'}</td>
                   {/* Actions rapides — remplace les anciens menus Statut/Rappel (journalisées en Activity) */}
-                  <td className={cn('px-3 py-2 align-top transition-opacity', isActive || selected.has(opp.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100')}>
+                  <td className={cn('px-3 py-2 align-top' + ' sticky right-0 bg-white group-hover:bg-slate-50 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.12)]', isActive || selected.has(opp.id) ? '' : '[&>div]:opacity-0 group-hover:[&>div]:opacity-100 focus-within:[&>div]:opacity-100')}>
                     {canUpdate && (
                       <ProspectActionBar
                         opportunity={opp}
