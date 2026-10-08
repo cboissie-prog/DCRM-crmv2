@@ -36,6 +36,10 @@ const PERMISSIONS = [
   { key: 'pipeline:create', label: 'Créer une opportunité', category: 'Pipeline' },
   { key: 'pipeline:update', label: 'Modifier une opportunité', category: 'Pipeline' },
   { key: 'pipeline:delete', label: 'Supprimer une opportunité', category: 'Pipeline' },
+  // Prospection
+  { key: 'prospection:read', label: 'Voir la prospection', category: 'Prospection' },
+  { key: 'prospection:write', label: 'Traiter les prospects (actions rapides, qualification)', category: 'Prospection' },
+  { key: 'prospection:manage', label: 'Gérer les listes de prospection (créer/archiver, réassigner, suivi de l\'équipe)', category: 'Prospection' },
   // Équipements
   { key: 'equipment:read', label: 'Voir les équipements', category: 'Équipements' },
   { key: 'equipment:create', label: 'Créer un équipement', category: 'Équipements' },
@@ -136,6 +140,7 @@ export async function seedBase() {
     'companies:read', 'companies:create', 'companies:update', 'companies:delete', 'companies:import',
     'contacts:read', 'contacts:create', 'contacts:update', 'contacts:delete',
     'pipeline:read', 'pipeline:create', 'pipeline:update', 'pipeline:delete',
+    'prospection:read', 'prospection:write',
     'tickets:read', 'tickets:create', 'tickets:update',
     'products:read',
     'targets:read',

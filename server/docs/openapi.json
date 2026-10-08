@@ -6178,11 +6178,23 @@
               "type": "string",
               "default": "50"
             }
+          },
+          {
+            "name": "alert",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true"
+              ]
+            },
+            "description": "étapes ouvertes uniquement, sans remindAt futur (NO_NEXT_ACTION) ou sans activité récente (STALE, dealStaleDays)"
           }
         ],
         "responses": {
           "200": {
-            "description": "Liste des opportunités"
+            "description": "Opportunités paginées (contact, company, assignedTo, products, alert calculé)"
           },
           "401": {
             "description": "Non authentifié"
@@ -6584,7 +6596,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Opportunité (contact, company, assignedTo, products, activities)"
+            "description": "Opportunité (contact, company, assignedTo, products, activities avec user, list, appointments, qualification, documentsSent, lastActivityAt)"
           },
           "401": {
             "description": "Non authentifié"
@@ -6810,7 +6822,7 @@
         },
         "responses": {
           "200": {
-            "description": "Opportunité mise à jour, automatisation OPPORTUNITY_STAGE_CHANGED si l'étape a changé. Si la nouvelle étape n'est ni gagnée ni perdue, archivedAt est remis à null et autoArchive à true (réouverture)"
+            "description": "Opportunité mise à jour (journalise une Activity STAGE_CHANGED si l'étape change)"
           },
           "400": {
             "description": "VALIDATION_ERROR ou INVALID_STAGE (étape inconnue de tout pipeline non-template)"
@@ -10425,6 +10437,1026 @@
           },
           "404": {
             "description": "NOT_FOUND — clé inexistante ou appartenant à un autre utilisateur"
+          }
+        }
+      }
+    },
+    "/pipeline/opportunities/{id}/actions": {
+      "post": {
+        "tags": [
+          "Pipeline"
+        ],
+        "summary": "Action rapide de suivi (module Prospection) — NOT_INTERESTED/REOPEN exclus depuis le pipeline",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "pipeline:update",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "NO_ANSWER",
+                      "REACHED",
+                      "CALLBACK",
+                      "DOC_SENT",
+                      "EMAIL_SENT",
+                      "MEETING_SET",
+                      "NOTE",
+                      "NEXT_ACTION",
+                      "QUALIFICATION",
+                      "NOT_INTERESTED",
+                      "REOPEN"
+                    ]
+                  },
+                  "nextAction": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "remindAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "document": {
+                    "type": "string",
+                    "description": "référentiel prospect_documents (DOC_SENT)"
+                  },
+                  "startAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "MEETING_SET"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "MEETING_SET, optionnel"
+                  },
+                  "criteria": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "description": "QUALIFICATION — clés du référentiel qualification_criteria"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "description": "référentiel not_interested_reasons (NOT_INTERESTED)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Opportunité mise à jour"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR ; INVALID_ACTION (action inconnue ou exclue du pipeline) ; REMIND_AT_REQUIRED ; NEXT_ACTION_REQUIRED ; DOCUMENT_REQUIRED ; NOTE_REQUIRED ; REASON_REQUIRED ; START_AT_REQUIRED ; INVALID_REFERENCE"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          },
+          "404": {
+            "description": "Opportunité introuvable"
+          }
+        }
+      }
+    },
+    "/prospection/lists": {
+      "get": {
+        "tags": [
+          "Prospection"
+        ],
+        "summary": "Listes de prospection (actives par défaut), avec compteurs",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "prospection:read",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "ARCHIVED"
+              ],
+              "default": "ACTIVE"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Listes (pipeline, assignedTo, createdBy, counts)"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Prospection"
+        ],
+        "summary": "Crée une liste de prospection",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "prospection:manage",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string",
+                    "description": "référentiel lead_source, défaut 'COLD_CALL'"
+                  },
+                  "pipelineId": {
+                    "type": "string"
+                  },
+                  "assignedToId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Liste créée"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR ; INVALID_REFERENCE ; PIPELINE_NOT_FOUND ; USER_NOT_FOUND"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          }
+        }
+      }
+    },
+    "/prospection/lists/{id}": {
+      "put": {
+        "tags": [
+          "Prospection"
+        ],
+        "summary": "Met à jour une liste (partiel)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "prospection:manage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "pipelineId": {
+                    "type": "string"
+                  },
+                  "assignedToId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Liste mise à jour"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR ; INVALID_REFERENCE ; PIPELINE_NOT_FOUND ; USER_NOT_FOUND"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          },
+          "404": {
+            "description": "Liste introuvable"
+          }
+        }
+      }
+    },
+    "/prospection/lists/{id}/archive": {
+      "patch": {
+        "tags": [
+          "Prospection"
+        ],
+        "summary": "Archive une liste",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "prospection:manage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste mise à jour"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          },
+          "404": {
+            "description": "Liste introuvable"
+          }
+        }
+      }
+    },
+    "/prospection/lists/{id}/unarchive": {
+      "patch": {
+        "tags": [
+          "Prospection"
+        ],
+        "summary": "Réactive une liste",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "prospection:manage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste mise à jour"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          },
+          "404": {
+            "description": "Liste introuvable"
+          }
+        }
+      }
+    },
+    "/prospection/lists/{id}/import": {
+      "post": {
+        "tags": [
+          "Prospection"
+        ],
+        "summary": "Import CSV de prospects dans la liste (listId posé, pipelineId null)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "prospection:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "rows"
+                ],
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "description": "sinon celle de la liste"
+                  },
+                  "assignedToId": {
+                    "type": "string",
+                    "description": "sinon celui de la liste"
+                  },
+                  "rows": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 500,
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "companyName": {
+                          "type": "string"
+                        },
+                        "firstName": {
+                          "type": "string"
+                        },
+                        "lastName": {
+                          "type": "string"
+                        },
+                        "phone": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "value": {
+                          "type": [
+                            "string",
+                            "number"
+                          ]
+                        },
+                        "notes": {
+                          "type": "string"
+                        },
+                        "city": {
+                          "type": "string"
+                        },
+                        "postalCode": {
+                          "type": "string"
+                        },
+                        "website": {
+                          "type": "string"
+                        },
+                        "siret": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ created: { companies, contacts, opportunities }, skipped, errors: [{ row, reason }] }"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR ; INVALID_REFERENCE ; USER_NOT_FOUND"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          },
+          "404": {
+            "description": "Liste introuvable"
+          }
+        }
+      }
+    },
+    "/prospection/stats": {
+      "get": {
+        "tags": [
+          "Prospection"
+        ],
+        "summary": "Statistiques de traitement par commercial",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "prospection:read",
+        "parameters": [
+          {
+            "name": "listId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "[{ userId, firstName, lastName, calls, reached, callbacks, docsSent, meetings, qualified, rejected }] — restreint à l'utilisateur courant sans prospection:manage"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          }
+        }
+      }
+    },
+    "/prospection/prospects": {
+      "get": {
+        "tags": [
+          "Prospection"
+        ],
+        "summary": "Prospects (pipelineId = null), filtrables, paginés",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "prospection:read",
+        "parameters": [
+          {
+            "name": "listId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "prospectStatus",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "TODO",
+                "NO_ANSWER",
+                "REACHED",
+                "CALLBACK",
+                "UNREACHABLE",
+                "NOT_INTERESTED",
+                "QUALIFIED"
+              ]
+            }
+          },
+          {
+            "name": "assignedToId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "mine",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true"
+              ]
+            },
+            "description": "force assignedToId = utilisateur courant"
+          },
+          {
+            "name": "today",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true"
+              ]
+            },
+            "description": "rappel <= fin de journée, ou jamais contacté et assigné à moi"
+          },
+          {
+            "name": "neverContacted",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true"
+              ]
+            }
+          },
+          {
+            "name": "staleDays",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "createdAt",
+                "updatedAt",
+                "title",
+                "value",
+                "remindAt",
+                "lastContactedAt",
+                "lastActivityAt",
+                "prospectStatus",
+                "company"
+              ]
+            }
+          },
+          {
+            "name": "sortOrder",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "1"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "50"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prospects paginés (contact, company, assignedTo, list)"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Prospection"
+        ],
+        "summary": "Création manuelle d'un prospect (titre, entreprise ou contact)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "prospection:write",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "listId": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "companyId": {
+                    "type": "string"
+                  },
+                  "contactId": {
+                    "type": "string"
+                  },
+                  "assignedToId": {
+                    "type": "string"
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Prospect créé"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR ; LIST_NOT_FOUND ; COMPANY_NOT_FOUND ; CONTACT_NOT_FOUND ; CONTACT_COMPANY_MISMATCH ; USER_NOT_FOUND"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          }
+        }
+      }
+    },
+    "/prospection/prospects/{id}": {
+      "get": {
+        "tags": [
+          "Prospection"
+        ],
+        "summary": "Fiche de suivi (activités avec user, list, appointments)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "prospection:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prospect (contact, company, assignedTo, list, activities, appointments)"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          },
+          "404": {
+            "description": "Prospect introuvable"
+          }
+        }
+      }
+    },
+    "/prospection/prospects/{id}/actions": {
+      "post": {
+        "tags": [
+          "Prospection"
+        ],
+        "summary": "Action rapide (table complète — identique au pipeline + NOT_INTERESTED/REOPEN)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "prospection:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "NO_ANSWER",
+                      "REACHED",
+                      "CALLBACK",
+                      "DOC_SENT",
+                      "EMAIL_SENT",
+                      "MEETING_SET",
+                      "NOTE",
+                      "NEXT_ACTION",
+                      "QUALIFICATION",
+                      "NOT_INTERESTED",
+                      "REOPEN"
+                    ]
+                  },
+                  "nextAction": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "remindAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "note": {
+                    "type": "string"
+                  },
+                  "document": {
+                    "type": "string",
+                    "description": "référentiel prospect_documents (DOC_SENT)"
+                  },
+                  "startAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "MEETING_SET"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "MEETING_SET, optionnel"
+                  },
+                  "criteria": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "description": "QUALIFICATION — clés du référentiel qualification_criteria"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "description": "référentiel not_interested_reasons (NOT_INTERESTED)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Prospect mis à jour"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR ; INVALID_ACTION ; REMIND_AT_REQUIRED ; NEXT_ACTION_REQUIRED ; DOCUMENT_REQUIRED ; NOTE_REQUIRED ; REASON_REQUIRED ; START_AT_REQUIRED ; INVALID_REFERENCE"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          },
+          "404": {
+            "description": "Prospect introuvable"
+          }
+        }
+      }
+    },
+    "/prospection/prospects/{id}/qualify": {
+      "post": {
+        "tags": [
+          "Prospection"
+        ],
+        "summary": "Qualifie le prospect vers le pipeline",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "prospection:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "pipelineId": {
+                    "type": "string",
+                    "description": "sinon celui de la liste, sinon le pipeline par défaut actif"
+                  },
+                  "stage": {
+                    "type": "string",
+                    "description": "sinon la première étape ouverte du pipeline résolu"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "number"
+                  },
+                  "expectedCloseDate": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "nextAction": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "remindAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Prospect qualifié (pipelineId, stage, prospectStatus QUALIFIED, qualifiedAt)"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR ; ALREADY_QUALIFIED ; PIPELINE_NOT_FOUND ; NO_PIPELINE"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "Permission insuffisante"
+          },
+          "404": {
+            "description": "Prospect introuvable"
           }
         }
       }

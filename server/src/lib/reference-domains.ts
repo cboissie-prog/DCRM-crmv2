@@ -230,6 +230,48 @@ export const REFERENCE_DOMAINS: ReferenceDomain[] = [
       { key: 'OTHER', label: 'Autre', color: 'gray', icon: 'Package', isSystem: true, meta: { isPhysical: true } },
     ],
   },
+  {
+    domain: 'qualification_criteria',
+    label: 'Critères de qualification',
+    description: 'Grille de qualification d\'un prospect avant passage au pipeline (module Prospection).',
+    usage: [], // stocké dans Opportunity.qualification (JSON) — pas de champ scalaire à compter
+    validate: true, keyStyle: 'code', hasColor: false, hasIcon: false,
+    seed: [
+      { key: 'NEED', label: 'Besoin identifié' },
+      { key: 'DECISION_MAKER', label: 'Décideur joint' },
+      { key: 'BUDGET', label: 'Budget évoqué' },
+      { key: 'TIMELINE', label: 'Échéance connue' },
+      { key: 'CURRENT_SETUP', label: 'Équipement actuel identifié' },
+      { key: 'COMPETITOR', label: 'Concurrent en place' },
+    ],
+  },
+  {
+    domain: 'prospect_documents',
+    label: 'Documents de prospection',
+    description: 'Documents envoyés à un prospect (action "Doc envoyé", module Prospection).',
+    usage: [], // stocké dans Opportunity.documentsSent (JSON) — pas de champ scalaire à compter
+    validate: true, keyStyle: 'code', hasColor: false, hasIcon: false,
+    seed: [
+      { key: 'PLAQUETTE', label: 'Plaquette' },
+      { key: 'TARIFS', label: 'Grille tarifaire' },
+      { key: 'DEVIS', label: 'Devis' },
+      { key: 'PRESENTATION', label: 'Présentation' },
+    ],
+  },
+  {
+    domain: 'not_interested_reasons',
+    label: 'Raisons de désintérêt',
+    description: 'Raisons de clôture "Pas intéressé" d\'un prospect (module Prospection).',
+    usage: [{ model: 'opportunity', field: 'lostReason' }],
+    validate: true, keyStyle: 'code', hasColor: false, hasIcon: false,
+    seed: [
+      { key: 'NO_NEED', label: 'Pas de besoin' },
+      { key: 'HAS_PROVIDER', label: 'Déjà équipé' },
+      { key: 'BUDGET', label: 'Budget' },
+      { key: 'TIMING', label: 'Pas maintenant' },
+      { key: 'OTHER', label: 'Autre' },
+    ],
+  },
 ]
 
 export const DOMAIN_BY_KEY: Record<string, ReferenceDomain> =

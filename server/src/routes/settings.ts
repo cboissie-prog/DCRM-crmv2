@@ -32,6 +32,11 @@ const DEFAULTS: Record<string, { value: string; label: string }> = {
   googleAllowedDomain:        { value: 'dcb-technologies.fr', label: 'Domaine email autorisé pour l\'auto-création via Google OAuth' },
   googleAutoCreateRole:       { value: 'COMMERCIAL', label: 'Rôle attribué lors de l\'auto-création d\'un compte via Google OAuth' },
   pipelineArchiveAfterDays:   { value: '30',       label: 'Archiver les opportunités gagnées/perdues après (jours)' },
+  // ─── Prospection ───
+  prospectCallbackDays:        { value: '2',  label: 'Rappel proposé après "Sans réponse" (jours)' },
+  prospectMaxAttempts:         { value: '3',  label: 'Tentatives d\'appel avant "Injoignable"' },
+  prospectUnreachableRetryDays: { value: '30', label: 'Nouvelle tentative après "Injoignable" (jours)' },
+  dealStaleDays:               { value: '7',  label: 'Alerte "sans activité" sur une opportunité ouverte (jours)' },
 }
 
 // GET /api/settings — all settings (settings:read)

@@ -58,6 +58,8 @@ model User {
   ticketTimeEntries   TicketTimeEntry[]
   ticketAttachments   TicketAttachment[]
   todos               Todo[]
+  prospectListsAssigned ProspectList[] @relation("ProspectListAssignedTo")
+  prospectListsCreated  ProspectList[] @relation("ProspectListCreatedBy")
 }
 
 model RefreshToken {
@@ -163,6 +165,7 @@ model Pipeline {
   opportunities  Opportunity[]
   salesTargets   SalesTarget[]
   companyTargets CompanyTarget[]
+  prospectLists  ProspectList[]
 }
 
 model PipelineStage {
@@ -209,16 +212,48 @@ model Opportunity {
   archivedAt        DateTime?
   autoArchive       Boolean  @default(true)
   // ─── Prospection ───
+  // prospectStatus (étendu, cf. migration 20261008_prospection_module) : TODO | NO_ANSWER |
+  // REACHED | CALLBACK | UNREACHABLE | NOT_INTERESTED | QUALIFIED (= dans le pipeline)
   source            String   @default("MANUAL")
   prospectStatus    String   @default("TODO")
   lastContactedAt   DateTime?
   callAttempts      Int      @default(0)
   nextAction        String?
+  // Module Prospection (listes de prospection, §3 spec) — une fiche est "en prospection"
+  // tant que pipelineId est null ; elle appartient alors à une ProspectList.
+  listId            String?
+  qualification     String?   // JSON { "<clé critère>": true|false|null } — texte : SQLite n'a pas de JSON natif
+  documentsSent     String?   // JSON ["PLAQUETTE", ...]
+  qualifiedAt       DateTime?
+  lastActivityAt    DateTime? // dernière Activity, tenue par le serveur à chaque action
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
+  list        ProspectList? @relation(fields: [listId], references: [id], onDelete: SetNull)
   products    OpportunityProduct[]
   activities  Activity[]
+  appointments Appointment[]
+}
+
+// ─── PROSPECTION (listes de prospects) ──────────────────
+// status: ACTIVE | ARCHIVED
+
+model ProspectList {
+  id            String    @id @default(uuid())
+  name          String
+  description   String?
+  source        String    @default("COLD_CALL") // référentiel lead_source, appliqué aux prospects importés
+  pipelineId    String?   // pipeline par défaut à la qualification (défaut : pipeline isDefault)
+  pipeline      Pipeline? @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+  assignedToId  String?   // commercial par défaut des prospects de la liste
+  assignedTo    User?     @relation("ProspectListAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  status        String    @default("ACTIVE")
+  createdById   String?
+  createdBy     User?     @relation("ProspectListCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  opportunities Opportunity[]
 }
 
 model OpportunityProduct {
@@ -512,6 +547,9 @@ model Appointment {
   endAt         DateTime
   location      String?
   ticketId      String?
+  // Module Prospection : RDV créé par l'action MEETING_SET, lié au prospect/opportunité d'origine.
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
   notes         String?
   sourceGoogle  Boolean  @default(false)
   createdById   String?

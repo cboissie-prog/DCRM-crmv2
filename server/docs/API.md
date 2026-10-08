@@ -361,7 +361,7 @@ Toutes les routes exigent `authenticate` (posé via `router.use(authenticate)`).
 | GET | `/settings/mail/status` | Permission `settings:write` | État de la configuration SMTP (hôte, port, mode STARTTLS/SSL, compte masqué, variables manquantes) + test de connexion réel |
 | POST | `/settings/mail/test` | Permission `settings:write` | Envoie un email de test à l'adresse fournie |
 
-Clés connues (`DEFAULTS`) : `contractExpiringSoonDays`, `licenseExpiringSoonDays`, `warrantyExpiringSoonDays`, `schedulerEnabled`, `schedulerTime`, `companyName`, `companyLogoUrl`, `companyAddress`, `companyContactEmail`, `companyPhone`, `companySiret`, `companyVatNumber`, `callRecordingRetentionDays`, `slaHoursCritical`, `slaHoursHigh`, `slaHoursNormal`, `slaHoursLow`, `googleAllowedDomain`, `googleAutoCreateRole`, `pipelineArchiveAfterDays`.
+Clés connues (`DEFAULTS`) : `contractExpiringSoonDays`, `licenseExpiringSoonDays`, `warrantyExpiringSoonDays`, `schedulerEnabled`, `schedulerTime`, `companyName`, `companyLogoUrl`, `companyAddress`, `companyContactEmail`, `companyPhone`, `companySiret`, `companyVatNumber`, `callRecordingRetentionDays`, `slaHoursCritical`, `slaHoursHigh`, `slaHoursNormal`, `slaHoursLow`, `googleAllowedDomain`, `googleAutoCreateRole`, `pipelineArchiveAfterDays`, `prospectCallbackDays` (défaut 2 — rappel proposé après « Sans réponse »), `prospectMaxAttempts` (défaut 3 — tentatives avant « Injoignable »), `prospectUnreachableRetryDays` (défaut 30), `dealStaleDays` (défaut 7 — alerte « sans activité » du pipeline, module Prospection).
 
 Les seuils `contractExpiringSoonDays`, `licenseExpiringSoonDays` et `warrantyExpiringSoonDays` pilotent désormais les filtres `expiringSoon`/`warrantyExpiringSoon` des routes contrats/licences/équipements, les compteurs et alertes du dashboard et la vue Parc (plus aucun seuil 60/90 jours codé en dur).
 
@@ -399,7 +399,7 @@ Erreurs : `400 VALIDATION_ERROR` (email invalide), `503 MAILER_NOT_CONFIGURED` (
 
 ### Référentiels personnalisables `/api/references`
 
-Listes de valeurs métier gérables depuis Réglages > Listes personnalisées (catégories de tickets/appels/produits/base de connaissances, types d'équipement/contrat/licence/RDV, statuts d'équipement/contact, sources de leads, secteurs d'activité). Domaines : `ticket_category`, `call_category`, `equipment_type`, `equipment_status`, `contract_type`, `license_type`, `contact_status`, `lead_source`, `sector`, `appointment_type`, `knowledge_category`, `product_category`.
+Listes de valeurs métier gérables depuis Réglages > Listes personnalisées (catégories de tickets/appels/produits/base de connaissances, types d'équipement/contrat/licence/RDV, statuts d'équipement/contact, sources de leads, secteurs d'activité, module Prospection). Domaines : `ticket_category`, `call_category`, `equipment_type`, `equipment_status`, `contract_type`, `license_type`, `contact_status`, `lead_source`, `sector`, `appointment_type`, `knowledge_category`, `product_category`, `qualification_criteria`, `prospect_documents`, `not_interested_reasons`.
 
 Toutes les routes exigent `authenticate` (posé via `router.use(authenticate)`).
 
@@ -746,20 +746,24 @@ Codes d'erreur génériques (via `handleRouteError`, valables sur toutes les rou
 Fichier : `server/src/routes/pipeline.ts`. Gère les opportunités (le modèle `Lead` a été supprimé et
 fusionné dans `Opportunity` — cf. migration `20261006_prospection` — une opportunité porte désormais
 directement les champs de prospection `source`, `prospectStatus`, `lastContactedAt`, `callAttempts`,
-`nextAction`).
+`nextAction`). Depuis le module Prospection (migration `20261008_prospection_module`, voir section
+dédiée ci-dessous) : `listId` (liste de prospection d'origine, conservée après qualification),
+`qualification`/`documentsSent` (JSON texte), `qualifiedAt`, `lastActivityAt` (dernière `Activity`,
+tenue par le serveur). Une opportunité est « en prospection » tant que `pipelineId` est `null`.
 
 | Méthode | Route | Accès | Description |
 |---------|-------|-------|-------------|
-| GET | `/pipeline/opportunities` | Permission `pipeline:read` | Liste paginée des opportunités (filtrable, triable, recherche) |
+| GET | `/pipeline/opportunities` | Permission `pipeline:read` | Liste paginée des opportunités (filtrable, triable, recherche, alertes de suivi) |
 | POST | `/pipeline/opportunities` | Permission `pipeline:create` | Crée une opportunité |
 | POST | `/pipeline/opportunities/reattach-orphans` | Permission `pipeline:update` | Rattache au pipeline par défaut les opportunités sans `pipelineId` |
 | GET | `/pipeline/opportunities/archives/count` | Permission `pipeline:read` | Compte des opportunités archivées, par type d'étape (gagné/perdu) |
 | POST | `/pipeline/opportunities/bulk` | Permission `pipeline:update` | Action groupée sur une sélection d'opportunités |
-| POST | `/pipeline/opportunities/import/csv` | Permission `pipeline:create` | Import de prospects (entreprise + contact + opportunité) depuis un CSV déjà mis en correspondance |
-| GET | `/pipeline/opportunities/:id` | Permission `pipeline:read` | Détail d'une opportunité |
+| POST | `/pipeline/opportunities/import/csv` | Permission `pipeline:create` | Import historique de prospects direct dans le pipeline (conservé pour compat — l'assistant du client importe désormais dans une liste, cf. `POST /prospection/lists/:id/import`) |
+| GET | `/pipeline/opportunities/:id` | Permission `pipeline:read` | Détail d'une opportunité (activités, liste d'origine, rendez-vous liés) |
 | PUT | `/pipeline/opportunities/:id` | Permission `pipeline:update` | Met à jour une opportunité (partiel) |
-| PATCH | `/pipeline/opportunities/:id/stage` | Permission `pipeline:update` | Déplace une opportunité vers une autre étape (drag & drop Kanban) |
+| PATCH | `/pipeline/opportunities/:id/stage` | Permission `pipeline:update` | Déplace une opportunité vers une autre étape (drag & drop Kanban) ; journalise `STAGE_CHANGED` |
 | PATCH | `/pipeline/opportunities/:id/prospect` | Permission `pipeline:update` | Statut de prospection à un clic (vue Liste) : appelé/joint/à rappeler |
+| POST | `/pipeline/opportunities/:id/actions` | Permission `pipeline:update` | Actions rapides de suivi (module Prospection) — `NOT_INTERESTED`/`REOPEN` exclus |
 | PATCH | `/pipeline/opportunities/:id/archive` | Permission `pipeline:update` | Archive manuellement une opportunité gagnée/perdue |
 | PATCH | `/pipeline/opportunities/:id/unarchive` | Permission `pipeline:update` | Désarchive manuellement une opportunité |
 | DELETE | `/pipeline/opportunities/:id` | Permission `pipeline:delete` | Supprime une opportunité (produits liés en cascade, activités détachées) |
@@ -773,9 +777,12 @@ Query (tous optionnels) :
 - `staleDays=N` : `lastContactedAt` est `null` ou antérieur à `N` jours.
 - `search` : OR insensible à la casse sur `title`, `company.name`, `contact.firstName`, `contact.lastName`.
 - `sortBy` ∈ `createdAt | updatedAt | title | value | remindAt | lastContactedAt | prospectStatus | stage | company` (liste blanche ; une valeur hors liste est ignorée) + `sortOrder` = `asc` | `desc` (défaut `desc`). `company` trie sur `company.name`.
+- `alert=true` (module Prospection) : ne renvoie que les opportunités dont l'étape est ouverte (ni gagnée ni perdue) et qui sont soit sans `remindAt` futur, soit sans activité récente (`lastActivityAt`/`updatedAt` plus vieux que le réglage `dealStaleDays`).
 - `page` (défaut `'1'`), `limit` (défaut `'50'`).
 
-Sans aucun de ces nouveaux paramètres, le comportement est strictement identique à avant (tri `createdAt desc`, ou `closedAt desc` si `archived=only`). Réponse : `data` = opportunités (avec `contact`, `company`, `assignedTo`, `products.product`), `meta: { total, page, limit }`.
+Sans aucun de ces nouveaux paramètres, le comportement est strictement identique à avant (tri `createdAt desc`, ou `closedAt desc` si `archived=only`). Réponse : `data` = opportunités (avec `contact`, `company`, `assignedTo`, `products.product`, et un champ calculé `alert`), `meta: { total, page, limit }`.
+
+**Champ calculé `alert`** (module Prospection, chaque opportunité de la liste) : `null` si l'étape est gagnée ou perdue ; sinon `"NO_NEXT_ACTION"` si `remindAt` est absent ou déjà passé ; sinon `"STALE"` si `lastActivityAt` (ou `updatedAt` si la fiche n'a jamais d'activité journalisée) est plus vieux que `dealStaleDays` jours ; sinon `null`.
 
 **POST /pipeline/opportunities**
 ```json
@@ -846,7 +853,7 @@ Le client applique déjà la correspondance colonnes-fichier → champs CRM : le
 Réponse : `{ created: { companies: number, contacts: number, opportunities: number }, skipped: number, errors: [{ row: number, reason: string }] }` (`row` = index dans `rows`, base 0). Erreurs spécifiques : `400 INVALID_REFERENCE` (`source` invalide), `400 PIPELINE_NOT_FOUND`, `400 USER_NOT_FOUND` (`assignedToId` introuvable).
 
 **GET /pipeline/opportunities/:id**
-Réponse : opportunité avec `contact`, `company`, `assignedTo`, `products.product`, `activities` (20 dernières). `404 NOT_FOUND` si absente.
+Réponse : opportunité avec `contact`, `company`, `assignedTo`, `products.product`, `activities` (20 dernières, desc, avec leur auteur `user`), `list` (liste de prospection d'origine, `null` si aucune), `appointments` (rendez-vous liés, desc). `404 NOT_FOUND` si absente.
 
 **PUT /pipeline/opportunities/:id**
 Corps identique à la création (`.partial()`). Si `stage` change réellement, `closedAt` est recalculé (daté si gagné/perdu, sinon `null`). Mêmes erreurs de cohérence que la création (`INVALID_REFERENCE`, `CONTACT_NOT_FOUND`, `COMPANY_NOT_FOUND`, `PIPELINE_NOT_FOUND`, `CONTACT_COMPANY_MISMATCH`) — vérifiées sur la valeur effective (celle du corps si fournie, sinon celle déjà en base). 404 `NOT_FOUND` si l'opportunité n'existe pas.
@@ -858,7 +865,7 @@ Corps identique à la création (`.partial()`). Si `stage` change réellement, `
   "lostReason": "string (optionnel)"
 }
 ```
-La clé `stage` doit correspondre à une étape existante (tous pipelines non-template confondus), sinon `400 INVALID_STAGE`. `404 NOT_FOUND` si l'opportunité n'existe pas. Si l'étape change, déclenche `OPPORTUNITY_STAGE_CHANGED` avec `previousStage`. Si la nouvelle étape n'est ni gagnée ni perdue (réouverture d'une affaire), `archivedAt` est remis à `null` et `autoArchive` à `true`.
+La clé `stage` doit correspondre à une étape existante (tous pipelines non-template confondus), sinon `400 INVALID_STAGE`. `404 NOT_FOUND` si l'opportunité n'existe pas. Si l'étape change, déclenche `OPPORTUNITY_STAGE_CHANGED` avec `previousStage`, journalise une `Activity` (`type: 'STAGE_CHANGED'`, auteur = utilisateur courant) et pose `lastActivityAt = now`. Si la nouvelle étape n'est ni gagnée ni perdue (réouverture d'une affaire), `archivedAt` est remis à `null` et `autoArchive` à `true`.
 
 **PATCH /pipeline/opportunities/:id/prospect**
 ```json
@@ -870,6 +877,25 @@ La clé `stage` doit correspondre à une étape existante (tous pipelines non-te
 ```
 `NO_ANSWER` ou `REACHED` posent `lastContactedAt = now`, incrémentent `callAttempts` et créent une `Activity` (`type: 'CALL'`, titre « Appel sans réponse » / « Joint par téléphone », liée à `opportunityId`, `contactId` et `userId`). `CALLBACK` exige `remindAt` (sinon `400 REMIND_AT_REQUIRED`). `TODO` ne touche à aucun compteur. `404 NOT_FOUND` si l'opportunité n'existe pas. Réponse : l'opportunité mise à jour.
 
+> Route historique conservée pour la vue Liste du pipeline. Le module Prospection introduit une table
+> d'actions plus riche (cadence, qualification, RDV…) : `POST /pipeline/opportunities/:id/actions`
+> ci-dessous, et son équivalent `POST /prospection/prospects/:id/actions`.
+
+**POST /pipeline/opportunities/:id/actions**
+```json
+{
+  "action": "NO_ANSWER | REACHED | CALLBACK | DOC_SENT | EMAIL_SENT | MEETING_SET | NOTE | NEXT_ACTION | QUALIFICATION",
+  "nextAction": "string ou null (selon l'action)",
+  "remindAt": "string ISO ou null (selon l'action)",
+  "note": "string (selon l'action)",
+  "document": "string, clé du référentiel prospect_documents (DOC_SENT)",
+  "startAt": "string ISO (MEETING_SET)",
+  "title": "string (MEETING_SET, optionnel)",
+  "criteria": "{ [clé qualification_criteria]: boolean | null } (QUALIFICATION)"
+}
+```
+Implémentation partagée avec la prospection (`src/services/prospectActions.ts`, fonction `applyAction`) — **mêmes effets que `POST /prospection/prospects/:id/actions` ci-dessous**, à l'exception de `NOT_INTERESTED` et `REOPEN` : refusés depuis le pipeline (`400 INVALID_ACTION`) car on perd une affaire via l'étape Perdu, pas via une action. Chaque action écrit une `Activity` (auteur = utilisateur courant), pose `lastActivityAt = now`, et attribue la fiche à son auteur si elle n'a pas encore de `assignedToId`. Réponse : l'opportunité mise à jour. Erreurs : `404 NOT_FOUND` ; `400 INVALID_ACTION` (action inconnue ou exclue du pipeline) ; voir la table complète des erreurs sous `POST /prospection/prospects/:id/actions`.
+
 **PATCH /pipeline/opportunities/:id/archive**
 Pas de corps. Archive l'opportunité (`archivedAt = now`). Erreurs spécifiques : `404 NOT_FOUND` si l'opportunité n'existe pas ; `400 NOT_CLOSED` si son étape n'est ni gagnée ni perdue (`getWonLostStageKeys()`). Audit `OPPORTUNITY_ARCHIVED`.
 
@@ -878,6 +904,152 @@ Pas de corps. Désarchive l'opportunité (`archivedAt = null`) et pose `autoArch
 
 **DELETE /pipeline/opportunities/:id**
 Réponse : `{ success: true, data: null }`.
+
+---
+
+### Prospection `/api/prospection`
+
+Fichier : `server/src/routes/prospection.ts`. Module de traitement des prospects (listes de
+prospection, actions rapides, qualification vers le pipeline, suivi par commercial — migration
+`20261008_prospection_module`). Un prospect est une `Opportunity` avec `pipelineId = null` ; elle
+devient une opportunité du pipeline en se faisant qualifier (`POST /prospects/:id/qualify`), sans
+duplication de données (l'historique `Activity` suit la même fiche).
+
+Permissions dédiées : `prospection:read` (tous rôles sauf TECHNICIEN), `prospection:write`
+(COMMERCIAL, MANAGER, ADMIN — actions rapides, qualification, création manuelle, import),
+`prospection:manage` (MANAGER, ADMIN — créer/modifier/archiver des listes, suivi de tous les
+commerciaux sur `GET /stats`).
+
+Réglages associés (`GET/PUT /api/settings`, section Système > Prospection) : `prospectCallbackDays`
+(défaut 2), `prospectMaxAttempts` (défaut 3), `prospectUnreachableRetryDays` (défaut 30),
+`dealStaleDays` (défaut 7 — utilisé par l'`alert` du pipeline, cf. section Pipeline ci-dessus).
+
+Référentiels associés (`GET /api/references`) : `qualification_criteria` (NEED, DECISION_MAKER,
+BUDGET, TIMELINE, CURRENT_SETUP, COMPETITOR), `prospect_documents` (PLAQUETTE, TARIFS, DEVIS,
+PRESENTATION), `not_interested_reasons` (NO_NEED, HAS_PROVIDER, BUDGET, TIMING, OTHER).
+
+| Méthode | Route | Accès | Description |
+|---------|-------|-------|-------------|
+| GET | `/prospection/lists` | Permission `prospection:read` | Listes de prospection (actives par défaut), avec compteurs |
+| POST | `/prospection/lists` | Permission `prospection:manage` | Crée une liste |
+| PUT | `/prospection/lists/:id` | Permission `prospection:manage` | Met à jour une liste (partiel) |
+| PATCH | `/prospection/lists/:id/archive` | Permission `prospection:manage` | Archive une liste |
+| PATCH | `/prospection/lists/:id/unarchive` | Permission `prospection:manage` | Réactive une liste |
+| POST | `/prospection/lists/:id/import` | Permission `prospection:write` | Import CSV de prospects dans la liste |
+| GET | `/prospection/stats` | Permission `prospection:read` | Statistiques de traitement par commercial |
+| GET | `/prospection/prospects` | Permission `prospection:read` | Prospects (`pipelineId = null`), filtrables, paginés |
+| POST | `/prospection/prospects` | Permission `prospection:write` | Création manuelle d'un prospect |
+| GET | `/prospection/prospects/:id` | Permission `prospection:read` | Fiche de suivi (activités, liste, rendez-vous liés) |
+| POST | `/prospection/prospects/:id/actions` | Permission `prospection:write` | Action rapide (table complète, cf. ci-dessous) |
+| POST | `/prospection/prospects/:id/qualify` | Permission `prospection:write` | Qualifie le prospect vers le pipeline |
+
+**GET /prospection/lists**
+Query : `status` (défaut `'ACTIVE'` ; `'ARCHIVED'` pour les listes archivées — toute autre valeur est ignorée et retombe sur `'ACTIVE'`).
+Réponse : `data` = tableau de listes (avec `pipeline` { id, name }, `assignedTo` { id, firstName, lastName, avatar }, `createdBy` { id, firstName, lastName }), chacune enrichie d'un objet `counts` calculé sur les `Opportunity` de la liste :
+```json
+{ "total": 0, "todo": 0, "contacted": 0, "callback": 0, "qualified": 0, "rejected": 0, "unreachable": 0 }
+```
+`contacted` = `prospectStatus: 'REACHED'`, `callback` = `'CALLBACK'`, `qualified` = `'QUALIFIED'`, `rejected` = `'NOT_INTERESTED'`, `unreachable` = `'UNREACHABLE'` (`'NO_ANSWER'` est compté dans `total` mais n'a pas de compteur dédié).
+
+**POST /prospection/lists**
+```json
+{
+  "name": "string",
+  "description": "string (optionnel)",
+  "source": "string (optionnel, référentiel lead_source, défaut 'COLD_CALL')",
+  "pipelineId": "string (optionnel — pipeline par défaut à la qualification, sinon le pipeline isDefault actif)",
+  "assignedToId": "string (optionnel — commercial par défaut des prospects importés dans la liste)"
+}
+```
+Réponse `201`. Erreurs : `400 INVALID_REFERENCE` (`source` invalide), `400 PIPELINE_NOT_FOUND`, `400 USER_NOT_FOUND`.
+
+**PUT /prospection/lists/:id**
+Corps identique (`.partial()`). Ne modifie pas `status` (cf. routes `archive`/`unarchive`). `404 NOT_FOUND` si la liste n'existe pas. Mêmes erreurs de validation que la création.
+
+**PATCH /prospection/lists/:id/archive** / **unarchive**
+Pas de corps. Bascule `status` à `'ARCHIVED'` / `'ACTIVE'`. `404 NOT_FOUND` si la liste n'existe pas. Pas de suppression de liste (spec).
+
+**POST /prospection/lists/:id/import**
+```json
+{
+  "source": "string (optionnel — sinon celle de la liste)",
+  "assignedToId": "string (optionnel — sinon celui de la liste)",
+  "rows": [ /* même format que POST /pipeline/opportunities/import/csv */ ]
+}
+```
+Même logique de résolution entreprise/contact et le même traitement par lots de 50 lignes que l'import historique du pipeline (factorisés dans `src/services/prospectImport.ts`, fonction `importProspectRows`), mais les fiches créées reçoivent `listId = :id` et `pipelineId = null` (jamais de pipeline/étape à l'import). Doublon : une fiche de la même liste pour la même entreprise (ou le même contact) dont le `prospectStatus` n'est ni `NOT_INTERESTED` ni `QUALIFIED` → ligne ignorée (`skipped`). Réponse identique à l'import pipeline : `{ created: { companies, contacts, opportunities }, skipped, errors: [{ row, reason }] }`. Erreurs : `404 NOT_FOUND` (liste introuvable), `400 INVALID_REFERENCE`, `400 USER_NOT_FOUND`.
+
+**GET /prospection/stats**
+Query : `listId` (optionnel), `from`/`to` (ISO, optionnels, filtrent `Activity.createdAt`). Sans permission `prospection:manage`, la réponse est restreinte à l'utilisateur courant (une seule ligne, présente même sans aucune activité). Calculé sur les `Activity` de type `CALL_NO_ANSWER`/`CALL_REACHED`/`UNREACHABLE`/`CALLBACK_SET`/`DOC_SENT`/`MEETING_SET`/`QUALIFIED`/`NOT_INTERESTED` :
+```json
+[{ "userId": "string", "firstName": "string", "lastName": "string", "calls": 0, "reached": 0, "callbacks": 0, "docsSent": 0, "meetings": 0, "qualified": 0, "rejected": 0 }]
+```
+`calls` additionne `CALL_NO_ANSWER` + `CALL_REACHED` + `UNREACHABLE` (toute tentative d'appel).
+
+**GET /prospection/prospects**
+Query (tous optionnels) : `listId`, `prospectStatus`, `assignedToId`, `mine=true` (force `assignedToId = utilisateur courant`, prioritaire sur `assignedToId`), `today=true` (rappel `remindAt` ≤ fin de journée **ou** jamais contacté (`lastContactedAt` null) **et** assigné à l'utilisateur courant), `neverContacted=true` (`lastContactedAt` null), `staleDays=N` (`lastContactedAt` null ou antérieur à N jours), `search` (title/company.name/contact.firstName/contact.lastName, OR insensible à la casse), `sortBy` ∈ `createdAt | updatedAt | title | value | remindAt | lastContactedAt | lastActivityAt | prospectStatus | company` + `sortOrder`, `page`/`limit` (défauts `'1'`/`'50'`). Toujours filtré sur `pipelineId: null`. Réponse : `data` = prospects (avec `contact`, `company`, `assignedTo`, `list`), `meta: { total, page, limit }`.
+
+**POST /prospection/prospects**
+```json
+{
+  "listId": "string (optionnel)",
+  "title": "string (optionnel si companyId ou contactId fourni)",
+  "companyId": "string (optionnel)",
+  "contactId": "string (optionnel)",
+  "assignedToId": "string (optionnel — sinon celui de la liste)",
+  "notes": "string (optionnel)"
+}
+```
+Au moins un de `title`/`companyId`/`contactId` requis, sinon `400 VALIDATION_ERROR`. `pipelineId` toujours `null`, `prospectStatus: 'TODO'`, `source` = celle de la liste (sinon `'MANUAL'`). Réponse `201`. Erreurs : `400 LIST_NOT_FOUND`, `400 COMPANY_NOT_FOUND`, `400 CONTACT_NOT_FOUND`, `400 CONTACT_COMPANY_MISMATCH`, `400 USER_NOT_FOUND`.
+
+**GET /prospection/prospects/:id**
+Réponse : fiche avec `contact`, `company`, `assignedTo`, `list`, `activities` (50 dernières, desc, avec leur auteur `user`), `appointments` (desc). `404 NOT_FOUND` si absente.
+
+**POST /prospection/prospects/:id/actions**
+```json
+{
+  "action": "NO_ANSWER | REACHED | CALLBACK | DOC_SENT | EMAIL_SENT | MEETING_SET | NOTE | NEXT_ACTION | QUALIFICATION | NOT_INTERESTED | REOPEN",
+  "nextAction": "string ou null (selon l'action)",
+  "remindAt": "string ISO ou null (selon l'action)",
+  "note": "string (selon l'action)",
+  "document": "string, clé prospect_documents (DOC_SENT)",
+  "startAt": "string ISO (MEETING_SET)",
+  "title": "string (MEETING_SET, optionnel)",
+  "criteria": "{ [clé qualification_criteria]: boolean | null } (QUALIFICATION)",
+  "reason": "string, clé not_interested_reasons (NOT_INTERESTED)"
+}
+```
+Implémentation partagée : `src/services/prospectActions.ts`, fonction `applyAction(opportunityId, action, payload, userId)`. Chaque action écrit **une** `Activity` (auteur = utilisateur courant), pose `lastActivityAt = now`, et attribue la fiche à son auteur (`assignedToId`) si elle n'en avait pas encore (auto-attribution à la première action).
+
+| `action` | Effet | Activity `type` |
+|---|---|---|
+| `NO_ANSWER` | `callAttempts+1`, `lastContactedAt = now` ; si `callAttempts ≥ prospectMaxAttempts` → `prospectStatus: 'UNREACHABLE'` + `remindAt = +prospectUnreachableRetryDays` ; sinon `prospectStatus: 'NO_ANSWER'` + `remindAt = +prospectCallbackDays` **seulement si aucun `remindAt` n'est déjà posé** | `CALL_NO_ANSWER` ou `UNREACHABLE` selon le cas |
+| `REACHED` | `callAttempts+1`, `lastContactedAt = now`, `prospectStatus: 'REACHED'`, `remindAt`/`nextAction` posés | `CALL_REACHED` |
+| `CALLBACK` | `prospectStatus: 'CALLBACK'`, `remindAt` posé, `nextAction` si fourni | `CALLBACK_SET` |
+| `DOC_SENT` | ajoute `document` à `documentsSent` (JSON, sans doublon) | `DOC_SENT` |
+| `EMAIL_SENT` | aucun champ scalaire modifié | `EMAIL_SENT` |
+| `MEETING_SET` | crée un `Appointment` lié (`opportunityId`, `type: 'CLIENT_MEETING'`, participant = auteur, contact de la fiche si présent, durée 1h par défaut) ; `remindAt = startAt` | `MEETING_SET` |
+| `NOTE` | aucun champ scalaire modifié | `NOTE` |
+| `NEXT_ACTION` | `remindAt`/`nextAction` posés | `NEXT_ACTION_SET` |
+| `QUALIFICATION` | fusionne `criteria` dans `qualification` (JSON) | `QUALIFICATION` |
+| `NOT_INTERESTED` | `prospectStatus: 'NOT_INTERESTED'`, `lostReason = reason`, `remindAt = null` | `NOT_INTERESTED` |
+| `REOPEN` | `prospectStatus: 'TODO'`, `lostReason = null` | `REOPEN` |
+
+Réponse : la fiche mise à jour. Erreurs : `404 NOT_FOUND` ; `400 INVALID_ACTION` (action inconnue) ; `400 REMIND_AT_REQUIRED` (`REACHED`/`CALLBACK`/`NEXT_ACTION` sans `remindAt`) ; `400 NEXT_ACTION_REQUIRED` (`REACHED`/`NEXT_ACTION` sans `nextAction`) ; `400 DOCUMENT_REQUIRED`/`400 NOTE_REQUIRED`/`400 REASON_REQUIRED`/`400 START_AT_REQUIRED` (champ manquant selon l'action) ; `400 INVALID_REFERENCE` (`document`, `reason` ou une clé de `criteria` inconnue du référentiel) ; `400 VALIDATION_ERROR` (`criteria` absent/mal formé, date de RDV invalide).
+
+**POST /prospection/prospects/:id/qualify**
+```json
+{
+  "pipelineId": "string (optionnel — sinon celui de la liste, sinon le pipeline par défaut actif)",
+  "stage": "string (optionnel — sinon la première étape ouverte du pipeline résolu)",
+  "title": "string (optionnel)",
+  "value": "number (optionnel)",
+  "expectedCloseDate": "string ISO ou null (optionnel)",
+  "nextAction": "string ou null (optionnel)",
+  "remindAt": "string ISO ou null (optionnel)"
+}
+```
+Pose `pipelineId`, `stage`, `prospectStatus: 'QUALIFIED'`, `qualifiedAt = now`, `lastActivityAt = now` ; journalise une `Activity` (`type: 'QUALIFIED'`). `closedAt` n'est jamais modifié par cette route. La fiche sort alors de `GET /prospection/prospects` (filtre `pipelineId: null`) et apparaît dans `GET /pipeline/opportunities` (filtrable par `pipelineId`). `listId` est conservé (statistiques). Réponse : la fiche mise à jour. Erreurs : `404 NOT_FOUND` ; `400 ALREADY_QUALIFIED` (la fiche a déjà un `pipelineId`) ; `400 PIPELINE_NOT_FOUND` (`pipelineId` fourni introuvable) ; `400 NO_PIPELINE` (aucun pipeline disponible).
 
 ---
 

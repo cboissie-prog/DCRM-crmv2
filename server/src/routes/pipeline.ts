@@ -5,11 +5,13 @@ import { authenticate, AuthRequest, requirePermission } from '../middleware/auth
 import { handleRouteError } from '../middleware/errorHandler'
 import { checkReferences } from '../lib/references'
 import { ciContains } from '../lib/query'
-import { normalizePhone } from '../lib/phone'
 import { fireAutomations } from '../automation-engine'
 import { getWonLostStageKeys } from '../services/pipelineService'
 import { ensureExists, fetchOrFail, ensureCompanyMatch } from '../lib/relationChecks'
 import { audit } from '../lib/audit'
+import { importProspectRows, importCsvRowSchema, ImportProspectRow } from '../services/prospectImport'
+import { applyAction, ProspectActionError, PIPELINE_EXCLUDED_ACTIONS } from '../services/prospectActions'
+import { getSettingInt } from '../lib/settings'
 
 const router = Router()
 router.use(authenticate)
@@ -47,7 +49,7 @@ router.get('/opportunities', requirePermission('pipeline:read'), async (req: Aut
   try {
     const {
       stage, assignedToId, companyId, pipelineId, archived = 'all', page = '1', limit = '50',
-      prospectStatus, source, remindToday, neverContacted, staleDays, search, sortBy, sortOrder,
+      prospectStatus, source, remindToday, neverContacted, staleDays, search, sortBy, sortOrder, alert,
     } = req.query as Record<string, string>
     const where: Record<string, unknown> = {}
     if (stage) where.stage = stage
@@ -88,6 +90,26 @@ router.get('/opportunities', requirePermission('pipeline:read'), async (req: Aut
         ],
       })
     }
+    // Alerte de suivi (spec §4) : NO_NEXT_ACTION (ouverte sans remindAt futur) ou STALE
+    // (lastActivityAt — ou updatedAt si jamais touchée — plus vieux que dealStaleDays).
+    // Ne concerne que les étapes ouvertes (ni gagnées ni perdues).
+    const { wonKeys, lostKeys } = await getWonLostStageKeys()
+    const closedStageKeys = [...wonKeys, ...lostKeys]
+    const dealStaleDays = await getSettingInt('dealStaleDays', 7)
+    const now = new Date()
+    const staleThreshold = new Date(Date.now() - dealStaleDays * 24 * 60 * 60 * 1000)
+
+    if (alert === 'true') {
+      andFilters.push({
+        stage: { notIn: closedStageKeys },
+        OR: [
+          { remindAt: null },
+          { remindAt: { lt: now } },
+          { lastActivityAt: { lt: staleThreshold } },
+          { AND: [{ lastActivityAt: null }, { updatedAt: { lt: staleThreshold } }] },
+        ],
+      })
+    }
     if (andFilters.length > 0) where.AND = andFilters
 
     const validSortOrder = sortOrder === 'asc' ? 'asc' : 'desc'
@@ -109,7 +131,20 @@ router.get('/opportunities', requirePermission('pipeline:read'), async (req: Aut
         },
       }),
     ])
-    res.json({ success: true, data: opportunities, meta: { total, page: parseInt(page), limit: parseInt(limit) } })
+
+    const withAlert = opportunities.map(o => {
+      let alertValue: 'NO_NEXT_ACTION' | 'STALE' | null = null
+      if (!closedStageKeys.includes(o.stage)) {
+        if (!o.remindAt || o.remindAt < now) alertValue = 'NO_NEXT_ACTION'
+        else {
+          const effectiveLastActivity = o.lastActivityAt ?? o.updatedAt
+          if (effectiveLastActivity < staleThreshold) alertValue = 'STALE'
+        }
+      }
+      return { ...o, alert: alertValue }
+    })
+
+    res.json({ success: true, data: withAlert, meta: { total, page: parseInt(page), limit: parseInt(limit) } })
   } catch (err) { handleRouteError(err, res) }
 })
 
@@ -301,21 +336,8 @@ router.post('/opportunities/bulk', requirePermission('pipeline:update'), async (
 // POST /pipeline/opportunities/import/csv — import de prospects (entreprise + contact +
 // opportunité) depuis un CSV déjà mis en correspondance côté client. Transaction par lots
 // de 50 lignes. Déclarée AVANT /opportunities/:id.
-const importCsvRowSchema = z.object({
-  companyName: z.string().optional(),
-  firstName: z.string().optional(),
-  lastName: z.string().optional(),
-  phone: z.string().optional(),
-  email: z.string().optional(),
-  title: z.string().optional(),
-  value: z.union([z.string(), z.number()]).optional(),
-  notes: z.string().optional(),
-  city: z.string().optional(),
-  postalCode: z.string().optional(),
-  website: z.string().optional(),
-  siret: z.string().optional(),
-})
-
+// Route historique conservée (compat) : l'assistant du client importe désormais toujours
+// dans une liste de prospection via POST /prospection/lists/:id/import (listId posé, pipelineId null).
 router.post('/opportunities/import/csv', requirePermission('pipeline:create'), async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const body = z.object({
@@ -348,146 +370,15 @@ router.post('/opportunities/import/csv', requirePermission('pipeline:create'), a
     const resolvedPipelineId = pipeline?.id ?? null
     const source = body.source || 'MANUAL'
 
-    const { wonKeys, lostKeys } = await getWonLostStageKeys()
-
-    // Pré-résolution des entreprises déjà existantes (insensible à la casse, cf. lib/query.ts
-    // ciContains — un seul aller-retour DB, filtré ensuite en JS pour une égalité exacte car
-    // `contains` autoriserait des correspondances partielles).
-    const uniqueCompanyNames = [...new Set(
-      body.rows.map(r => r.companyName?.trim()).filter((v): v is string => !!v)
-    )]
-    const candidateCompanies = uniqueCompanyNames.length > 0
-      ? await prisma.company.findMany({
-          where: { OR: uniqueCompanyNames.map(n => ({ name: ciContains(n) })) },
-          select: { id: true, name: true },
-        })
-      : []
-    const companyByName = new Map<string, string>()
-    for (const c of candidateCompanies) companyByName.set(c.name.toLowerCase(), c.id)
-
-    const errors: { row: number; reason: string }[] = []
-    let skipped = 0
-    let createdCompanies = 0
-    let createdContacts = 0
-    let createdOpportunities = 0
-
-    for (let batchStart = 0; batchStart < body.rows.length; batchStart += 50) {
-      const batch = body.rows.slice(batchStart, batchStart + 50)
-      await prisma.$transaction(async (tx) => {
-        for (let i = 0; i < batch.length; i++) {
-          const rowIndex = batchStart + i
-          const row = batch[i]
-          try {
-            const companyName = row.companyName?.trim()
-            const firstName = row.firstName?.trim() || ''
-            const lastName = row.lastName?.trim() || ''
-            // Un prospect peut être un particulier (société en création) : entreprise OU contact suffit.
-            if (!companyName && !firstName && !lastName) {
-              errors.push({ row: rowIndex, reason: 'Entreprise ou contact manquant' })
-              continue
-            }
-
-            let companyId: string | undefined
-            if (companyName) {
-              const cacheKey = companyName.toLowerCase()
-              companyId = companyByName.get(cacheKey)
-              if (!companyId) {
-                const created = await tx.company.create({
-                  data: {
-                    name: companyName,
-                    city: row.city?.trim() || undefined,
-                    postalCode: row.postalCode?.trim() || undefined,
-                    website: row.website?.trim() || undefined,
-                    siret: row.siret?.trim() || undefined,
-                  },
-                })
-                companyId = created.id
-                companyByName.set(cacheKey, companyId)
-                createdCompanies++
-              }
-            }
-
-            // Contact : email, puis nom + prénom (dans l'entreprise, ou parmi les contacts sans entreprise), sinon création.
-            let contactId: string | undefined
-            const email = row.email?.trim()
-            if (email) {
-              const existing = await tx.contact.findFirst({ where: { email }, select: { id: true } })
-              if (existing) contactId = existing.id
-            }
-            if (!contactId && (firstName || lastName)) {
-              const candidates = await tx.contact.findMany({
-                where: { companyId: companyId ?? null },
-                select: { id: true, firstName: true, lastName: true },
-              })
-              const match = candidates.find(c =>
-                c.firstName.toLowerCase() === firstName.toLowerCase() &&
-                c.lastName.toLowerCase() === lastName.toLowerCase()
-              )
-              if (match) contactId = match.id
-            }
-
-            // Doublon : opportunité non archivée en étape ouverte, même pipeline, même entreprise
-            // (ou même contact quand il n'y a pas d'entreprise).
-            const dupScope = companyId ? { companyId } : contactId ? { contactId } : null
-            if (dupScope) {
-              const existingOpen = await tx.opportunity.findFirst({
-                where: { ...dupScope, pipelineId: resolvedPipelineId, archivedAt: null, stage: { notIn: [...wonKeys, ...lostKeys] } },
-                select: { id: true },
-              })
-              if (existingOpen) { skipped++; continue }
-            }
-
-            if (!contactId && (firstName || lastName)) {
-              const phone = row.phone?.trim() || undefined
-              const createdContact = await tx.contact.create({
-                data: {
-                  firstName: firstName || '—',
-                  lastName: lastName || '—',
-                  email: email || undefined,
-                  phone,
-                  phoneNormalized: normalizePhone(phone),
-                  companyId,
-                  source,
-                  status: 'PROSPECT',
-                },
-              })
-              contactId = createdContact.id
-              createdContacts++
-            }
-
-            const rawValue = row.value
-            const parsedValue = rawValue === undefined || rawValue === '' ? 0 : Number(rawValue)
-
-            await tx.opportunity.create({
-              data: {
-                title: row.title?.trim() || companyName || `${firstName} ${lastName}`.trim(),
-                companyId,
-                contactId,
-                pipelineId: resolvedPipelineId,
-                stage: resolvedStage,
-                value: Number.isFinite(parsedValue) ? parsedValue : 0,
-                source,
-                prospectStatus: 'TODO',
-                assignedToId: body.assignedToId,
-                notes: row.notes?.trim() || undefined,
-              },
-            })
-            createdOpportunities++
-          } catch (rowErr) {
-            errors.push({ row: rowIndex, reason: rowErr instanceof Error ? rowErr.message : 'Erreur inconnue' })
-          }
-        }
-      })
-    }
-
-    res.json({
-      success: true,
-      data: {
-        created: { companies: createdCompanies, contacts: createdContacts, opportunities: createdOpportunities },
-        skipped,
-        errors,
-      },
+    const result = await importProspectRows(body.rows as ImportProspectRow[], {
+      listId: null,
+      pipelineId: resolvedPipelineId,
+      stage: resolvedStage,
+      source,
+      assignedToId: body.assignedToId,
     })
+
+    res.json({ success: true, data: result })
   } catch (err) { handleRouteError(err, res) }
 })
 
@@ -500,7 +391,11 @@ router.get('/opportunities/:id', requirePermission('pipeline:read'), async (req:
         company: true,
         assignedTo: { select: { id: true, firstName: true, lastName: true } },
         products: { include: { product: true } },
-        activities: { orderBy: { createdAt: 'desc' }, take: 20 },
+        // Module Prospection (spec §4) : chronologie complète avec son auteur, liste
+        // d'origine (conservée après qualification) et rendez-vous liés (action MEETING_SET).
+        activities: { orderBy: { createdAt: 'desc' }, take: 20, include: { user: { select: { id: true, firstName: true, lastName: true, avatar: true } } } },
+        list: true,
+        appointments: { orderBy: { startAt: 'desc' } },
       },
     })
     if (!opp) { res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Opportunité introuvable' } }); return }
@@ -578,7 +473,8 @@ router.patch('/opportunities/:id/stage', requirePermission('pipeline:update'), a
 
     const data: Record<string, unknown> = { stage }
     if (lostReason) data.lostReason = lostReason
-    if (previous && previous.stage !== stage) {
+    const stageChanged = previous && previous.stage !== stage
+    if (stageChanged) {
       const { wonKeys, lostKeys } = await getWonLostStageKeys()
       const isClosed = wonKeys.includes(stage) || lostKeys.includes(stage)
       data.closedAt = isClosed ? new Date() : null
@@ -588,11 +484,23 @@ router.patch('/opportunities/:id/stage', requirePermission('pipeline:update'), a
         data.archivedAt = null
         data.autoArchive = true
       }
+      // Module Prospection (spec §4) : un changement d'étape compte comme une activité de suivi.
+      data.lastActivityAt = new Date()
     }
     const opp = await prisma.opportunity.update({ where: { id: req.params.id }, data: data as Parameters<typeof prisma.opportunity.update>[0]['data'] })
-    if (previous && previous.stage !== stage) {
+    if (stageChanged) {
       fireAutomations('OPPORTUNITY_STAGE_CHANGED', {
         opportunity: { id: opp.id, title: opp.title, stage, previousStage: previous.stage, value: opp.value, companyId: opp.companyId, assignedToId: opp.assignedToId },
+      }).catch(console.error)
+      await prisma.activity.create({
+        data: {
+          type: 'STAGE_CHANGED',
+          title: `Étape changée : ${previous.stage} → ${stage}`,
+          userId: req.userId,
+          opportunityId: opp.id,
+          companyId: opp.companyId ?? undefined,
+          completedAt: new Date(),
+        },
       }).catch(console.error)
     }
     res.json({ success: true, data: opp })
@@ -646,6 +554,40 @@ router.patch('/opportunities/:id/prospect', requirePermission('pipeline:update')
 
     res.json({ success: true, data: updated })
   } catch (err) { handleRouteError(err, res) }
+})
+
+// POST /pipeline/opportunities/:id/actions — actions rapides de suivi (spec §4), partagées
+// avec la prospection (src/services/prospectActions.ts). NOT_INTERESTED et REOPEN sont exclus :
+// dans le pipeline, on perd une affaire via l'étape Perdu, pas via une action.
+const actionBodySchema = z.object({
+  action: z.string(),
+  nextAction: z.string().nullable().optional(),
+  remindAt: z.string().nullable().optional(),
+  note: z.string().optional(),
+  document: z.string().optional(),
+  startAt: z.string().optional(),
+  title: z.string().optional(),
+  criteria: z.record(z.union([z.boolean(), z.null()])).optional(),
+  reason: z.string().optional(),
+})
+
+router.post('/opportunities/:id/actions', requirePermission('pipeline:update'), async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const body = actionBodySchema.parse(req.body)
+    if ((PIPELINE_EXCLUDED_ACTIONS as readonly string[]).includes(body.action)) {
+      res.status(400).json({ success: false, error: { code: 'INVALID_ACTION', message: 'Cette action n\'est pas disponible depuis le pipeline (perte via l\'étape Perdu)' } })
+      return
+    }
+    const { action, ...payload } = body
+    const updated = await applyAction(req.params.id, action, payload, req.userId!)
+    res.json({ success: true, data: updated })
+  } catch (err) {
+    if (err instanceof ProspectActionError) {
+      res.status(err.status).json({ success: false, error: { code: err.code, message: err.message } })
+      return
+    }
+    handleRouteError(err, res)
+  }
 })
 
 // PATCH /pipeline/opportunities/:id/archive — archivage manuel (menu Actions des cartes

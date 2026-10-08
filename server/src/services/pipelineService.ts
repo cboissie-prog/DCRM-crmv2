@@ -49,6 +49,25 @@ export async function getWonLostStageKeys(): Promise<{ wonKeys: string[]; lostKe
 }
 
 /**
+ * Pipeline par défaut (isDefault && isActive, sinon premier pipeline actif), avec ses
+ * étapes triées. Utilisé pour rattacher une opportunité sans pipeline explicite
+ * (création, import CSV, qualification d'un prospect — spec module Prospection §4).
+ */
+export async function resolveDefaultPipeline() {
+  return (
+    (await prisma.pipeline.findFirst({
+      where: { isDefault: true, isActive: true },
+      include: { stages: { orderBy: { order: 'asc' } } },
+    })) ??
+    (await prisma.pipeline.findFirst({
+      where: { isActive: true },
+      orderBy: { order: 'asc' },
+      include: { stages: { orderBy: { order: 'asc' } } },
+    }))
+  )
+}
+
+/**
  * Copie tous les pipelines templates actifs vers un nouvel utilisateur.
  * Appelé à la création d'un compte (admin POST /users).
  *
