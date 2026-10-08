@@ -17,7 +17,7 @@ import {
   MoreHorizontal, Edit2, Trash2, ChevronRight,
   Building2, User, Calendar, X, Settings, GripVertical,
   Pencil, Bell, BellOff, FileText, CalendarCheck, Phone, Zap, Link2,
-  PartyPopper, UserPlus, Archive, LayoutGrid, List as ListIcon,
+  PartyPopper, UserPlus, Archive, LayoutGrid, List as ListIcon, AlertTriangle,
 } from 'lucide-react'
 import { PageIcon } from '../../components/ui/PageIcon'
 import api from '../../lib/api'
@@ -29,10 +29,13 @@ import { formatCurrency, formatDate, cn } from '../../lib/utils'
 import { Modal } from '../../components/ui/Modal'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { toast } from '../../components/ui/Toast'
+import { Tooltip } from '../../components/ui/Tooltip'
 import type { Opportunity, Contact, User as UserType } from '../../types'
 import { EntityPicker } from '../../components/ui/EntityPicker'
 import { ArchivesDrawer } from './ArchivesDrawer'
 import { PipelineListView } from './PipelineListView'
+import { FollowUpDrawer } from '../../components/prospection/FollowUpDrawer'
+import { isDueOrOverdue } from '../../lib/prospectActions'
 
 export interface PipelineStage {
   id: string
@@ -114,6 +117,25 @@ function getTag(tags: OppTag[], type: string): OppTag | undefined {
   return tags.find(t => t.type === type)
 }
 
+// ─── Alerte de suivi (spec §4/§5) : pastille rouge « Aucune prochaine action » ou orange
+// « Sans activité depuis N j », calculée côté serveur (`alert`) sur GET /pipeline/opportunities.
+function staleDaysCount(opp: Opportunity): number {
+  const ref = opp.lastActivityAt ?? opp.updatedAt
+  const ms = Date.now() - new Date(ref).getTime()
+  return Math.max(0, Math.floor(ms / (24 * 60 * 60 * 1000)))
+}
+
+function alertBadge(opp: Opportunity): { label: string; tooltip: string; className: string } | null {
+  if (opp.alert === 'NO_NEXT_ACTION') {
+    return { label: 'Aucune action', tooltip: 'Aucune prochaine action planifiée', className: 'bg-red-100 text-red-700' }
+  }
+  if (opp.alert === 'STALE') {
+    const n = staleDaysCount(opp)
+    return { label: `${n} j sans activité`, tooltip: `Sans activité depuis ${n} jour${n > 1 ? 's' : ''}`, className: 'bg-orange-100 text-orange-700' }
+  }
+  return null
+}
+
 // ─── Composant Card ───────────────────────────────────────────────────────────
 interface OpportunityCardProps {
   opportunity: Opportunity
@@ -125,9 +147,10 @@ interface OpportunityCardProps {
   onQuickUpdate: (id: string, data: Record<string, unknown>) => void
   onScheduleTag: (oppId: string, tagType: string, scheduledAt: string) => void
   onArchive: (id: string) => void
+  onOpenFollowUp: (id: string) => void
 }
 
-function OpportunityCard({ opportunity: opp, index, stages, onEdit, onDelete, onStageChange, onQuickUpdate, onScheduleTag, onArchive }: OpportunityCardProps) {
+function OpportunityCard({ opportunity: opp, index, stages, onEdit, onDelete, onStageChange, onQuickUpdate, onScheduleTag, onArchive, onOpenFollowUp }: OpportunityCardProps) {
   const canUpdatePipeline = usePermission('pipeline:update')
   const currentStage = stages.find(s => s.key === opp.stage)
   const isClosed = !!(currentStage?.isWon || currentStage?.isLost)
@@ -141,6 +164,8 @@ function OpportunityCard({ opportunity: opp, index, stages, onEdit, onDelete, on
   const actionsButtonRef = useRef<HTMLButtonElement>(null)
 
   const oppTags = parseTags(opp.tags)
+  const badge = alertBadge(opp)
+  const nextActionOverdue = isDueOrOverdue(opp.remindAt)
 
   const handleTagClick = (tagType: string) => {
     const cfg = TAG_CONFIG[tagType]
@@ -185,7 +210,24 @@ function OpportunityCard({ opportunity: opp, index, stages, onEdit, onDelete, on
         >
           {/* Header card */}
           <div className="flex items-start justify-between gap-2 mb-3">
-            <h4 className="text-sm font-semibold text-slate-900 leading-tight">{opp.title}</h4>
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onOpenFollowUp(opp.id) }}
+                className="text-sm font-semibold text-slate-900 leading-tight text-left hover:text-primary-600 hover:underline truncate min-w-0"
+                title="Ouvrir le suivi"
+              >
+                {opp.title}
+              </button>
+              {badge && (
+                <Tooltip content={badge.tooltip}>
+                  <span className={cn('inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 whitespace-nowrap', badge.className)}>
+                    <AlertTriangle className="w-3 h-3" />
+                    {badge.label}
+                  </span>
+                </Tooltip>
+              )}
+            </div>
             <div className="relative flex-shrink-0">
               <button
                 onClick={(e) => { e.stopPropagation(); setShowMenu(v => !v); setShowStageDropdown(false) }}
@@ -264,6 +306,15 @@ function OpportunityCard({ opportunity: opp, index, stages, onEdit, onDelete, on
               </div>
             )}
           </div>
+
+          {/* Prochaine action (spec §4/§5) */}
+          {(opp.remindAt || opp.nextAction) && (
+            <div className={cn('flex items-center gap-1.5 text-xs mb-2 min-w-0', nextActionOverdue ? 'text-red-600 font-medium' : 'text-slate-500')}>
+              <Calendar className="w-3.5 h-3.5 flex-shrink-0" />
+              {opp.remindAt && <span className="flex-shrink-0">{formatDate(opp.remindAt, 'dd/MM')}</span>}
+              {opp.nextAction && <span className="truncate">{opp.nextAction}</span>}
+            </div>
+          )}
 
           {/* Tags actifs */}
           {(oppTags.length > 0 || opp.remindAt) && (
@@ -997,6 +1048,8 @@ export function PipelinePage() {
 
   const [search, setSearch] = useState('')
   const [assignedFilter, setAssignedFilter] = useState('')
+  const [alertFilter, setAlertFilter] = useState(false)
+  const [followUpId, setFollowUpId] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [editingOpp, setEditingOpp] = useState<Opportunity | null>(null)
   const [defaultStage, setDefaultStage] = useState('NEW')
@@ -1030,7 +1083,7 @@ export function PipelinePage() {
   }
 
   const { data: opportunities = [], isLoading } = useQuery<Opportunity[]>({
-    queryKey: ['pipeline-opportunities', { search, assignedFilter, effectivePipelineId }],
+    queryKey: ['pipeline-opportunities', { search, assignedFilter, effectivePipelineId, alertFilter }],
     queryFn: async () => {
       const { data } = await api.get('/pipeline/opportunities', {
         params: {
@@ -1038,6 +1091,7 @@ export function PipelinePage() {
           assignedToId: assignedFilter || undefined,
           pipelineId: effectivePipelineId || undefined,
           archived: 'exclude',
+          alert: alertFilter ? 'true' : undefined,
         },
       })
       return data.data ?? data
@@ -1233,6 +1287,7 @@ export function PipelinePage() {
     scheduleTagMutation.mutate({ oppId, tagType, scheduledAt })
   }
   const handleArchive = (id: string) => archiveMutation.mutate(id)
+  const handleOpenFollowUp = (id: string) => setFollowUpId(id)
 
   return (
     <div className="flex flex-col h-full fade-in">
@@ -1380,10 +1435,19 @@ export function PipelinePage() {
             ))}
           </select>
         )}
-        {(search || assignedFilter) && (
+        <button
+          className={cn(
+            'flex items-center gap-1.5 text-xs font-medium border rounded-lg px-2.5 py-1.5 transition-colors',
+            alertFilter ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300',
+          )}
+          onClick={() => setAlertFilter(v => !v)}
+        >
+          <AlertTriangle className="w-3.5 h-3.5" /> Alertes
+        </button>
+        {(search || assignedFilter || alertFilter) && (
           <button
             className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white hover:bg-slate-50 transition-colors"
-            onClick={() => { setSearch(''); setAssignedFilter('') }}
+            onClick={() => { setSearch(''); setAssignedFilter(''); setAlertFilter(false) }}
           >
             <X className="w-3 h-3" /> Réinitialiser
           </button>
@@ -1455,6 +1519,7 @@ export function PipelinePage() {
                           onQuickUpdate={handleQuickUpdate}
                           onScheduleTag={handleScheduleTag}
                           onArchive={handleArchive}
+                          onOpenFollowUp={handleOpenFollowUp}
                         />
                       ))}
                       {provided.placeholder}
@@ -1563,6 +1628,15 @@ export function PipelinePage() {
         pipelineId={effectivePipelineId}
         stages={stages}
         onEditOpportunity={(opp) => { setEditingOpp(opp); setArchiveDrawerType(null) }}
+      />
+
+      {/* ── Panneau de suivi (prochaine action, actions rapides, qualification, chronologie) ── */}
+      <FollowUpDrawer
+        open={!!followUpId}
+        onClose={() => setFollowUpId(null)}
+        opportunityId={followUpId}
+        mode="deal"
+        onEdit={(opportunity) => { setFollowUpId(null); handleEdit(opportunity) }}
       />
     </div>
   )

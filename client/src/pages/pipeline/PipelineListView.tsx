@@ -2,19 +2,22 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Search, X, ChevronUp, ChevronDown, ChevronsUpDown, Phone, Copy, Bell,
+  Search, X, ChevronUp, ChevronDown, ChevronsUpDown, Phone, Copy, AlertTriangle,
   ChevronLeft, ChevronRight as ChevronRightIcon,
 } from 'lucide-react'
 import api from '../../lib/api'
 import { useUsersList } from '../../hooks/useApi'
 import { useReferences } from '../../hooks/useReferences'
 import { usePermission } from '../../hooks/usePermission'
-import { formatCurrency, formatDate, formatRelative, cn } from '../../lib/utils'
+import { formatCurrency, formatDate, formatDateTime, formatRelative, cn } from '../../lib/utils'
 import { Modal } from '../../components/ui/Modal'
+import { Tooltip } from '../../components/ui/Tooltip'
 import { toast } from '../../components/ui/Toast'
 import {
-  PROSPECT_STATUS_CONFIG, inDays, nextMonday, isDueOrOverdue,
+  PROSPECT_STATUS_CONFIG, isDueOrOverdue,
 } from '../../lib/prospectActions'
+import { ProspectActionBar } from '../../components/prospection/ProspectActionBar'
+import { FollowUpDrawer } from '../../components/prospection/FollowUpDrawer'
 import type { Opportunity, ProspectStatus, User as UserType } from '../../types'
 
 // ─── Types locaux (pas de dépendance circulaire vers PipelinePage.tsx) ────────
@@ -34,10 +37,11 @@ interface PipelineListViewProps {
 // importé). Les 3 nouveaux statuts se fixent via les actions/la qualification, pas ce menu.
 const PROSPECT_STATUS_ORDER: ProspectStatus[] = ['TODO', 'NO_ANSWER', 'REACHED', 'CALLBACK']
 
+// « Contact » (titre, tri sur `title`) a son propre en-tête géré à part ci-dessous ; les autres
+// colonnes triables sont générées depuis cette table.
 const SORT_COLUMNS: { key: string; label: string }[] = [
-  { key: 'title', label: 'Prospect' },
   { key: 'prospectStatus', label: 'Statut' },
-  { key: 'remindAt', label: 'Rappel' },
+  { key: 'remindAt', label: 'Prochaine action' },
   { key: 'stage', label: 'Étape' },
   { key: 'value', label: 'Montant HT' },
   { key: 'lastContactedAt', label: 'Dernier contact' },
@@ -45,6 +49,26 @@ const SORT_COLUMNS: { key: string; label: string }[] = [
 ]
 
 const PAGE_SIZES = [50, 100, 200]
+
+// ─── Alerte de suivi (spec §4/§5), dupliqué de `PipelinePage.tsx` (pas de dépendance circulaire
+// entre les deux, cf. note ci-dessus) : pastille rouge « Aucune prochaine action » ou orange
+// « Sans activité depuis N j », calculée côté serveur (`alert`) sur GET /pipeline/opportunities.
+function staleDaysCount(opp: Opportunity): number {
+  const ref = opp.lastActivityAt ?? opp.updatedAt
+  const ms = Date.now() - new Date(ref).getTime()
+  return Math.max(0, Math.floor(ms / (24 * 60 * 60 * 1000)))
+}
+
+function alertBadge(opp: Opportunity): { label: string; tooltip: string; className: string } | null {
+  if (opp.alert === 'NO_NEXT_ACTION') {
+    return { label: 'Aucune action', tooltip: 'Aucune prochaine action planifiée', className: 'bg-red-100 text-red-700' }
+  }
+  if (opp.alert === 'STALE') {
+    const n = staleDaysCount(opp)
+    return { label: `${n} j sans activité`, tooltip: `Sans activité depuis ${n} jour${n > 1 ? 's' : ''}`, className: 'bg-orange-100 text-orange-700' }
+  }
+  return null
+}
 
 // ─── Cellule montant éditable en ligne ─────────────────────────────────────────
 function InlineValueCell({ value, onSave, editable = true }: { value: number; onSave: (v: number) => void; editable?: boolean }) {
@@ -79,24 +103,6 @@ function InlineValueCell({ value, onSave, editable = true }: { value: number; on
       onChange={e => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(String(value)); setEditing(false) } }}
-    />
-  )
-}
-
-// ─── Cellule « prochaine action » éditable en ligne ────────────────────────────
-function InlineNextActionCell({ value, onSave, editable = true }: { value: string; onSave: (v: string) => void; editable?: boolean }) {
-  const [draft, setDraft] = useState(value)
-  useEffect(() => { setDraft(value) }, [value])
-  if (!editable) {
-    return <span className="text-xs text-slate-500">{value || '—'}</span>
-  }
-  return (
-    <input
-      className="input !py-1 !text-xs w-44"
-      placeholder="—"
-      value={draft}
-      onChange={e => setDraft(e.target.value)}
-      onBlur={() => { if (draft !== value) onSave(draft) }}
     />
   )
 }
@@ -144,9 +150,11 @@ export function PipelineListView({ pipelineId, stages, canAssign, onEdit }: Pipe
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirmArchive, setConfirmArchive] = useState(false)
-  const [openStatusMenuId, setOpenStatusMenuId] = useState<string | null>(null)
-  const [openReminderMenuId, setOpenReminderMenuId] = useState<string | null>(null)
-  const [customDateDraft, setCustomDateDraft] = useState('')
+  // Ligne active : survolée, sinon seule sélectionnée — affiche la `ProspectActionBar` compacte
+  // (même convention que `ProspectListPage`, spec §5).
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  // Panneau de suivi commun (mode `deal`) ouvert au clic sur le titre d'une ligne (Task 3).
+  const [drawerId, setDrawerId] = useState<string | null>(null)
 
   const queryKey = ['pipeline-opportunities-list', {
     pipelineId, page, limit, sortBy, sortOrder, stageFilter, sourceFilter,
@@ -186,13 +194,6 @@ export function PipelineListView({ pipelineId, stages, canAssign, onEdit }: Pipe
     qc.invalidateQueries({ queryKey: ['pipeline-opportunities-list'] })
     qc.invalidateQueries({ queryKey: ['pipeline-opportunities'] })
   }
-
-  const prospectMutation = useMutation({
-    mutationFn: ({ id, ...body }: { id: string; prospectStatus?: ProspectStatus; remindAt?: string | null; nextAction?: string | null }) =>
-      api.patch(`/pipeline/opportunities/${id}/prospect`, body),
-    onSuccess: invalidateAll,
-    onError: () => toast.error('Erreur lors de la mise à jour du statut de prospection'),
-  })
 
   const stageMutation = useMutation({
     mutationFn: ({ id, stage }: { id: string; stage: string }) => api.patch(`/pipeline/opportunities/${id}/stage`, { stage }),
@@ -236,11 +237,7 @@ export function PipelineListView({ pipelineId, stages, canAssign, onEdit }: Pipe
     })
   }
 
-  const setReminder = (id: string, remindAt: string | null) => {
-    prospectMutation.mutate(remindAt ? { id, remindAt, prospectStatus: 'CALLBACK' } : { id, remindAt })
-    setOpenReminderMenuId(null)
-    setCustomDateDraft('')
-  }
+  const activeRowId = hoveredId ?? (selected.size === 1 ? [...selected][0] : null)
 
   const resetFilters = () => {
     setSearchParams(() => new URLSearchParams(), { replace: true })
@@ -345,7 +342,15 @@ export function PipelineListView({ pipelineId, stages, canAssign, onEdit }: Pipe
               <th className="px-3 py-2 w-8">
                 <input type="checkbox" checked={rows.length > 0 && selected.size === rows.length} onChange={toggleSelectAll} />
               </th>
-              <th className="px-3 py-2 text-left font-medium text-slate-500">Contact</th>
+              <th
+                className="px-3 py-2 text-left font-medium text-slate-500 cursor-pointer select-none whitespace-nowrap"
+                onClick={() => toggleSort('title')}
+              >
+                <span className="inline-flex items-center gap-1">
+                  Contact
+                  {sortBy === 'title' ? (sortOrder === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ChevronsUpDown className="w-3 h-3 text-slate-300" />}
+                </span>
+              </th>
               {SORT_COLUMNS.map(col => (
                 <th
                   key={col.key}
@@ -359,7 +364,7 @@ export function PipelineListView({ pipelineId, stages, canAssign, onEdit }: Pipe
                 </th>
               ))}
               <th className="px-3 py-2 text-left font-medium text-slate-500">Source</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-500">Prochaine action</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-500 min-w-40">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -373,17 +378,21 @@ export function PipelineListView({ pipelineId, stages, canAssign, onEdit }: Pipe
               const due = isDueOrOverdue(opp.remindAt)
               const neverContactedRow = (opp.prospectStatus ?? 'TODO') === 'TODO' && !opp.lastContactedAt
               const stage = stages.find(s => s.key === opp.stage)
+              const isActive = activeRowId === opp.id
+              const badge = alertBadge(opp)
               return (
                 <tr
                   key={opp.id}
-                  className={cn('border-b border-slate-100 last:border-0', due && 'bg-amber-50/70', neverContactedRow && 'font-semibold')}
+                  className={cn('group border-b border-slate-100 last:border-0', due && 'bg-amber-50/70', neverContactedRow && 'font-semibold', selected.has(opp.id) && 'bg-primary-50/40')}
+                  onMouseEnter={() => setHoveredId(opp.id)}
+                  onMouseLeave={() => setHoveredId(prev => (prev === opp.id ? null : prev))}
                 >
                   <td className="px-3 py-2 align-top">
                     <input type="checkbox" checked={selected.has(opp.id)} onChange={() => toggleSelectRow(opp.id)} />
                   </td>
-                  {/* Contact + Prospect (titre/entreprise) */}
+                  {/* Contact + Prospect (titre/entreprise) — clic sur le titre : panneau de suivi (mode deal) */}
                   <td className="px-3 py-2 align-top min-w-48">
-                    <button type="button" className="text-slate-900 hover:text-primary-600 hover:underline text-left" onClick={() => onEdit(opp)}>
+                    <button type="button" className="text-slate-900 hover:text-primary-600 hover:underline text-left" onClick={() => setDrawerId(opp.id)}>
                       {opp.title}
                     </button>
                     {opp.company && <p className="text-xs text-slate-400">{opp.company.name}</p>}
@@ -410,59 +419,29 @@ export function PipelineListView({ pipelineId, stages, canAssign, onEdit }: Pipe
                       )
                     })()}
                   </td>
-                  {/* Statut de prospection */}
-                  <td className="px-3 py-2 align-top relative">
-                    <button
-                      type="button"
-                      disabled={!canUpdate}
-                      onClick={() => { setOpenStatusMenuId(v => v === opp.id ? null : opp.id); setOpenReminderMenuId(null) }}
-                      className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border', PROSPECT_STATUS_CONFIG[opp.prospectStatus ?? 'TODO'].className)}
-                    >
+                  {/* Statut de prospection (pastille — modifié via les actions rapides, colonne Actions) */}
+                  <td className="px-3 py-2 align-top">
+                    <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border', PROSPECT_STATUS_CONFIG[opp.prospectStatus ?? 'TODO'].className)}>
                       {PROSPECT_STATUS_CONFIG[opp.prospectStatus ?? 'TODO'].label}
-                    </button>
-                    {openStatusMenuId === opp.id && (
-                      <div className="absolute left-0 top-7 z-20 bg-white rounded-xl shadow-xl border border-slate-100 min-w-44 py-1" onMouseLeave={() => setOpenStatusMenuId(null)}>
-                        {PROSPECT_STATUS_ORDER.map(s => (
-                          <button
-                            key={s}
-                            className="flex items-center gap-2 w-full px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
-                            onClick={() => {
-                              setOpenStatusMenuId(null)
-                              if (s === 'CALLBACK') { setOpenReminderMenuId(opp.id); return }
-                              prospectMutation.mutate({ id: opp.id, prospectStatus: s })
-                            }}
-                          >
-                            <span className={cn('w-2 h-2 rounded-full', PROSPECT_STATUS_CONFIG[s].className)} />
-                            {PROSPECT_STATUS_CONFIG[s].label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    </span>
                   </td>
-                  {/* Rappel */}
-                  <td className="px-3 py-2 align-top relative whitespace-nowrap">
-                    <button
-                      type="button"
-                      disabled={!canUpdate}
-                      onClick={() => { setOpenReminderMenuId(v => v === opp.id ? null : opp.id); setOpenStatusMenuId(null) }}
-                      className={cn('inline-flex items-center gap-1 text-xs', due ? 'text-amber-700 font-medium' : 'text-slate-500 hover:text-slate-700')}
-                    >
-                      <Bell className="w-3.5 h-3.5" /> {opp.remindAt ? new Date(opp.remindAt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
-                    </button>
-                    {openReminderMenuId === opp.id && (
-                      <div className="absolute left-0 top-7 z-20 bg-white rounded-xl shadow-xl border border-slate-100 min-w-48 py-1" onMouseLeave={() => { setOpenReminderMenuId(null); setCustomDateDraft('') }}>
-                        <button className="flex w-full px-3 py-2 text-xs text-slate-700 hover:bg-slate-50" onClick={() => setReminder(opp.id, inDays(1))}>Demain</button>
-                        <button className="flex w-full px-3 py-2 text-xs text-slate-700 hover:bg-slate-50" onClick={() => setReminder(opp.id, inDays(3))}>Dans 3 jours</button>
-                        <button className="flex w-full px-3 py-2 text-xs text-slate-700 hover:bg-slate-50" onClick={() => setReminder(opp.id, nextMonday())}>Lundi prochain</button>
-                        <div className="px-3 py-2 flex items-center gap-1.5">
-                          <input type="datetime-local" className="input !py-1 !text-xs flex-1" value={customDateDraft} onChange={e => setCustomDateDraft(e.target.value)} />
-                          <button className="btn-primary !py-1 !text-xs" disabled={!customDateDraft} onClick={() => setReminder(opp.id, customDateDraft)}>OK</button>
+                  {/* Prochaine action : date + libellé + pastille d'alerte (spec §4/§5) */}
+                  <td className="px-3 py-2 align-top whitespace-nowrap">
+                    <div className="flex items-center gap-1.5">
+                      {opp.remindAt || opp.nextAction ? (
+                        <div>
+                          <p className={cn('text-xs font-medium', due ? 'text-red-600' : 'text-slate-700')}>{opp.nextAction || '—'}</p>
+                          {opp.remindAt && <p className={cn('text-xs', due ? 'text-red-500' : 'text-slate-400')}>{formatDateTime(opp.remindAt)}</p>}
                         </div>
-                        {opp.remindAt && (
-                          <button className="flex w-full px-3 py-2 text-xs text-slate-400 hover:bg-slate-50 border-t border-slate-100" onClick={() => setReminder(opp.id, null)}>Effacer</button>
-                        )}
-                      </div>
-                    )}
+                      ) : <span className="text-xs text-amber-600">À planifier</span>}
+                      {badge && (
+                        <Tooltip content={badge.tooltip}>
+                          <span className={cn('inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0 whitespace-nowrap', badge.className)}>
+                            <AlertTriangle className="w-3 h-3" />
+                          </span>
+                        </Tooltip>
+                      )}
+                    </div>
                   </td>
                   {/* Étape */}
                   <td className="px-3 py-2 align-top">
@@ -489,9 +468,17 @@ export function PipelineListView({ pipelineId, stages, canAssign, onEdit }: Pipe
                   <td className="px-3 py-2 align-top text-xs text-slate-500 whitespace-nowrap">{formatDate(opp.createdAt)}</td>
                   {/* Source */}
                   <td className="px-3 py-2 align-top text-xs text-slate-500 whitespace-nowrap">{refs.label('lead_source', opp.source) || '—'}</td>
-                  {/* Prochaine action */}
-                  <td className="px-3 py-2 align-top">
-                    <InlineNextActionCell value={opp.nextAction ?? ''} editable={canUpdate} onSave={v => updateMutation.mutate({ id: opp.id, data: { nextAction: v } })} />
+                  {/* Actions rapides — remplace les anciens menus Statut/Rappel (journalisées en Activity) */}
+                  <td className={cn('px-3 py-2 align-top transition-opacity', isActive || selected.has(opp.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100')}>
+                    {canUpdate && (
+                      <ProspectActionBar
+                        opportunity={opp}
+                        mode="deal"
+                        compact
+                        isActiveRow={isActive}
+                        onDone={() => invalidateAll()}
+                      />
+                    )}
                   </td>
                 </tr>
               )
@@ -539,6 +526,15 @@ export function PipelineListView({ pipelineId, stages, canAssign, onEdit }: Pipe
           </button>
         </div>
       </Modal>
+
+      {/* ── Panneau de suivi (mode deal) — clic sur le titre d'une ligne ────── */}
+      <FollowUpDrawer
+        open={!!drawerId}
+        onClose={() => setDrawerId(null)}
+        opportunityId={drawerId}
+        mode="deal"
+        onEdit={(opportunity) => { setDrawerId(null); onEdit(opportunity) }}
+      />
     </div>
   )
 }
