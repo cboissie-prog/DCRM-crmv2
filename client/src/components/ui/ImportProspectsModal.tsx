@@ -160,11 +160,11 @@ export function ImportProspectsModal({ open, onClose }: Props) {
   }
 
   // Entreprise OU contact (prénom/nom) : un particulier qui monte sa boutique n'a pas encore de société
-  const companyMapped = !!mapping.companyName || !!mapping.firstName || !!mapping.lastName
+  const companyMapped = !!mapping.companyName || !!mapping.firstName || !!mapping.lastName || !!mapping.fullName
   const missingCompanyCount = useMemo(() => {
     const has = (r: Record<string, string>, key?: string) => !!key && !!r[key]?.trim()
-    return rawRows.filter(r => !has(r, mapping.companyName) && !has(r, mapping.firstName) && !has(r, mapping.lastName)).length
-  }, [rawRows, mapping.companyName, mapping.firstName, mapping.lastName])
+    return rawRows.filter(r => !has(r, mapping.companyName) && !has(r, mapping.firstName) && !has(r, mapping.lastName) && !has(r, mapping.fullName)).length
+  }, [rawRows, mapping.companyName, mapping.firstName, mapping.lastName, mapping.fullName])
 
   // ── Étape 4 : import ───────────────────────────────────────────────────────
   const mappedRows = useMemo(() => {
@@ -423,7 +423,7 @@ export function ImportProspectsModal({ open, onClose }: Props) {
             </div>
             {!companyMapped && (
               <p className="text-xs text-red-600 flex items-center gap-1.5">
-                <AlertCircle className="w-3.5 h-3.5" /> Associez au moins le champ Entreprise, ou Prénom/Nom du contact, à une colonne du fichier.
+                <AlertCircle className="w-3.5 h-3.5" /> Associez au moins le champ Entreprise, ou le nom du contact (Prénom/Nom ou Nom complet), à une colonne du fichier.
               </p>
             )}
 

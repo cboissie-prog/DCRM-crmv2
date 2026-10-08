@@ -11,6 +11,7 @@ export type CrmField =
   | 'companyName'
   | 'firstName'
   | 'lastName'
+  | 'fullName'
   | 'phone'
   | 'email'
   | 'title'
@@ -31,6 +32,7 @@ export const CRM_FIELDS: CrmFieldDef[] = [
   { key: 'companyName', label: 'Entreprise', required: true },
   { key: 'firstName',   label: 'Prénom' },
   { key: 'lastName',    label: 'Nom' },
+  { key: 'fullName',    label: 'Nom complet du contact' },
   { key: 'phone',       label: 'Téléphone' },
   { key: 'email',       label: 'Email' },
   { key: 'title',       label: "Titre de l'opportunité" },
@@ -61,6 +63,7 @@ const SYNONYMS: Record<CrmField, string[]> = {
   companyName: ['entreprise', 'societe', 'raison sociale', 'company', 'company name', 'nom societe', 'nom entreprise', 'nom de la societe'],
   firstName: ['prenom', 'firstname', 'first name', 'prenom contact', 'first'],
   lastName: ['nom', 'lastname', 'last name', 'nom contact', 'nom de famille', 'last'],
+  fullName: ['contact', 'nom complet', 'nom prenom', 'prenom nom', 'nom et prenom', 'interlocuteur', 'nom du contact', 'contact principal', 'personne', 'responsable', 'gerant', 'dirigeant', 'full name', 'fullname'],
   phone: ['telephone', 'tel', 'mobile', 'portable', 'phone', 'numero de telephone', 'num tel', 'tel fixe', 'telephone fixe', 'telephone mobile'],
   email: ['email', 'mail', 'e mail', 'courriel', 'adresse email'],
   title: ['titre', 'titre opportunite', 'opportunite', 'objet', 'sujet', "titre de l opportunite"],

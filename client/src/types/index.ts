@@ -77,6 +77,7 @@ export interface Opportunity {
   contact?: { id: string; firstName: string; lastName: string; phone?: string; mobile?: string; email?: string }
   companyId?: string
   company?: { id: string; name: string }
+  pipelineId?: string | null
   stage: string
   value: number
   probability: number

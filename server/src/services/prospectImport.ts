@@ -21,6 +21,7 @@ export const importCsvRowSchema = z.object({
   companyName: z.string().optional(),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
+  fullName: z.string().optional(),
   phone: z.string().optional(),
   email: z.string().optional(),
   title: z.string().optional(),
@@ -36,6 +37,7 @@ export interface ImportProspectRow {
   companyName?: string
   firstName?: string
   lastName?: string
+  fullName?: string
   phone?: string
   email?: string
   title?: string
@@ -97,8 +99,14 @@ export async function importProspectRows(
         const row = batch[i]
         try {
           const companyName = row.companyName?.trim()
-          const firstName = row.firstName?.trim() || ''
-          const lastName = row.lastName?.trim() || ''
+          let firstName = row.firstName?.trim() || ''
+          let lastName = row.lastName?.trim() || ''
+          // Colonne « Contact » à nom complet (« Paul Martin ») : premier mot = prénom, le reste = nom
+          if (!firstName && !lastName && row.fullName?.trim()) {
+            const parts = row.fullName.trim().split(/\s+/)
+            firstName = parts[0]
+            lastName = parts.slice(1).join(' ')
+          }
           // Un prospect peut être un particulier (société en création) : entreprise OU contact suffit.
           if (!companyName && !firstName && !lastName) {
             errors.push({ row: rowIndex, reason: 'Entreprise ou contact manquant' })

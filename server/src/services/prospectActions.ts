@@ -161,6 +161,7 @@ export async function applyAction(
         },
       })
       data.remindAt = startAt
+      data.nextAction = `RDV : ${title}`
       activityType = 'MEETING_SET'
       activityTitle = 'RDV pris'
       activityDescription = title

@@ -1298,7 +1298,7 @@ export function PipelinePage() {
             <PageIcon module="commercial" icon={<TrendingUp className="w-5 h-5" />} />
             <div>
               <h1 className="page-title">Pipeline commercial</h1>
-              <p className="page-subtitle">{activeOpps.length} opportunités en cours</p>
+              <p className="page-subtitle">{view === 'list' ? 'Vue liste des opportunités' : `${activeOpps.length} opportunités en cours`}</p>
             </div>
           </div>
           {/* Sélecteur de pipeline */}

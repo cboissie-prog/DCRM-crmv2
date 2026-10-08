@@ -57,6 +57,13 @@ export function FollowUpDrawer({ open, onClose, opportunityId, mode, onEdit, onQ
   const detailEndpoint = mode === 'prospect' ? '/prospection/prospects' : '/pipeline/opportunities'
   const queryKey = ['follow-up-drawer', mode, opportunityId]
 
+  // Libellé de l'étape (mode opportunité) : clé → nom via les pipelines
+  const { data: pipelines = [] } = useQuery<{ id: string; stages: { key: string; name: string }[] }[]>({
+    queryKey: ['pipelines'],
+    queryFn: async () => { const { data } = await api.get('/pipelines'); return data.data ?? [] },
+    enabled: open && mode === 'deal',
+    staleTime: 60_000,
+  })
   const { data: opp, isLoading } = useQuery<Opportunity>({
     queryKey,
     queryFn: async () => { const { data } = await api.get(`${detailEndpoint}/${opportunityId}`); return data.data },
@@ -135,7 +142,9 @@ export function FollowUpDrawer({ open, onClose, opportunityId, mode, onEdit, onQ
                   <span className="text-xs text-slate-400">Liste « {opp.list.name} »</span>
                 )}
                 {mode === 'deal' && (
-                  <span className="text-xs text-slate-400">Étape : {opp.stage}</span>
+                  <span className="text-xs text-slate-400">
+                    Étape : {pipelines.find(p => p.id === opp.pipelineId)?.stages.find(st => st.key === opp.stage)?.name ?? opp.stage}
+                  </span>
                 )}
               </div>
               {opp.company && (

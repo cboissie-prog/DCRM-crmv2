@@ -272,12 +272,8 @@ router.get('/prospects', requirePermission('prospection:read'), async (req: Auth
     const andFilters: Record<string, unknown>[] = []
     if (today === 'true') {
       const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999)
-      andFilters.push({
-        OR: [
-          { remindAt: { lte: endOfDay } },
-          { AND: [{ lastContactedAt: null }, { assignedToId: req.userId }] },
-        ],
-      })
+      // Rappels du jour ou dépassés uniquement : les « jamais contactés » sont servis par neverContacted=true
+      andFilters.push({ remindAt: { lte: endOfDay } })
     }
     if (staleDays) {
       const n = parseInt(staleDays, 10)
