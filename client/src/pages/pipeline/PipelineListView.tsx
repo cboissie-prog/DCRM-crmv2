@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Search, X, ChevronUp, ChevronDown, ChevronsUpDown, Phone, Copy, Bell,
-  Upload, ChevronLeft, ChevronRight as ChevronRightIcon,
+  ChevronLeft, ChevronRight as ChevronRightIcon,
 } from 'lucide-react'
 import api from '../../lib/api'
 import { useUsersList } from '../../hooks/useApi'
@@ -12,7 +12,9 @@ import { usePermission } from '../../hooks/usePermission'
 import { formatCurrency, formatDate, formatRelative, cn } from '../../lib/utils'
 import { Modal } from '../../components/ui/Modal'
 import { toast } from '../../components/ui/Toast'
-import { ImportProspectsModal } from '../../components/ui/ImportProspectsModal'
+import {
+  PROSPECT_STATUS_CONFIG, inDays, nextMonday, isDueOrOverdue,
+} from '../../lib/prospectActions'
 import type { Opportunity, ProspectStatus, User as UserType } from '../../types'
 
 // ─── Types locaux (pas de dépendance circulaire vers PipelinePage.tsx) ────────
@@ -25,12 +27,11 @@ interface PipelineListViewProps {
   onEdit: (opp: Opportunity) => void
 }
 
-const PROSPECT_STATUS_CONFIG: Record<ProspectStatus, { label: string; className: string }> = {
-  TODO:      { label: 'À traiter',           className: 'bg-slate-100 text-slate-600 border-slate-200' },
-  NO_ANSWER: { label: 'Appelé sans réponse', className: 'bg-amber-50 text-amber-700 border-amber-200' },
-  REACHED:   { label: 'Joint',               className: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  CALLBACK:  { label: 'À rappeler',          className: 'bg-blue-50 text-blue-700 border-blue-200' },
-}
+// Statuts proposés par le menu manuel de cette vue (étape "déjà dans le pipeline") — le
+// catalogue complet des 7 statuts (ajout du module Prospection : UNREACHABLE, NOT_INTERESTED,
+// QUALIFIED) vit dans `lib/prospectActions.ts` et sert aussi à afficher la pastille sans
+// planter sur une fiche qualifiée depuis la prospection (`PROSPECT_STATUS_CONFIG` ci-dessus,
+// importé). Les 3 nouveaux statuts se fixent via les actions/la qualification, pas ce menu.
 const PROSPECT_STATUS_ORDER: ProspectStatus[] = ['TODO', 'NO_ANSWER', 'REACHED', 'CALLBACK']
 
 const SORT_COLUMNS: { key: string; label: string }[] = [
@@ -44,27 +45,6 @@ const SORT_COLUMNS: { key: string; label: string }[] = [
 ]
 
 const PAGE_SIZES = [50, 100, 200]
-
-function pad(n: number) { return String(n).padStart(2, '0') }
-function toDatetimeLocal(d: Date) {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-function inDays(days: number, hour = 9) {
-  const d = new Date(); d.setDate(d.getDate() + days); d.setHours(hour, 0, 0, 0)
-  return toDatetimeLocal(d)
-}
-function nextMonday(hour = 9) {
-  const d = new Date()
-  const day = d.getDay()
-  const diff = day === 0 ? 1 : ((8 - day) % 7 || 7)
-  d.setDate(d.getDate() + diff); d.setHours(hour, 0, 0, 0)
-  return toDatetimeLocal(d)
-}
-function isDueOrOverdue(remindAt?: string) {
-  if (!remindAt) return false
-  const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999)
-  return new Date(remindAt).getTime() <= endOfToday.getTime()
-}
 
 // ─── Cellule montant éditable en ligne ─────────────────────────────────────────
 function InlineValueCell({ value, onSave, editable = true }: { value: number; onSave: (v: number) => void; editable?: boolean }) {
@@ -125,7 +105,6 @@ export function PipelineListView({ pipelineId, stages, canAssign, onEdit }: Pipe
   const qc = useQueryClient()
   const refs = useReferences()
   const canUpdate = usePermission('pipeline:update')
-  const canImport = usePermission('pipeline:create')
   const { data: users = [] } = useUsersList<UserType>({ enabled: canAssign })
 
   const [searchParams, setSearchParams] = useSearchParams()
@@ -165,7 +144,6 @@ export function PipelineListView({ pipelineId, stages, canAssign, onEdit }: Pipe
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirmArchive, setConfirmArchive] = useState(false)
-  const [showImport, setShowImport] = useState(false)
   const [openStatusMenuId, setOpenStatusMenuId] = useState<string | null>(null)
   const [openReminderMenuId, setOpenReminderMenuId] = useState<string | null>(null)
   const [customDateDraft, setCustomDateDraft] = useState('')
@@ -321,12 +299,6 @@ export function PipelineListView({ pipelineId, stages, canAssign, onEdit }: Pipe
         {hasActiveFilters && (
           <button className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white hover:bg-slate-50" onClick={resetFilters}>
             <X className="w-3 h-3" /> Réinitialiser
-          </button>
-        )}
-        <div className="flex-1" />
-        {canImport && (
-          <button className="btn-secondary" onClick={() => setShowImport(true)}>
-            <Upload className="w-4 h-4" /> Importer des prospects
           </button>
         )}
       </div>
@@ -567,8 +539,6 @@ export function PipelineListView({ pipelineId, stages, canAssign, onEdit }: Pipe
           </button>
         </div>
       </Modal>
-
-      <ImportProspectsModal open={showImport} onClose={() => setShowImport(false)} defaultPipelineId={pipelineId} />
     </div>
   )
 }

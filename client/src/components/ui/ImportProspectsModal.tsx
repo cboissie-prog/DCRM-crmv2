@@ -2,31 +2,38 @@ import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Upload, FileText, AlertCircle, CheckCircle2, ArrowLeft, ArrowRight,
-  Download, Loader2,
+  Download, Loader2, List as ListIcon, Plus,
 } from 'lucide-react'
 import api from '../../lib/api'
 import { parseCsv } from '../../lib/parseCsv'
 import { useReferences } from '../../hooks/useReferences'
 import { useUsersList } from '../../hooks/useApi'
 import { useAuthStore } from '../../store/authStore'
+import { cn } from '../../lib/utils'
 import { toast } from './Toast'
 import { Modal } from './Modal'
 import {
   CRM_FIELDS, autoDetectMapping, loadSavedMapping, saveMapping,
   type CrmField,
 } from '../../lib/csvMapping'
+import type { ProspectList } from '../../types'
 
 interface Props {
   open: boolean
   onClose: () => void
-  /** Pipeline pré-sélectionné pour les paramètres communs (ex. pipeline courant de la page) */
-  defaultPipelineId?: string
 }
 
-interface ImportPipelineStage { id: string; key: string; name: string; order: number; isWon: boolean; isLost: boolean }
-interface ImportPipeline { id: string; name: string; isDefault: boolean; stages: ImportPipelineStage[] }
+interface SimplePipeline { id: string; name: string; isDefault: boolean }
 
-type Step = 'file' | 'mapping' | 'review' | 'result'
+type Step = 'file' | 'list' | 'mapping' | 'review' | 'result'
+type ListMode = 'existing' | 'new'
+
+interface NewListDraft {
+  name: string
+  description: string
+  pipelineId: string
+  assignedToId: string
+}
 
 interface ImportResult {
   created: { companies: number; contacts: number; opportunities: number }
@@ -37,7 +44,13 @@ interface ImportResult {
 const MAX_ROWS = 500
 const MAX_SIZE = 2 * 1024 * 1024
 
-export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props) {
+/**
+ * Assistant d'import CSV — crée toujours des prospects dans une **liste de prospection**
+ * (jamais directement dans le pipeline, spec §4/§5). Étape « Liste » : liste existante
+ * (`GET /prospection/lists`) ou nouvelle (créée via `POST /prospection/lists` avant l'import),
+ * puis import via `POST /prospection/lists/:id/import`.
+ */
+export function ImportProspectsModal({ open, onClose }: Props) {
   const qc = useQueryClient()
   const refs = useReferences()
   const { user } = useAuthStore()
@@ -49,13 +62,22 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
   const [headers, setHeaders] = useState<string[]>([])
   const [rawRows, setRawRows] = useState<Record<string, string>[]>([])
   const [mapping, setMapping] = useState<Partial<Record<CrmField, string>>>({})
-  const [pipelineId, setPipelineId] = useState<string>(defaultPipelineId ?? '')
-  const [stage, setStage] = useState<string>('')
-  const [source, setSource] = useState<string>('COLD_CALL')
+
+  const [listMode, setListMode] = useState<ListMode>('existing')
+  const [selectedListId, setSelectedListId] = useState('')
+  const [newList, setNewList] = useState<NewListDraft>({ name: '', description: '', pipelineId: '', assignedToId: '' })
+
+  const [source, setSource] = useState<string>('')
   const [assignedToId, setAssignedToId] = useState<string>(user?.id ?? '')
   const [result, setResult] = useState<ImportResult | null>(null)
 
-  const { data: pipelines = [] } = useQuery<ImportPipeline[]>({
+  const { data: lists = [] } = useQuery<ProspectList[]>({
+    queryKey: ['prospection-lists', 'ACTIVE'],
+    queryFn: async () => { const { data } = await api.get('/prospection/lists'); return data.data ?? [] },
+    enabled: open,
+    staleTime: 15_000,
+  })
+  const { data: pipelines = [] } = useQuery<SimplePipeline[]>({
     queryKey: ['pipelines'],
     queryFn: async () => { const { data } = await api.get('/pipelines'); return data.data ?? [] },
     enabled: open,
@@ -63,22 +85,7 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
   })
   const { data: users = [] } = useUsersList({ enabled: open })
 
-  const selectedPipeline = pipelines.find(p => p.id === pipelineId) ?? pipelines.find(p => p.isDefault) ?? pipelines[0]
-  const openStages = useMemo(
-    () => [...(selectedPipeline?.stages ?? [])].sort((a, b) => a.order - b.order).filter(s => !s.isWon && !s.isLost),
-    [selectedPipeline],
-  )
-
-  // Initialise pipeline/stage une fois les pipelines chargées — ajustement pendant le rendu
-  // (pattern React recommandé), pas dans un effet : ce n'est pas une synchronisation avec un
-  // système externe, juste une valeur dérivée des données qui viennent d'arriver.
-  if (pipelines.length > 0 && !pipelineId) {
-    const def = pipelines.find(p => p.isDefault) ?? pipelines[0]
-    setPipelineId(def.id)
-  }
-  if (openStages.length > 0 && !stage) {
-    setStage(openStages[0].key)
-  }
+  const selectedList = lists.find(l => l.id === selectedListId)
 
   const resetAll = () => {
     setStep('file')
@@ -87,6 +94,11 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
     setHeaders([])
     setRawRows([])
     setMapping({})
+    setListMode('existing')
+    setSelectedListId('')
+    setNewList({ name: '', description: '', pipelineId: '', assignedToId: '' })
+    setSource('')
+    setAssignedToId(user?.id ?? '')
     setResult(null)
     if (inputRef.current) inputRef.current.value = ''
   }
@@ -139,7 +151,10 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
     URL.revokeObjectURL(url)
   }
 
-  // ── Étape 2 : correspondance ───────────────────────────────────────────────
+  // ── Étape 2 : liste ──────────────────────────────────────────────────────────
+  const listStepValid = listMode === 'existing' ? !!selectedListId : !!newList.name.trim()
+
+  // ── Étape 3 : correspondance ───────────────────────────────────────────────
   const setFieldMapping = (field: CrmField, header: string) => {
     setMapping(prev => ({ ...prev, [field]: header || undefined }))
   }
@@ -151,7 +166,7 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
     return rawRows.filter(r => !has(r, mapping.companyName) && !has(r, mapping.firstName) && !has(r, mapping.lastName)).length
   }, [rawRows, mapping.companyName, mapping.firstName, mapping.lastName])
 
-  // ── Étape 3 : import ───────────────────────────────────────────────────────
+  // ── Étape 4 : import ───────────────────────────────────────────────────────
   const mappedRows = useMemo(() => {
     return rawRows.map(row => {
       const out: Record<string, string> = {}
@@ -165,9 +180,18 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
 
   const importMutation = useMutation({
     mutationFn: async () => {
-      const { data } = await api.post('/pipeline/opportunities/import/csv', {
-        pipelineId: pipelineId || undefined,
-        stage: stage || undefined,
+      let listId = selectedListId
+      if (listMode === 'new') {
+        const { data } = await api.post('/prospection/lists', {
+          name: newList.name.trim(),
+          description: newList.description.trim() || undefined,
+          source: source || undefined,
+          pipelineId: newList.pipelineId || undefined,
+          assignedToId: newList.assignedToId || undefined,
+        })
+        listId = data.data.id as string
+      }
+      const { data } = await api.post(`/prospection/lists/${listId}/import`, {
         source: source || undefined,
         assignedToId: assignedToId || undefined,
         rows: mappedRows,
@@ -176,10 +200,11 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
     },
     onSuccess: (data) => {
       saveMapping(headers, mapping)
-      qc.invalidateQueries({ queryKey: ['pipeline-opportunities'] })
+      qc.invalidateQueries({ queryKey: ['prospection-prospects'] })
+      qc.invalidateQueries({ queryKey: ['prospection-lists'] })
       setResult(data)
       setStep('result')
-      toast.success('Import terminé', `${data.created.opportunities} opportunité(s) créée(s), ${data.skipped} ligne(s) ignorée(s).`)
+      toast.success('Import terminé', `${data.created.opportunities} prospect(s) créé(s), ${data.skipped} ligne(s) ignorée(s).`)
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message
@@ -209,8 +234,9 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
 
   const titles: Record<Step, string> = {
     file: 'Importer des prospects — 1. Fichier',
-    mapping: 'Importer des prospects — 2. Correspondance',
-    review: 'Importer des prospects — 3. Récapitulatif',
+    list: 'Importer des prospects — 2. Liste',
+    mapping: 'Importer des prospects — 3. Correspondance',
+    review: 'Importer des prospects — 4. Récapitulatif',
     result: 'Importer des prospects — Résultat',
   }
 
@@ -298,14 +324,86 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
 
             <div className="flex justify-end gap-3 pt-2">
               <button className="btn-secondary" onClick={handleClose}>Annuler</button>
-              <button className="btn-primary" disabled={rawRows.length === 0} onClick={() => setStep('mapping')}>
+              <button className="btn-primary" disabled={rawRows.length === 0} onClick={() => setStep('list')}>
                 Suivant <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           </>
         )}
 
-        {/* ── Étape 2 : correspondance ───────────────────────────────────── */}
+        {/* ── Étape 2 : liste ────────────────────────────────────────────── */}
+        {step === 'list' && (
+          <>
+            <p className="text-sm text-slate-500">Les prospects importés rejoignent une liste de prospection — jamais directement le pipeline.</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={cn('flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-medium',
+                  listMode === 'existing' ? 'border-primary-300 bg-primary-50 text-primary-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50')}
+                onClick={() => setListMode('existing')}
+              >
+                <ListIcon className="w-4 h-4" /> Liste existante
+              </button>
+              <button
+                type="button"
+                className={cn('flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-medium',
+                  listMode === 'new' ? 'border-primary-300 bg-primary-50 text-primary-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50')}
+                onClick={() => setListMode('new')}
+              >
+                <Plus className="w-4 h-4" /> Nouvelle liste
+              </button>
+            </div>
+
+            {listMode === 'existing' ? (
+              <div className="form-group">
+                <label className="label">Liste *</label>
+                <select className="input" value={selectedListId} onChange={e => setSelectedListId(e.target.value)}>
+                  <option value="">— Sélectionner une liste —</option>
+                  {lists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+                {lists.length === 0 && <p className="text-xs text-amber-600 mt-1.5">Aucune liste active — créez-en une nouvelle.</p>}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="form-group">
+                  <label className="label">Nom *</label>
+                  <input className="input" value={newList.name} onChange={e => setNewList(v => ({ ...v, name: e.target.value }))} placeholder="IT Roanne octobre 2026" />
+                </div>
+                <div className="form-group">
+                  <label className="label">Description</label>
+                  <input className="input" value={newList.description} onChange={e => setNewList(v => ({ ...v, description: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="form-group">
+                    <label className="label">Pipeline par défaut à la qualification</label>
+                    <select className="input" value={newList.pipelineId} onChange={e => setNewList(v => ({ ...v, pipelineId: e.target.value }))}>
+                      <option value="">— Pipeline par défaut —</option>
+                      {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="label">Commercial par défaut de la liste</label>
+                    <select className="input" value={newList.assignedToId} onChange={e => setNewList(v => ({ ...v, assignedToId: e.target.value }))}>
+                      <option value="">— Non assigné —</option>
+                      {users.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-between gap-3 pt-2">
+              <button className="btn-secondary" onClick={() => setStep('file')}>
+                <ArrowLeft className="w-4 h-4" /> Retour
+              </button>
+              <button className="btn-primary" disabled={!listStepValid} onClick={() => setStep('mapping')}>
+                Suivant <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ── Étape 3 : correspondance ───────────────────────────────────── */}
         {step === 'mapping' && (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -331,37 +429,26 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
 
             <hr className="border-slate-100" />
 
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Paramètres communs</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Paramètres communs (remplacent les valeurs par défaut de la liste)</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="form-group">
-                <label className="label">Pipeline</label>
-                <select className="input" value={pipelineId} onChange={e => { setPipelineId(e.target.value); setStage('') }}>
-                  {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="label">Étape de départ</label>
-                <select className="input" value={stage} onChange={e => setStage(e.target.value)}>
-                  {openStages.map(s => <option key={s.key} value={s.key}>{s.name}</option>)}
-                </select>
-              </div>
               <div className="form-group">
                 <label className="label">Source</label>
                 <select className="input" value={source} onChange={e => setSource(e.target.value)}>
+                  <option value="">— Source de la liste —</option>
                   {refs.options('lead_source').map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
               <div className="form-group">
                 <label className="label">Commercial assigné</label>
                 <select className="input" value={assignedToId} onChange={e => setAssignedToId(e.target.value)}>
-                  <option value="">— Non assigné —</option>
+                  <option value="">— Défaut de la liste —</option>
                   {users.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
                 </select>
               </div>
             </div>
 
             <div className="flex justify-between gap-3 pt-2">
-              <button className="btn-secondary" onClick={() => setStep('file')}>
+              <button className="btn-secondary" onClick={() => setStep('list')}>
                 <ArrowLeft className="w-4 h-4" /> Retour
               </button>
               <button className="btn-primary" disabled={!companyMapped} onClick={() => setStep('review')}>
@@ -371,7 +458,7 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
           </>
         )}
 
-        {/* ── Étape 3 : récapitulatif ────────────────────────────────────── */}
+        {/* ── Étape 4 : récapitulatif ────────────────────────────────────── */}
         {step === 'review' && (
           <>
             <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-1 text-sm">
@@ -383,8 +470,8 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
                 .
               </p>
               <p className="text-slate-500 text-xs">
-                Pipeline « {selectedPipeline?.name} » · étape « {openStages.find(s => s.key === stage)?.name ?? stage} » ·
-                source « {refs.label('lead_source', source)} »
+                Liste « {listMode === 'existing' ? selectedList?.name : newList.name} »
+                {source && <> · source « {refs.label('lead_source', source)} »</>}
                 {assignedToId && <> · assigné à {users.find(u => u.id === assignedToId)?.firstName} {users.find(u => u.id === assignedToId)?.lastName}</>}
               </p>
             </div>
@@ -406,7 +493,7 @@ export function ImportProspectsModal({ open, onClose, defaultPipelineId }: Props
             <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl space-y-1 text-sm">
               <p className="text-emerald-800 font-medium">Import terminé</p>
               <p className="text-emerald-700">
-                {result.created.opportunities} opportunité(s) créée(s)
+                {result.created.opportunities} prospect(s) créé(s)
                 ({result.created.companies} entreprise(s), {result.created.contacts} contact(s))
               </p>
               {result.skipped > 0 && <p className="text-amber-700">{result.skipped} ligne(s) ignorée(s)</p>}

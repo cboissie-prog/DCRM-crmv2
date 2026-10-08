@@ -735,6 +735,69 @@ function SystemTab() {
         </div>
       </div>
 
+      {/* Prospection */}
+      <div className="space-y-4 pt-4 border-t border-slate-100">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800">Prospection</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Cadence des relances et seuil d'alerte « sans activité » dans le pipeline.</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="form-label">Rappel proposé après un « Sans réponse »</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={90}
+                className="form-input"
+                value={getValue('prospectCallbackDays') || '2'}
+                onChange={e => setValue('prospectCallbackDays', e.target.value)}
+              />
+              <span className="text-sm text-slate-400 flex-shrink-0">jours</span>
+            </div>
+          </div>
+          <div>
+            <label className="form-label">Tentatives avant « Injoignable »</label>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              className="form-input"
+              value={getValue('prospectMaxAttempts') || '3'}
+              onChange={e => setValue('prospectMaxAttempts', e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="form-label">Nouvelle tentative après « Injoignable »</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={365}
+                className="form-input"
+                value={getValue('prospectUnreachableRetryDays') || '30'}
+                onChange={e => setValue('prospectUnreachableRetryDays', e.target.value)}
+              />
+              <span className="text-sm text-slate-400 flex-shrink-0">jours</span>
+            </div>
+          </div>
+          <div>
+            <label className="form-label">Alerte « sans activité » dans le pipeline</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={365}
+                className="form-input"
+                value={getValue('dealStaleDays') || '7'}
+                onChange={e => setValue('dealStaleDays', e.target.value)}
+              />
+              <span className="text-sm text-slate-400 flex-shrink-0">jours</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <MailerSection />
 
       {/* Exécution manuelle */}

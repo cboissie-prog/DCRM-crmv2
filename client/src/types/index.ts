@@ -59,7 +59,16 @@ export interface Contact {
   updatedAt: string
 }
 
-export type ProspectStatus = 'TODO' | 'NO_ANSWER' | 'REACHED' | 'CALLBACK'
+/**
+ * Statut de prospection. `UNREACHABLE` (injoignable, au-delà de `prospectMaxAttempts`),
+ * `NOT_INTERESTED` (écarté, avec `lostReason`) et `QUALIFIED` (passé dans le pipeline) ont
+ * été ajoutés par le module Prospection — voir
+ * docs/superpowers/specs/2026-10-08-prospection-module-design.md §3.
+ */
+export type ProspectStatus = 'TODO' | 'NO_ANSWER' | 'REACHED' | 'CALLBACK' | 'UNREACHABLE' | 'NOT_INTERESTED' | 'QUALIFIED'
+
+/** Alerte calculée côté serveur sur une opportunité du pipeline (GET /pipeline/opportunities). */
+export type OpportunityAlert = 'NO_NEXT_ACTION' | 'STALE' | null
 
 export interface Opportunity {
   id: string
@@ -82,16 +91,78 @@ export interface Opportunity {
   remindAt?: string
   /** Référentiel `lead_source` — origine du prospect/de l'opportunité */
   source?: string
-  /** Statut de prospection : À traiter · Appelé sans réponse · Joint · À rappeler */
+  /** Statut de prospection : À traiter · Sans réponse · Joint · À rappeler · Injoignable · Pas intéressé · Qualifié */
   prospectStatus?: ProspectStatus
   /** Dernier clic Appelé sans réponse / Joint */
   lastContactedAt?: string
-  /** Nombre de tentatives d'appel (incrémenté par PATCH /prospect) */
+  /** Nombre de tentatives d'appel (incrémenté par PATCH /prospect ou action NO_ANSWER/REACHED) */
   callAttempts?: number
   /** Note courte libre : « rappeler le gérant, absent le lundi » */
   nextAction?: string
+  /** Liste de prospection d'origine (module Prospection), conservée après qualification */
+  listId?: string
+  list?: { id: string; name: string; pipelineId?: string }
+  /** JSON `{ "<clé qualification_criteria>": true|false|null }` — grille de qualification */
+  qualification?: string
+  /** JSON `string[]` — clés du référentiel `prospect_documents` déjà envoyées */
+  documentsSent?: string
+  /** Date de passage dans le pipeline (action QUALIFICATION/qualify) */
+  qualifiedAt?: string
+  /** Dernière `Activity` liée — tenu par le serveur à chaque action */
+  lastActivityAt?: string
+  /** Calculé par GET /pipeline/opportunities : sans prochaine action / sans activité récente */
+  alert?: OpportunityAlert
+  /** Présent sur GET /prospection/prospects/:id et GET /pipeline/opportunities/:id (fiche détaillée) */
+  activities?: Activity[]
+  appointments?: Appointment[]
   createdAt: string
   updatedAt: string
+}
+
+/** Compteurs par liste — renvoyés par GET /prospection/lists */
+export interface ProspectListCounts {
+  total: number
+  todo: number
+  contacted: number
+  callback: number
+  qualified: number
+  rejected: number
+  unreachable: number
+}
+
+/** Liste de prospection (module Prospection) — voir spec §3 `ProspectList`. */
+export interface ProspectList {
+  id: string
+  name: string
+  description?: string
+  /** Référentiel `lead_source`, appliqué par défaut aux prospects importés dans la liste */
+  source: string
+  /** Pipeline par défaut à la qualification (défaut serveur : pipeline `isDefault`) */
+  pipelineId?: string
+  pipeline?: { id: string; name: string }
+  /** Commercial par défaut des prospects de la liste */
+  assignedToId?: string
+  assignedTo?: { id: string; firstName: string; lastName: string }
+  status: 'ACTIVE' | 'ARCHIVED'
+  createdById?: string
+  createdBy?: { id: string; firstName: string; lastName: string }
+  createdAt: string
+  updatedAt: string
+  counts?: ProspectListCounts
+}
+
+/** Une ligne du tableau de suivi par commercial (GET /prospection/stats) */
+export interface ProspectionStatsRow {
+  userId: string
+  firstName: string
+  lastName: string
+  calls: number
+  reached: number
+  callbacks: number
+  docsSent: number
+  meetings: number
+  qualified: number
+  rejected: number
 }
 
 export interface Product {
