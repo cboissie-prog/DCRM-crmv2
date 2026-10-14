@@ -383,19 +383,80 @@ export interface Notification {
   createdAt: string
 }
 
+export interface TodoUserRef {
+  id: string
+  firstName: string
+  lastName: string
+}
+
+export type TodoListAccess = 'view' | 'edit' | 'own'
+export type TodoMemberRole = 'VIEWER' | 'EDITOR'
+
+export interface TodoListMember {
+  userId: string
+  role: TodoMemberRole
+  user: TodoUserRef
+}
+
+export interface TodoList {
+  id: string
+  name: string
+  color?: string | null
+  isPersonal: boolean
+  position: number
+  ownerId: string
+  owner: TodoUserRef
+  members: TodoListMember[]
+  access: TodoListAccess
+  pendingCount: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface Todo {
   id: string
   title: string
-  description?: string
+  description?: string | null
   priority: string
   isDone: boolean
   isPrivate: boolean
-  dueDate?: string
-  completedAt?: string
+  dueDate?: string | null
+  completedAt?: string | null
+  /** Créateur de la tâche */
   ownerId: string
-  owner: { id: string; firstName: string; lastName: string }
+  owner: TodoUserRef
+  listId: string
+  assigneeId?: string | null
+  assignee?: TodoUserRef | null
+  commentCount: number
+  canEdit: boolean
   createdAt: string
   updatedAt: string
+}
+
+export interface TodoComment {
+  id: string
+  content: string
+  authorId?: string | null
+  authorName: string
+  author?: TodoUserRef | null
+  createdAt: string
+}
+
+export interface TodoEvent {
+  id: string
+  type: string
+  authorId?: string | null
+  author?: TodoUserRef | null
+  fromValue?: string | null
+  toValue?: string | null
+  createdAt: string
+}
+
+export interface TodoDetail extends Todo {
+  list: { id: string; name: string; color?: string | null; isPersonal: boolean }
+  comments: TodoComment[]
+  events: TodoEvent[]
 }
 
 export interface Call {
