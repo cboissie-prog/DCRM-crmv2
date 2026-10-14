@@ -11880,6 +11880,57 @@
           }
         }
       }
+    },
+    "/todos/users": {
+      "get": {
+        "tags": [
+          "Todo"
+        ],
+        "summary": "Annuaire minimal des utilisateurs actifs (membres de liste)",
+        "description": "Retourne id/firstName/lastName des utilisateurs actifs, sans exiger users:read.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "firstName": {
+                            "type": "string"
+                          },
+                          "lastName": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

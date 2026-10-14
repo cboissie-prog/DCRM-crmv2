@@ -652,6 +652,7 @@ DTO :
 
 | Méthode | Route | Accès | Description |
 |---------|-------|-------|-------------|
+| GET | `/todos/users` | `todos:read` | Annuaire minimal des utilisateurs actifs (`id`, `firstName`, `lastName`) pour choisir les membres d'une liste, sans exiger `users:read` |
 | GET | `/todos/lists` | `todos:read` | Listes accessibles (personnelle d'abord, puis `position`, puis nom) |
 | POST | `/todos/lists` | `todos:read` | Crée une liste (l'appelant en est propriétaire) |
 | PATCH | `/todos/lists/:id` | `own` | Renomme / couleur / position |

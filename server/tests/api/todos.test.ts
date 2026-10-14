@@ -106,6 +106,14 @@ describe('Todo', () => {
   // ─── Listes ────────────────────────────────────────────────────────────
 
   describe('listes', () => {
+    it('GET /todos/users liste les utilisateurs actifs sans exiger users:read', async () => {
+      const res = await get('outsider', '/api/todos/users')
+      expect(res.status).toBe(200)
+      const found = res.body.data.find((u: { id: string }) => u.id === ids.owner)
+      expect(found).toEqual({ id: ids.owner, firstName: 'owner', lastName: 'Todos' })
+      expect(Object.keys(res.body.data[0]).sort()).toEqual(['firstName', 'id', 'lastName'])
+    })
+
     it('GET /todos/lists crée « Mes tâches » à la volée et la place en premier', async () => {
       const res = await get('outsider', '/api/todos/lists')
       expect(res.status).toBe(200)

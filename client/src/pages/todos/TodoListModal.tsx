@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Ban, Check } from 'lucide-react'
 import api from '../../lib/api'
-import { useUsersList } from '../../hooks/useApi'
+import { useTodoUsers } from './useTodoUsers'
 import { useAuthStore } from '../../store/authStore'
 import { Modal } from '../../components/ui/Modal'
 import { Avatar } from '../../components/ui/Avatar'
@@ -12,13 +12,6 @@ import { cn } from '../../lib/utils'
 import type { TodoList, TodoMemberRole } from '../../types'
 
 type MemberChoice = '' | TodoMemberRole
-
-interface UserOption {
-  id: string
-  firstName: string
-  lastName: string
-  isActive?: boolean
-}
 
 interface TodoListModalProps {
   open: boolean
@@ -52,8 +45,8 @@ function ListForm({ list, onClose, onRequestDelete }: Omit<TodoListModalProps, '
   })
   const [nameError, setNameError] = useState('')
 
-  const { data: users } = useUsersList<UserOption>({ enabled: !isPersonal })
-  const candidates = (users ?? []).filter(u => u.id !== me?.id && u.isActive !== false)
+  const { data: users } = useTodoUsers(!isPersonal)
+  const candidates = (users ?? []).filter(u => u.id !== me?.id)
 
   const memberPayload = () =>
     Object.entries(members)

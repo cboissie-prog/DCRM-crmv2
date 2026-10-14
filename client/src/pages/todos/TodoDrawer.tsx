@@ -3,7 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import { Check, RotateCcw, Send, Trash2 } from 'lucide-react'
 import api from '../../lib/api'
-import { useItem, useUsersList } from '../../hooks/useApi'
+import { useItem } from '../../hooks/useApi'
+import { useTodoUsers } from './useTodoUsers'
 import { useAuthStore } from '../../store/authStore'
 import { Drawer } from '../../components/ui/Drawer'
 import { Avatar } from '../../components/ui/Avatar'
@@ -61,7 +62,7 @@ function DrawerBody({ detail, lists, onClose }: { detail: TodoDetail; lists: Tod
   const [confirmDelete, setConfirmDelete] = useState(false)
   const commentRef = useRef<HTMLTextAreaElement>(null)
 
-  const { data: users } = useUsersList()
+  const { data: users } = useTodoUsers()
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['todos'] })
 

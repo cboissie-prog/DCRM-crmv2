@@ -125,6 +125,20 @@ async function authorNameOf(userId: string): Promise<string> {
   return u ? `${u.firstName} ${u.lastName}`.trim() : 'Utilisateur'
 }
 
+// GET /api/todos/users — annuaire minimal des utilisateurs actifs, pour choisir les membres d'une liste.
+// `GET /users` exige `users:read` (réservé aux managers) : les commerciaux/techniciens doivent
+// pouvoir partager une liste sans cette permission. Déclarée avant `/:id`.
+router.get('/users', async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const users = await prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, firstName: true, lastName: true },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+    })
+    res.json({ success: true, data: users })
+  } catch (err) { handleRouteError(err, res) }
+})
+
 // ═════════════════════════════ LISTES ═════════════════════════════
 
 const memberInput = z.object({ userId: z.string().min(1), role: z.enum(['VIEWER', 'EDITOR']) })
