@@ -27,3 +27,12 @@ const NEUTRAL_BAR = 'bg-slate-300'
 export function todoColorBar(color?: string | null): string {
   return (color && TODO_COLORS[color]?.bar) || NEUTRAL_BAR
 }
+
+/** Libellé d'une liste : la liste personnelle d'un autre utilisateur (visible par un admin) porte le nom de son propriétaire. */
+export function todoListLabel(
+  list: { name: string; isPersonal: boolean; ownerId: string; owner?: { firstName: string; lastName: string } },
+  meId?: string,
+): string {
+  if (!list.isPersonal || list.ownerId === meId || !list.owner) return list.name
+  return `${list.name} · ${list.owner.firstName} ${list.owner.lastName}`.trim()
+}

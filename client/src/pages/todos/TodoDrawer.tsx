@@ -11,6 +11,7 @@ import { Avatar } from '../../components/ui/Avatar'
 import { Modal } from '../../components/ui/Modal'
 import { Spinner } from '../../components/ui/Spinner'
 import { toast } from '../../components/ui/Toast'
+import { todoListLabel } from '../../lib/todoColors'
 import { buildTodoThread, type UserNameResolver } from '../../lib/todoThread'
 import { cn, formatDateTime, formatRelative } from '../../lib/utils'
 import type { TodoDetail, TodoList, TodoUserRef } from '../../types'
@@ -194,7 +195,7 @@ function DrawerBody({ detail, lists, onClose }: { detail: TodoDetail; lists: Tod
               value={detail.listId}
               onChange={e => patch.mutate({ listId: e.target.value })}
             >
-              {movableLists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+              {movableLists.map(l => <option key={l.id} value={l.id}>{todoListLabel(l, me?.id)}</option>)}
               {!movableLists.some(l => l.id === detail.listId) && <option value={detail.listId}>{detail.list.name}</option>}
             </select>
           </div>

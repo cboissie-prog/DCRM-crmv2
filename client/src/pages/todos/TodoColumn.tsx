@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Droppable } from '@hello-pangea/dnd'
 import { MoreHorizontal, Pencil, Users, Trash2, Plus } from 'lucide-react'
 import { Avatar } from '../../components/ui/Avatar'
-import { todoColorBar } from '../../lib/todoColors'
+import { todoColorBar, todoListLabel } from '../../lib/todoColors'
+import { useAuthStore } from '../../store/authStore'
 import { cn } from '../../lib/utils'
 import type { Todo, TodoList } from '../../types'
 import { TodoCard } from './TodoCard'
@@ -20,6 +21,8 @@ interface TodoColumnProps {
 }
 
 export function TodoColumn({ list, todos, onOpenTodo, onToggleTodo, onQuickAdd, onEditList, onDeleteList }: TodoColumnProps) {
+  const me = useAuthStore(s => s.user)
+  const label = todoListLabel(list, me?.id)
   const [menuOpen, setMenuOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
@@ -53,7 +56,7 @@ export function TodoColumn({ list, todos, onOpenTodo, onToggleTodo, onQuickAdd, 
       <div className={cn('h-1.5 flex-shrink-0', todoColorBar(list.color))} />
 
       <div className="flex items-center gap-2 px-3 pt-3 pb-2 flex-shrink-0">
-        <h3 className="text-sm font-semibold text-slate-800 truncate flex-1 min-w-0" title={list.name}>{list.name}</h3>
+        <h3 className="text-sm font-semibold text-slate-800 truncate flex-1 min-w-0" title={label}>{label}</h3>
 
         {shown.length > 0 && (
           <div className="flex items-center -space-x-1.5 flex-shrink-0">
