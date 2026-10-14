@@ -264,6 +264,37 @@ async function main() {
   ]})
   console.log('✅ Objectifs commerciaux créés')
 
+  // ─── TODO : listes personnelles + liste partagée « Équipe » ─────
+  const personalLists: Record<string, string> = {}
+  for (const u of [admin, commercial1, technicien1, technicien2]) {
+    const existing = await prisma.todoList.findFirst({ where: { ownerId: u.id, isPersonal: true } })
+    const list = existing ?? await prisma.todoList.create({ data: { name: 'Mes tâches', isPersonal: true, ownerId: u.id } })
+    personalLists[u.id] = list.id
+  }
+  const day = 24 * 60 * 60 * 1000
+  await prisma.todo.create({ data: { title: 'Relancer Boulangerie Dupont pour le devis caisse', priority: 'HIGH', dueDate: new Date(Date.now() + day), ownerId: admin.id, listId: personalLists[admin.id], events: { create: [{ type: 'CREATED', authorId: admin.id }] } } })
+  await prisma.todo.create({ data: { title: 'Idée perso : revoir la grille tarifaire', isPrivate: true, ownerId: admin.id, listId: personalLists[admin.id], events: { create: [{ type: 'CREATED', authorId: admin.id }] } } })
+  await prisma.todo.create({ data: { title: 'Préparer la démo TechStartup', ownerId: commercial1.id, listId: personalLists[commercial1.id], events: { create: [{ type: 'CREATED', authorId: commercial1.id }] } } })
+  await prisma.todo.create({ data: { title: 'Commander les rouleaux thermiques', priority: 'LOW', ownerId: technicien1.id, listId: personalLists[technicien1.id], events: { create: [{ type: 'CREATED', authorId: technicien1.id }] } } })
+  await prisma.todo.create({ data: { title: 'Mettre à jour le stock de pièces', ownerId: technicien2.id, listId: personalLists[technicien2.id], events: { create: [{ type: 'CREATED', authorId: technicien2.id }] } } })
+
+  const teamList = await prisma.todoList.create({
+    data: {
+      name: 'Équipe', color: 'violet', ownerId: admin.id,
+      members: { create: [{ userId: commercial1.id, role: 'EDITOR' }, { userId: technicien1.id, role: 'VIEWER' }] },
+    },
+  })
+  await prisma.todo.create({ data: { title: 'Planifier la réunion hebdomadaire', ownerId: admin.id, listId: teamList.id, events: { create: [{ type: 'CREATED', authorId: admin.id }] } } })
+  const assigned = await prisma.todo.create({
+    data: {
+      title: 'Envoyer le catalogue 2026 aux clients', priority: 'HIGH', dueDate: new Date(Date.now() + 3 * day),
+      ownerId: admin.id, listId: teamList.id, assigneeId: commercial1.id,
+      events: { create: [{ type: 'CREATED', authorId: admin.id }, { type: 'ASSIGNED', authorId: admin.id, toValue: commercial1.id }] },
+    },
+  })
+  await prisma.todoComment.create({ data: { todoId: assigned.id, content: 'Catalogue en cours de relecture, envoi prévu en fin de semaine.', authorId: commercial1.id, authorName: `${commercial1.firstName} ${commercial1.lastName}` } })
+  console.log('✅ Listes et tâches Todo créées')
+
   // ─── KNOWLEDGE BASE ────────────────────────────────────
   await prisma.knowledgeArticle.createMany({ data: [
     { title: 'Procédure de réinitialisation caisse Casio TPV', content: '## Réinitialisation caisse Casio TPV Pro\n\n### Étapes\n1. Éteindre la caisse\n2. Maintenir la touche `JOURNAL` enfoncée\n3. Allumer la caisse tout en maintenant la touche\n4. Entrer le code superviseur (par défaut: 0000)\n5. Sélectionner "Remise à zéro partielle"\n\n### Attention\nCette procédure efface les données de vente. Toujours faire une sauvegarde avant.', category: 'Procédures caisses', tags: '["caisse","casio","réinitialisation"]', views: 24 },

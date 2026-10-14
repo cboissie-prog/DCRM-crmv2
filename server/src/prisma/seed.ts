@@ -97,9 +97,9 @@ const PERMISSIONS = [
   { key: 'calendars:manage_access', label: 'Gérer les partages de calendriers', category: 'Agenda' },
   { key: 'google:calendar', label: 'Connecter et synchroniser son agenda Google', category: 'Agenda' },
   // Todo
-  { key: 'todos:read', label: 'Voir et gérer sa todolist', category: 'Todo' },
-  { key: 'todos:read_all', label: 'Consulter les todolists des autres', category: 'Todo' },
-  { key: 'todos:write_all', label: 'Modifier les todolists des autres', category: 'Todo' },
+  { key: 'todos:read', label: 'Voir et gérer ses listes de tâches', category: 'Todo' },
+  { key: 'todos:read_all', label: 'Consulter les listes des autres', category: 'Todo' },
+  { key: 'todos:write_all', label: 'Modifier les listes des autres', category: 'Todo' },
 ]
 
 /**

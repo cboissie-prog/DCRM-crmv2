@@ -2903,12 +2903,110 @@
         "x-permission": "notifications:read"
       }
     },
-    "/todos": {
+    "/todos/lists": {
       "get": {
         "tags": [
           "Todo"
         ],
-        "summary": "Liste des tâches du propriétaire ciblé (soi par défaut)",
+        "summary": "Listes de tâches accessibles à l'appelant (personnelle d'abord)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "todos:read",
+        "responses": {
+          "200": {
+            "description": "data: TodoListDTO[] — listes dont l'appelant est propriétaire ou membre (toutes les listes avec todos:read_all/write_all), liste personnelle « Mes tâches » d'abord (créée à la volée si absente), puis position, puis nom. pendingCount = tâches non faites visibles par l'appelant. TodoListDTO : { id, name, color, isPersonal, position, ownerId, owner {id, firstName, lastName}, members [{ userId, role, user {id, firstName, lastName} }], access ('view'|'edit'|'own'), pendingCount, createdAt, updatedAt }"
+          },
+          "401": {
+            "description": "Non authentifié"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Todo"
+        ],
+        "summary": "Créer une liste (l'appelant en est le propriétaire)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "todos:read",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "color": {
+                    "type": "string",
+                    "nullable": true,
+                    "description": "Clé Tailwind libre (ex. violet, blue, emerald) ; null = neutre"
+                  },
+                  "members": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "userId",
+                        "role"
+                      ],
+                      "properties": {
+                        "userId": {
+                          "type": "string"
+                        },
+                        "role": {
+                          "type": "string",
+                          "enum": [
+                            "VIEWER",
+                            "EDITOR"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "TodoListDTO créée"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR ; MEMBER_NOT_FOUND si un membre est introuvable ou inactif"
+          },
+          "401": {
+            "description": "Non authentifié"
+          }
+        }
+      }
+    },
+    "/todos/lists/{id}": {
+      "patch": {
+        "tags": [
+          "Todo"
+        ],
+        "summary": "Modifier une liste (propriétaire uniquement)",
         "security": [
           {
             "bearerAuth": []
@@ -2920,12 +3018,208 @@
         "x-permission": "todos:read",
         "parameters": [
           {
-            "name": "userId",
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Identifiant"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "color": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "position": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "TodoListDTO mise à jour"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "FORBIDDEN — l'appelant n'est pas propriétaire de la liste"
+          },
+          "404": {
+            "description": "NOT_FOUND — liste inexistante ou invisible"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Todo"
+        ],
+        "summary": "Supprimer une liste, ses tâches (cascade) et les notifications liées",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "todos:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Identifiant"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "data: { message: \"Liste supprimée\" }"
+          },
+          "400": {
+            "description": "PERSONAL_LIST — la liste personnelle n'est pas supprimable"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "FORBIDDEN — non propriétaire"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          }
+        }
+      }
+    },
+    "/todos/lists/{id}/members": {
+      "put": {
+        "tags": [
+          "Todo"
+        ],
+        "summary": "Remplacer l'ensemble des membres d'une liste (propriétaire, liste non personnelle)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "todos:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Identifiant"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "members": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "userId",
+                        "role"
+                      ],
+                      "properties": {
+                        "userId": {
+                          "type": "string"
+                        },
+                        "role": {
+                          "type": "string",
+                          "enum": [
+                            "VIEWER",
+                            "EDITOR"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "members"
+                ],
+                "description": "Le tableau nu [{ userId, role }] est aussi accepté. Le propriétaire figurant dans la liste est ignoré."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "TodoListDTO avec les nouveaux membres"
+          },
+          "400": {
+            "description": "PERSONAL_LIST (liste personnelle non partageable) ; MEMBER_NOT_FOUND (utilisateur introuvable ou inactif) ; VALIDATION_ERROR"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "FORBIDDEN — non propriétaire"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          }
+        }
+      }
+    },
+    "/todos": {
+      "get": {
+        "tags": [
+          "Todo"
+        ],
+        "summary": "Tâches des listes accessibles (privées d'autrui exclues)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "todos:read",
+        "parameters": [
+          {
+            "name": "listId",
             "in": "query",
             "schema": {
               "type": "string"
             },
-            "description": "Défaut = utilisateur connecté ; consulter la liste d'un autre utilisateur exige la permission todos:read_all"
+            "description": "Limite à une liste ; sinon toutes les listes accessibles"
           },
           {
             "name": "status",
@@ -2949,17 +3243,25 @@
                 "HIGH"
               ]
             }
+          },
+          {
+            "name": "assigneeId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Identifiant d'utilisateur, ou « me » pour l'appelant"
           }
         ],
         "responses": {
           "200": {
-            "description": "data: tableau de tâches (avec owner), triées non faites d'abord puis priorité décroissante puis échéance croissante. Les tâches privées d'un autre utilisateur sont toujours exclues, même avec todos:read_all."
+            "description": "data: TodoDTO[] triées non faites d'abord, puis priorité décroissante, puis échéance croissante (sans échéance en dernier). TodoDTO : champs de la tâche (id, title, description, priority, isDone, isPrivate, dueDate, completedAt, ownerId (créateur), listId, assigneeId, createdAt, updatedAt) + owner {id, firstName, lastName} + assignee {id, firstName, lastName}|null + commentCount + canEdit"
           },
           "401": {
             "description": "Non authentifié"
           },
-          "403": {
-            "description": "FORBIDDEN — todos:read_all manquante pour consulter la liste d'un autre utilisateur"
+          "404": {
+            "description": "NOT_FOUND — listId inexistant ou invisible"
           }
         }
       },
@@ -2967,7 +3269,7 @@
         "tags": [
           "Todo"
         ],
-        "summary": "Créer une tâche (pour soi, ou pour autrui avec todos:write_all)",
+        "summary": "Créer une tâche dans une liste (accès edit requis)",
         "security": [
           {
             "bearerAuth": []
@@ -2983,10 +3285,10 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": [
-                  "title"
-                ],
                 "properties": {
+                  "listId": {
+                    "type": "string"
+                  },
                   "title": {
                     "type": "string",
                     "minLength": 1,
@@ -3014,39 +3316,46 @@
                   "isPrivate": {
                     "type": "boolean",
                     "default": false,
-                    "description": "Forcé à false si la tâche est créée pour un autre utilisateur (ownerId)"
+                    "description": "Uniquement dans sa liste personnelle, sinon 400 VALIDATION_ERROR"
                   },
-                  "ownerId": {
+                  "assigneeId": {
                     "type": "string",
-                    "description": "Défaut = utilisateur connecté ; créer pour un autre utilisateur exige la permission todos:write_all"
+                    "nullable": true
                   }
-                }
+                },
+                "required": [
+                  "listId",
+                  "title"
+                ]
               }
             }
           }
         },
         "responses": {
           "201": {
-            "description": "Tâche créée (avec owner)"
+            "description": "TodoDTO créée ; événement CREATED (+ ASSIGNED si assignée)"
           },
           "400": {
-            "description": "VALIDATION_ERROR ; OWNER_NOT_FOUND si ownerId est fourni mais introuvable ou inactif"
+            "description": "VALIDATION_ERROR (dont isPrivate hors liste personnelle) ; ASSIGNEE_NOT_ALLOWED (assigné inactif ou sans accès à la liste)"
           },
           "401": {
             "description": "Non authentifié"
           },
           "403": {
-            "description": "FORBIDDEN — todos:write_all manquante pour créer une tâche pour un autre utilisateur"
+            "description": "FORBIDDEN — accès lecture seule à la liste"
+          },
+          "404": {
+            "description": "NOT_FOUND — liste inexistante ou invisible"
           }
         }
       }
     },
     "/todos/{id}": {
-      "patch": {
+      "get": {
         "tags": [
           "Todo"
         ],
-        "summary": "Modifier une tâche (propriétaire, sinon todos:write_all)",
+        "summary": "Détail d'une tâche avec commentaires et événements",
         "security": [
           {
             "bearerAuth": []
@@ -3063,11 +3372,49 @@
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Identifiant"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "TodoDetailDTO : TodoDTO + list { id, name, color, isPersonal } + comments [{ id, content, authorId, authorName, author|null, createdAt }] + events [{ id, type, authorId, author|null, fromValue, toValue, createdAt }], triés par createdAt croissant"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "404": {
+            "description": "NOT_FOUND — tâche inexistante, liste invisible ou tâche privée d'autrui"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Todo"
+        ],
+        "summary": "Modifier / cocher / assigner / déplacer une tâche (accès edit requis)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "todos:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Identifiant"
           }
         ],
         "requestBody": {
-          "required": false,
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -3097,12 +3444,19 @@
                     "nullable": true
                   },
                   "isPrivate": {
-                    "type": "boolean",
-                    "description": "Réservé au propriétaire de la tâche"
+                    "type": "boolean"
                   },
                   "isDone": {
-                    "type": "boolean",
-                    "description": "Renseigne automatiquement completedAt (ou le vide au décochage)"
+                    "type": "boolean"
+                  },
+                  "listId": {
+                    "type": "string",
+                    "description": "Déplacement : edit requis sur les listes source et cible"
+                  },
+                  "assigneeId": {
+                    "type": "string",
+                    "nullable": true,
+                    "description": "null pour retirer l'assignation"
                   }
                 }
               }
@@ -3111,19 +3465,19 @@
         },
         "responses": {
           "200": {
-            "description": "Tâche mise à jour (avec owner)"
+            "description": "TodoDTO mise à jour. Événements : DONE/REOPENED, ASSIGNED/UNASSIGNED, MOVED, DUE_CHANGED, PRIORITY_CHANGED"
           },
           "400": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR ; ASSIGNEE_NOT_ALLOWED"
           },
           "401": {
             "description": "Non authentifié"
           },
           "403": {
-            "description": "FORBIDDEN — tâche d'un autre utilisateur sans todos:write_all, ou isPrivate modifié par un non-propriétaire"
+            "description": "FORBIDDEN — accès insuffisant sur la liste source ou de destination"
           },
           "404": {
-            "description": "NOT_FOUND — introuvable, ou tâche privée appartenant à un autre utilisateur (volontairement, pour ne pas révéler son existence)"
+            "description": "NOT_FOUND — tâche invisible ou liste de destination invisible"
           }
         }
       },
@@ -3131,7 +3485,7 @@
         "tags": [
           "Todo"
         ],
-        "summary": "Supprimer une tâche (propriétaire, sinon todos:write_all)",
+        "summary": "Supprimer une tâche (accès edit requis) et ses notifications liées",
         "security": [
           {
             "bearerAuth": []
@@ -3148,21 +3502,87 @@
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Identifiant"
           }
         ],
         "responses": {
           "200": {
-            "description": "data: { message: \"Tâche supprimée\" }. Supprime aussi les notifications liées (Notification.todoId)."
+            "description": "data: { message: \"Tâche supprimée\" }"
           },
           "401": {
             "description": "Non authentifié"
           },
           "403": {
-            "description": "FORBIDDEN — tâche d'un autre utilisateur sans todos:write_all"
+            "description": "FORBIDDEN"
           },
           "404": {
-            "description": "NOT_FOUND — introuvable, ou tâche privée appartenant à un autre utilisateur"
+            "description": "NOT_FOUND"
+          }
+        }
+      }
+    },
+    "/todos/{id}/comments": {
+      "post": {
+        "tags": [
+          "Todo"
+        ],
+        "summary": "Ajouter un commentaire (mise à jour d'avancement) à une tâche (accès edit requis)",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "x-permission": "todos:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Identifiant"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "content"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Commentaire créé : { id, content, authorId, authorName, author, createdAt }"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR"
+          },
+          "401": {
+            "description": "Non authentifié"
+          },
+          "403": {
+            "description": "FORBIDDEN"
+          },
+          "404": {
+            "description": "NOT_FOUND"
           }
         }
       }

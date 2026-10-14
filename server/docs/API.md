@@ -631,39 +631,77 @@ Suppression physique (`deleteMany`, scopée à l'utilisateur) — silencieuse si
 
 ### Todo `/api/todos`
 
-Todolist par utilisateur. Chaque utilisateur gère sa propre liste ; selon ses permissions, il peut aussi consulter et/ou gérer la liste d'un autre utilisateur. Une tâche peut être marquée **privée** : elle n'est alors jamais visible que par son propriétaire, quels que soient le rôle ou les permissions de l'observateur (y compris ADMIN — ce filtre est basé sur la propriété, pas sur les permissions, et n'est donc pas contourné par le bypass `*`).
+Listes de tâches **multiples et partageables**. Chaque utilisateur dispose d'une liste personnelle « Mes tâches » (créée à la volée au premier `GET /todos/lists`, non supprimable, non partageable) et peut créer d'autres listes qu'il partage avec des collègues (membres `VIEWER` en lecture ou `EDITOR` en édition). Les tâches peuvent être assignées, commentées (fil d'avancement) et déplacées d'une liste à l'autre ; chaque changement notable génère un événement système.
+
+Une tâche peut être marquée **privée**, uniquement dans la liste personnelle de son créateur : elle n'est alors visible que de lui, quels que soient le rôle ou les permissions de l'observateur (y compris ADMIN — filtre basé sur la propriété, non contourné par le bypass `*`). Toute route renvoie `404 NOT_FOUND` pour une tâche privée d'autrui.
 
 Permissions du module :
 
 | Clé | Effet |
 |-----|-------|
-| `todos:read` | Accès de base au module : voir et gérer (CRUD) **sa propre** liste (exigée par `router.use()` sur toutes les routes) |
-| `todos:read_all` | Consulter la liste d'un autre utilisateur (lecture seule, `GET ?userId=`) |
-| `todos:write_all` | Créer/modifier/cocher/supprimer des tâches dans la liste d'un autre utilisateur |
+| `todos:read` | Accès de base au module (exigée sur toutes les routes) : ses listes et celles où l'on est membre |
+| `todos:read_all` | « Consulter les listes des autres » : accès lecture (`view`) à **toutes** les listes |
+| `todos:write_all` | « Modifier les listes des autres » : accès édition (`edit`) à **toutes** les listes |
+
+Niveau d'accès sur une liste (`access`) : `own` (propriétaire) > `edit` (membre `EDITOR`, ou `todos:write_all`) > `view` (membre `VIEWER`, ou `todos:read_all`) > aucun (liste invisible : `404`). Le niveau le plus élevé s'applique. La **gestion** de la liste (renommer, couleur, membres, suppression) exige `own`. Les anciens paramètres `userId` (GET) et `ownerId` (POST) n'existent plus.
+
+DTO :
+- `TodoListDTO` : `{ id, name, color, isPersonal, position, ownerId, owner {id, firstName, lastName}, members [{ userId, role, user {id, firstName, lastName} }], access: 'view'|'edit'|'own', pendingCount, createdAt, updatedAt }`. `pendingCount` = tâches non faites **visibles par l'appelant** (privées d'autrui exclues).
+- `TodoDTO` : champs de la tâche (`id, title, description, priority, isDone, isPrivate, dueDate, completedAt, ownerId` = créateur, `listId, assigneeId, createdAt, updatedAt`) + `owner {id, firstName, lastName}` + `assignee {id, firstName, lastName} | null` + `commentCount` + `canEdit`.
+- `TodoDetailDTO` : `TodoDTO` + `list { id, name, color, isPersonal }` + `comments [{ id, content, authorId, authorName, author | null, createdAt }]` + `events [{ id, type, authorId, author | null, fromValue, toValue, createdAt }]`, triés par `createdAt` croissant.
 
 | Méthode | Route | Accès | Description |
 |---------|-------|-------|-------------|
-| GET | `/todos` | Permission `todos:read` (+ `todos:read_all` si `userId` ≠ soi) | Liste des tâches du propriétaire ciblé (soi par défaut) |
-| POST | `/todos` | Permission `todos:read` (+ `todos:write_all` si `ownerId` ≠ soi) | Crée une tâche |
-| PATCH | `/todos/:id` | Propriétaire de la tâche, sinon permission `todos:write_all` | Modifie une tâche |
-| DELETE | `/todos/:id` | Propriétaire de la tâche, sinon permission `todos:write_all` | Supprime une tâche (et ses notifications liées) |
+| GET | `/todos/lists` | `todos:read` | Listes accessibles (personnelle d'abord, puis `position`, puis nom) |
+| POST | `/todos/lists` | `todos:read` | Crée une liste (l'appelant en est propriétaire) |
+| PATCH | `/todos/lists/:id` | `own` | Renomme / couleur / position |
+| PUT | `/todos/lists/:id/members` | `own`, non personnelle | Remplace l'ensemble des membres |
+| DELETE | `/todos/lists/:id` | `own`, non personnelle | Supprime la liste, ses tâches et leurs notifications |
+| GET | `/todos` | `todos:read` | Tâches des listes accessibles |
+| GET | `/todos/:id` | tâche visible | Détail + commentaires + événements |
+| POST | `/todos` | `edit` sur la liste | Crée une tâche |
+| PATCH | `/todos/:id` | `edit` | Modifie / coche / assigne / déplace |
+| DELETE | `/todos/:id` | `edit` | Supprime la tâche (et ses notifications liées) |
+| POST | `/todos/:id/comments` | `edit` | Ajoute un commentaire |
+
+**GET /todos/lists**
+`data` = `TodoListDTO[]`. Appelle `ensurePersonalList` : « Mes tâches » est créée si absente. Avec `todos:read_all`/`write_all`, toutes les listes sont renvoyées.
+
+**POST /todos/lists**
+```json
+{
+  "name": "string 1-80 car. (obligatoire)",
+  "color": "string ≤30 car. (clé Tailwind libre ex. violet, blue ; nullable)",
+  "members": [{ "userId": "string", "role": "VIEWER | EDITOR" }]
+}
+```
+Réponse `201` : `TodoListDTO`. Le propriétaire figurant dans `members` est ignoré ; un membre inconnu ou inactif → `400 MEMBER_NOT_FOUND`.
+
+**PATCH /todos/lists/:id** — `{ name?, color?, position? }` (propriétaire uniquement ; autorisé aussi sur la liste personnelle). Réponse : `TodoListDTO`.
+
+**PUT /todos/lists/:id/members** — `{ "members": [{ "userId", "role" }] }` (le tableau nu `[{ userId, role }]` est aussi accepté). Remplace tous les membres (tableau vide = liste non partagée). Réponse : `TodoListDTO`. Erreurs : `400 PERSONAL_LIST`, `400 MEMBER_NOT_FOUND`.
+
+**DELETE /todos/lists/:id** — supprime la liste, ses tâches (cascade, avec commentaires et événements) et les notifications liées (`Notification.todoId`). Réponse : `data: { message: "Liste supprimée" }`. Liste personnelle → `400 PERSONAL_LIST`.
 
 **GET /todos**
-Query : `userId` (optionnel, défaut = utilisateur connecté ; consulter la liste d'un autre utilisateur exige `todos:read_all`, sinon `403 FORBIDDEN`), `status` (`todo` | `done`, filtre `isDone`), `priority` (`LOW` | `NORMAL` | `HIGH`).
-Réponse : `data` = tableau de tâches (avec `owner { id, firstName, lastName }`), triées non faites d'abord, puis par priorité décroissante (`HIGH` → `NORMAL` → `LOW`), puis par échéance croissante (tâches sans échéance en dernier). Les tâches privées d'un autre utilisateur sont **toujours exclues** de la liste (même avec `todos:read_all`).
+Query : `listId` (optionnel ; sinon toutes les listes accessibles ; liste inexistante/invisible → `404 NOT_FOUND`), `status` (`todo` | `done`), `priority` (`LOW` | `NORMAL` | `HIGH`), `assigneeId` (id d'utilisateur ou `me`).
+Réponse : `data` = `TodoDTO[]` triées non faites d'abord, puis priorité décroissante (`HIGH` → `NORMAL` → `LOW`), puis échéance croissante (sans échéance en dernier). Les tâches privées d'autrui sont **toujours exclues**.
+
+**GET /todos/:id** — `TodoDetailDTO`. `404 NOT_FOUND` si la tâche n'existe pas, si sa liste est invisible, ou si elle est privée et appartient à un autre utilisateur.
 
 **POST /todos**
 ```json
 {
+  "listId": "string (obligatoire)",
   "title": "string 1-200 car. (obligatoire)",
   "description": "string ≤2000 car. (optionnel, nullable)",
   "priority": "LOW | NORMAL | HIGH (optionnel, défaut NORMAL)",
   "dueDate": "string ISO datetime (optionnel, nullable)",
-  "isPrivate": "boolean (optionnel, défaut false)",
-  "ownerId": "string (optionnel, défaut soi-même)"
+  "isPrivate": "boolean (optionnel, défaut false ; true uniquement dans sa liste personnelle)",
+  "assigneeId": "string (optionnel, nullable)"
 }
 ```
-Réponse `201` : la tâche créée (avec `owner`). Si `ownerId` désigne un autre utilisateur : exige la permission `todos:write_all` (sinon `403 FORBIDDEN`) ; l'owner ciblé doit exister et être actif (sinon `400 OWNER_NOT_FOUND`) ; **`isPrivate` est forcé à `false`** — on ne crée pas pour autrui une tâche que son créateur ne pourrait plus jamais consulter ensuite.
+Réponse `201` : `TodoDTO`. Crée l'événement `CREATED` (+ `ASSIGNED` si assignée). `isPrivate: true` hors liste personnelle → `400 VALIDATION_ERROR`. `assigneeId` doit désigner un utilisateur actif ayant au moins l'accès `view` à la liste (propriétaire, membre, ou `todos:read_all`), sinon `400 ASSIGNEE_NOT_ALLOWED`. Erreurs : `404 NOT_FOUND` (liste inexistante ou invisible), `403 FORBIDDEN` (accès `view` seulement).
 
 **PATCH /todos/:id**
 ```json
@@ -673,20 +711,31 @@ Réponse `201` : la tâche créée (avec `owner`). Si `ownerId` désigne un autr
   "priority": "LOW | NORMAL | HIGH",
   "dueDate": "string ISO datetime, nullable",
   "isPrivate": "boolean",
-  "isDone": "boolean"
+  "isDone": "boolean",
+  "listId": "string (déplacement)",
+  "assigneeId": "string, nullable (null = retirer l'assignation)"
 }
 ```
-Tous les champs sont optionnels. Réponse : la tâche mise à jour (avec `owner`). `isDone: true` renseigne automatiquement `completedAt` (horodatage courant) ; repasser `isDone: false` le remet à `null`. Seul le **propriétaire** de la tâche peut modifier `isPrivate` (sinon `403 FORBIDDEN`, même avec `todos:write_all`). Le changement de propriétaire (`ownerId`) n'est pas supporté par cet endpoint. Erreurs : `404 NOT_FOUND` si la tâche n'existe pas **ou** si elle est privée et appartient à un autre utilisateur (volontairement, pour ne pas révéler son existence) ; `403 FORBIDDEN` si la tâche appartient à un autre utilisateur (non privée) et que l'appelant n'a pas `todos:write_all`.
+Tous les champs sont optionnels. Réponse : `TodoDTO`. `isDone: true` renseigne `completedAt` ; `isDone: false` le remet à `null`. Déplacer une tâche (`listId`) exige l'accès `edit` sur la liste source **et** la liste cible (`403 FORBIDDEN` / `404 NOT_FOUND`) ; une tâche privée déplacée hors de la liste personnelle perd `isPrivate` ; une assignation devenue invalide dans la liste cible est retirée automatiquement (événement `UNASSIGNED`).
+Événements créés (uniquement si la valeur change) : `DONE` / `REOPENED`, `ASSIGNED` (`toValue` = id de l'assigné) / `UNASSIGNED`, `MOVED` (`fromValue`/`toValue` = noms des listes), `DUE_CHANGED` (`fromValue`/`toValue` = dates ISO ou `null`), `PRIORITY_CHANGED` (`fromValue`/`toValue` = priorités).
+Erreurs : `404 NOT_FOUND` (tâche inexistante, liste ou tâche invisible — dont la privée d'autrui), `403 FORBIDDEN` (accès `view` seulement), `400 VALIDATION_ERROR`, `400 ASSIGNEE_NOT_ALLOWED`.
 
-**DELETE /todos/:id**
-Réponse : `data: { message: "Tâche supprimée" }`. Supprime aussi toutes les notifications liées à la tâche (`Notification.todoId`, `deleteMany`). Mêmes règles d'accès et mêmes erreurs (`404 NOT_FOUND` privée d'autrui, `403 FORBIDDEN` non privée d'autrui sans `todos:write_all`) que PATCH.
+**DELETE /todos/:id** — `data: { message: "Tâche supprimée" }`. Supprime aussi les commentaires, événements et notifications liées (`Notification.todoId`). Mêmes règles d'accès et erreurs que PATCH.
+
+**POST /todos/:id/comments**
+```json
+{ "content": "string 1-2000 car. (obligatoire)" }
+```
+Réponse `201` : `{ id, content, authorId, authorName, author, createdAt }`. Exige l'accès `edit` (`403 FORBIDDEN` pour un lecteur, `404 NOT_FOUND` si invisible).
+
+Codes d'erreur du module : `404 NOT_FOUND`, `403 FORBIDDEN`, `400 VALIDATION_ERROR`, `400 PERSONAL_LIST`, `400 MEMBER_NOT_FOUND`, `400 ASSIGNEE_NOT_ALLOWED`.
 
 **Rappels automatiques (scheduler)**
-Le job horaire (`runTodoReminders()` dans `server/src/scheduler.ts`, exécuté par le cron `0 * * * *` Europe/Paris avec les autres jobs planifiés) parcourt les tâches non faites avec `dueDate` renseignée et crée, pour le **propriétaire** de la tâche uniquement (y compris si elle est privée — la notification ne fuite jamais vers un autre utilisateur), une notification de type :
+Le job horaire (`runTodoReminders()` dans `server/src/scheduler.ts`, exécuté par le cron `0 * * * *` Europe/Paris avec les autres jobs planifiés) parcourt les tâches non faites avec `dueDate` renseignée et crée, pour l'**assigné** de la tâche (à défaut son **créateur** `ownerId`), une notification de type :
 - `TODO_REMINDER` — dès que `now ≥ dueDate - 24h` et `now < dueDate` (« J-1 »). Message : `"{titre}" arrive à échéance demain`.
 - `TODO_DUE` — dès que `now ≥ dueDate` (« jour J »). Message : `"{titre}" arrive à échéance aujourd'hui`.
 
-Les deux notifications portent `link: '/todos'` et `todoId` (renseigné pour permettre le dédoublonnage et la suppression en cascade). Dédoublonnage par `findFirst({ todoId, userId, type })` avant création : au plus une notification de chaque type par tâche, même si le cron tourne plusieurs fois après l'échéance.
+Les deux notifications portent `link: '/todos?task=<id>'` (ouvre le panneau de la tâche) et `todoId` (dédoublonnage et suppression en cascade). Dédoublonnage par `findFirst({ todoId, userId, type })` avant création : au plus une notification de chaque type par tâche et par destinataire, même si le cron tourne plusieurs fois après l'échéance.
 
 ---
 

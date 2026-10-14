@@ -58,6 +58,11 @@ model User {
   ticketTimeEntries   TicketTimeEntry[]
   ticketAttachments   TicketAttachment[]
   todos               Todo[]
+  todoLists           TodoList[]       @relation("TodoListOwner")
+  todoListMemberships TodoListMember[] @relation("TodoListMembership")
+  assignedTodos       Todo[]           @relation("TodoAssignee")
+  todoComments        TodoComment[]    @relation("TodoCommentAuthor")
+  todoEvents          TodoEvent[]      @relation("TodoEventAuthor")
   prospectListsAssigned ProspectList[] @relation("ProspectListAssignedTo")
   prospectListsCreated  ProspectList[] @relation("ProspectListCreatedBy")
 }
@@ -866,6 +871,73 @@ model Todo {
   completedAt DateTime?
   ownerId     String
   owner       User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  listId      String
+  list        TodoList  @relation(fields: [listId], references: [id], onDelete: Cascade)
+  assigneeId  String?
+  assignee    User?     @relation("TodoAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  comments    TodoComment[]
+  events      TodoEvent[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
+  @@index([listId])
+  @@index([assigneeId])
+}
+
+// ─── LISTES TODO (partageables) ─────────────────────────
+model TodoList {
+  id         String   @id @default(uuid())
+  name       String
+  color      String?  // clé Tailwind libre ex. "violet", "blue" ; null = neutre
+  isPersonal Boolean  @default(false) // une seule par utilisateur, non supprimable, non partageable
+  position   Int      @default(0)
+  ownerId    String
+  owner      User     @relation("TodoListOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members    TodoListMember[]
+  todos      Todo[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([ownerId])
+}
+
+model TodoListMember {
+  id        String   @id @default(uuid())
+  listId    String
+  list      TodoList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("TodoListMembership", fields: [userId], references: [id], onDelete: Cascade)
+  role      String   @default("EDITOR") // VIEWER | EDITOR
+  createdAt DateTime @default(now())
+
+  @@unique([listId, userId])
+  @@index([userId])
+}
+
+model TodoComment {
+  id         String   @id @default(uuid())
+  todoId     String
+  todo       Todo     @relation(fields: [todoId], references: [id], onDelete: Cascade)
+  content    String
+  authorId   String?
+  author     User?    @relation("TodoCommentAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  authorName String
+  createdAt  DateTime @default(now())
+
+  @@index([todoId])
+}
+
+// type: CREATED | DONE | REOPENED | ASSIGNED | UNASSIGNED | MOVED | DUE_CHANGED | PRIORITY_CHANGED
+model TodoEvent {
+  id        String   @id @default(uuid())
+  todoId    String
+  todo      Todo     @relation(fields: [todoId], references: [id], onDelete: Cascade)
+  type      String
+  authorId  String?
+  author    User?    @relation("TodoEventAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  fromValue String?
+  toValue   String?
+  createdAt DateTime @default(now())
+
+  @@index([todoId])
 }

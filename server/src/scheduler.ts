@@ -131,28 +131,30 @@ export async function runTodoReminders(): Promise<number> {
 
   const dueTodos = await prisma.todo.findMany({
     where: { isDone: false, dueDate: { not: null } },
-    select: { id: true, title: true, dueDate: true, ownerId: true },
+    select: { id: true, title: true, dueDate: true, ownerId: true, assigneeId: true },
   })
 
   let sent = 0
   for (const todo of dueTodos) {
     if (!todo.dueDate) continue
     const dayBefore = new Date(todo.dueDate.getTime() - 24 * 60 * 60 * 1000)
+    // Destinataire : l'assigné, à défaut le créateur de la tâche
+    const recipientId = todo.assigneeId ?? todo.ownerId
 
     // Rappel jour J : priorité sur le rappel J-1 si les deux seuils sont dépassés
     // (une tâche déjà en retard à sa création ne reçoit qu'un rappel de chaque type, cf. dédoublonnage)
     if (now >= todo.dueDate) {
       const exists = await prisma.notification.findFirst({
-        where: { todoId: todo.id, userId: todo.ownerId, type: 'TODO_DUE' },
+        where: { todoId: todo.id, userId: recipientId, type: 'TODO_DUE' },
       })
       if (!exists) {
         await prisma.notification.create({
           data: {
-            userId: todo.ownerId,
+            userId: recipientId,
             type: 'TODO_DUE',
             title: 'Tâche à échéance',
             message: `"${todo.title}" arrive à échéance aujourd'hui`,
-            link: '/todos',
+            link: `/todos?task=${todo.id}`,
             todoId: todo.id,
           },
         })
@@ -160,16 +162,16 @@ export async function runTodoReminders(): Promise<number> {
       }
     } else if (now >= dayBefore) {
       const exists = await prisma.notification.findFirst({
-        where: { todoId: todo.id, userId: todo.ownerId, type: 'TODO_REMINDER' },
+        where: { todoId: todo.id, userId: recipientId, type: 'TODO_REMINDER' },
       })
       if (!exists) {
         await prisma.notification.create({
           data: {
-            userId: todo.ownerId,
+            userId: recipientId,
             type: 'TODO_REMINDER',
             title: 'Rappel tâche',
             message: `"${todo.title}" arrive à échéance demain`,
-            link: '/todos',
+            link: `/todos?task=${todo.id}`,
             todoId: todo.id,
           },
         })
